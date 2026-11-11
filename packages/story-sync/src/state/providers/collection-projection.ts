@@ -41,8 +41,8 @@ import { layoutOf, logicalFromRows, rowsFromLogical, setupSql, type LogicalTable
 import type { SnapshotCollection } from "@ovst/fs";
 
 /**
- * A collection's schema file from before schema.vad. Trees were converted on the
- * Protocol 003 flag day, so one left in a folder beside the converted schema.vad
+ * A collection's schema file from before schema.beetle. Trees were converted on the
+ * Protocol 003 flag day, so one left in a folder beside the converted schema.beetle
  * is never published, and writing the collection removes it.
  */
 const LEFTOVER_SCHEMA = "schema.usl";
@@ -264,7 +264,7 @@ export class CollectionProjections {
   /**
    * The folder's collection as its projection holds it, or null when the
    * folder is not a collection Story Sync can read, so its files sync as
-   * ordinary files. A folder with only `schema.vad` holds no rows yet.
+   * ordinary files. A folder with only `schema.beetle` holds no rows yet.
    * `basis` stands in for the configured one, as for a first placement
    * whose rows should keep the host's times.
    */
@@ -272,7 +272,7 @@ export class CollectionProjections {
     let compiled;
     let schemaBytes: Uint8Array;
     try {
-      schemaBytes = new Uint8Array(await readFile(join(directory, collectionSchemaName(fileNames) ?? "schema.vad")));
+      schemaBytes = new Uint8Array(await readFile(join(directory, collectionSchemaName(fileNames) ?? "schema.beetle")));
       compiled = this.compile(schemaBytes);
     } catch {
       return null;

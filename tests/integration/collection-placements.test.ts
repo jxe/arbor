@@ -11,7 +11,7 @@ import { deriveRowOperations } from "@ovst/collection-schema";
 import type { ObjectHash } from "@ovst/protocol";
 import { CollectionProjections, type CollectionProjectionForm } from "@ovst/story-sync/state";
 import { layoutOf } from "@ovst/usl";
-import { compileSchema } from "@ovst/vad";
+import { compileSchema } from "@ovst/beetle";
 import { verifyStore } from "@ovst/usl/verify";
 import { collectionRows, collectionTree, idRow, T0 } from "../support/collection-trees.ts";
 const TEST_AT = Date.UTC(2026, 10, 11);
@@ -54,8 +54,8 @@ describe("one tree, placed with different projections", () => {
   test("SQLite and JSONL placements hold the same root as the tree", async () => {
     const sqlite = await place("sqlite", tree, { kind: "sqlite" });
     const jsonl = await place("jsonl", tree, { kind: "files", format: "jsonl" });
-    expect((await readdir(sqlite.items)).sort()).toEqual(["_store.sqlite3", "schema.vad"]);
-    expect((await readdir(jsonl.items)).sort()).toEqual(["Game.jsonl", "List.jsonl", "List_games.jsonl", "schema.vad"]);
+    expect((await readdir(sqlite.items)).sort()).toEqual(["_store.sqlite3", "schema.beetle"]);
+    expect((await readdir(jsonl.items)).sort()).toEqual(["Game.jsonl", "List.jsonl", "List_games.jsonl", "schema.beetle"]);
     expect((await sqlite.scan()).root).toBe(tree.root);
     expect((await jsonl.scan()).root).toBe(tree.root);
   });
@@ -209,7 +209,7 @@ describe("a CSV placement", () => {
 // `usl verify`.
 describe("the games example placed as files", () => {
   test("holds one <Table>.jsonl per table of its file layout, which usl verify accepts", async () => {
-    const source = await readFile(join(import.meta.dir, "../fixtures/games.vad"), "utf8");
+    const source = await readFile(join(import.meta.dir, "../fixtures/games.beetle"), "utf8");
     const tree = collectionTree(source, {
       Game: [
         idRow("g1", { name: "Chess", status: "Polished", tags: ["board", "classic"], authors: ["tr_ada"] }),
@@ -220,7 +220,7 @@ describe("the games example placed as files", () => {
     const placed = await place("games-files", tree, { kind: "files", format: "jsonl" });
     const schema = compileSchema(source);
     const files = layoutOf(schema, { store: "files" }).map((table) => `${table.name}.jsonl`);
-    expect((await readdir(placed.items)).sort()).toEqual([...files, "schema.vad"].sort());
+    expect((await readdir(placed.items)).sort()).toEqual([...files, "schema.beetle"].sort());
     expect(await verifyStore(schema, placed.items)).toEqual([]);
     expect((await placed.scan()).root).toBe(tree.root);
   });

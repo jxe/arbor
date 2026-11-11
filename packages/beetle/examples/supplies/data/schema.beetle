@@ -1,0 +1,67 @@
+// Supplies' schema, in the one language. A collection's data tables can only be
+// declared here; views, rules and mutations may sit beside them.
+// Was: examples/supplies/data/schema.usl.
+
+main table List:
+  name        Text
+  about       Markdown?
+  visibility  Visibility
+  kind        ListKind
+  openToEdits Bool
+  owner       Person
+  @index(owner, modified)  // my lists, newest first
+
+List.owner      <-> Person.ownedLists[]
+List.visibility <-> Visibility.lists[]
+List.kind       <-> ListKind.lists[]
+
+table Practice:
+  name  unique Text
+  about Markdown?
+
+Practice.authors[] <-> Person.practices[]
+
+// A connection table, because tags hang off it.
+table Item:
+  ordered List.items[]
+  Practice.items[]
+
+// A tag's id is unique only within its list.
+table Tag (list, id):
+  name  Text
+  color Text?
+
+Tag.list        <-> List.tags[]
+Tag.practices[] <-> Practice.tags[]
+
+table Reaction:
+  List.reactions[]
+  Person.reactions[]
+  emoji Text
+
+table Contribution:
+  List.contributors[]
+  Person.contributions[]
+  first Date = today  // a default, written only when the row is created
+  last  Date
+
+enum Visibility:
+  Public
+  Private
+
+enum ListKind:
+  Standard
+  Tagged
+
+// --------------------------------------------------------------- arrangements
+// What `~views` used to say: ordinary views over the standard Rows element, which
+// Story draws natively and lets readers edit. Addressed as data/schema?view=ByOwner.
+
+view ByOwner():
+  <Rows for={l in List} group={l.owner} orderBy={l.modified desc}>
+    <Bullet value={l.visibility} />
+    <Text>{l.name}</Text>
+    <Count of={l.items} />
+  </Rows>
+
+// Rules and mutations: ../mutations.beetle (they could sit here just as well).

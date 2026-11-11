@@ -1,0 +1,11 @@
+// Uses that don't resolve.
+// expect: use-not-found
+use "nowhere.beetle"
+// expect: use-cycle
+use "cycle.beetle"
+// expect: ambiguous-use
+use "../supplies/parts/cards.beetle"
+use "more-cards.beetle"
+
+view():
+  <Text>hi</Text>

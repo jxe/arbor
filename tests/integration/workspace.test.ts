@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace } from "@ovst/story-sync";
 import { layoutOf, setupSql } from "@ovst/usl";
-import { compileSchema } from "@ovst/vad";
+import { compileSchema } from "@ovst/beetle";
 import { canonicalStableKey, markdownStableKey } from "@ovst/protocol";
 
 let root: string;
@@ -52,7 +52,7 @@ describe("workspace service", () => {
     await expect(stat(join(root, ".overstory"))).rejects.toThrow();
 
     const collection = join(root, "typed");
-    const schemaPath = join(collection, "schema.vad");
+    const schemaPath = join(collection, "schema.beetle");
     await mkdir(collection);
     await writeFile(schemaPath, 'table Item:\n  title Text\n');
     await writeFile(join(collection, "_store.csv"), "title\nExample\n");
@@ -69,7 +69,7 @@ describe("workspace service", () => {
   test("keeps Markdown collection rows out of the directory document", async () => {
     const collection = join(root, "records");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.vad"), 'table Item:\n  title Text\n');
+    await writeFile(join(collection, "schema.beetle"), 'table Item:\n  title Text\n');
     await writeFile(join(collection, "_index.md"), "About the records.\n");
     await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
@@ -105,7 +105,7 @@ describe("workspace service", () => {
   test("keeps a page id on a Markdown row without declaring it", async () => {
     const collection = join(root, "reading");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.vad"), 'table Item:\n  title Text\n');
+    await writeFile(join(collection, "schema.beetle"), 'table Item:\n  title Text\n');
     const id = "row1final";
     await writeFile(join(collection, "final.md"), `---\nid: ${id}\ntitle: Draft\nrating: 4\n---\nBody\n`);
 
@@ -121,7 +121,7 @@ describe("workspace service", () => {
   test("resolves rolled-up JSON rows as ordinary stable-key nodes", async () => {
     const collection = join(root, "rolled");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.vad"), 'table Item:\n  title Text\n');
+    await writeFile(join(collection, "schema.beetle"), 'table Item:\n  title Text\n');
     await writeFile(join(collection, "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
 
     const parent = await workspace.nodes.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });
@@ -142,7 +142,7 @@ describe("workspace service", () => {
     const directory = join(root, "database");
     await mkdir(directory);
     const schema = "table items:\n  title Text\n";
-    await writeFile(join(directory, "schema.vad"), schema);
+    await writeFile(join(directory, "schema.beetle"), schema);
     const database = new Database(join(directory, "_store.sqlite3"));
     database.exec(setupSql(layoutOf(compileSchema(schema), { store: "database" }), "sqlite"));
     const time = "2026-08-25T12:00:00.000Z";

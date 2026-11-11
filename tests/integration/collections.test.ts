@@ -70,28 +70,28 @@ async function prepareWrite(
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "story-collections-"));
   await mkdir(join(root, "csv"));
-  await writeFile(join(root, "csv", "schema.vad"), 'table Item:\n  title Text\n  count Number\n');
+  await writeFile(join(root, "csv", "schema.beetle"), 'table Item:\n  title Text\n  count Number\n');
   await writeFile(join(root, "csv", "_store.csv"), "id,title,count\none,One,1\ntwo,Two,nope\n");
   await mkdir(join(root, "jsonl"));
-  await writeFile(join(root, "jsonl", "schema.vad"), 'table Item:\n  title Text\n');
+  await writeFile(join(root, "jsonl", "schema.beetle"), 'table Item:\n  title Text\n');
   await writeFile(join(root, "jsonl", "_store.jsonl"), '{"id":"one","title":"One"}\nnot json\n{"id":"three","title":"Three"}\n');
   await mkdir(join(root, "json"));
-  await writeFile(join(root, "json", "schema.vad"), 'table Item:\n  title Text\n');
+  await writeFile(join(root, "json", "schema.beetle"), 'table Item:\n  title Text\n');
   await writeFile(join(root, "json", "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
   await mkdir(join(root, "named"));
-  await writeFile(join(root, "named", "schema.vad"), 'table Item:\n  slug  path Text\n  title Text\n');
+  await writeFile(join(root, "named", "schema.beetle"), 'table Item:\n  slug  path Text\n  title Text\n');
   await writeFile(join(root, "named", "_store.json"), '[{"id":"opaque-1","slug":"first-practice","title":"First"}]\n');
   await mkdir(join(root, "markdown"));
-  await writeFile(join(root, "markdown", "schema.vad"), 'table Item:\n  title  Text\n  status Status\n\nItem.status <-> Status.items[]\n\nenum Status:\n  draft\n  done\n');
+  await writeFile(join(root, "markdown", "schema.beetle"), 'table Item:\n  title  Text\n  status Status\n\nItem.status <-> Status.items[]\n\nenum Status:\n  draft\n  done\n');
   await writeFile(join(root, "markdown", "one.md"), "---\nid: abc123\ntitle: One\nstatus: draft\n---\nBody\n");
   await mkdir(join(root, "writable-json"));
-  await writeFile(join(root, "writable-json", "schema.vad"), 'table Item:\n  title Text\n  count Number\n');
+  await writeFile(join(root, "writable-json", "schema.beetle"), 'table Item:\n  title Text\n  count Number\n');
   await writeFile(join(root, "writable-json", "_store.json"), '[\n  { "id": "one", "title": "One", "count": 1 },\n  {\n    "id":"two",\n    "title":"Two",\n    "count":2\n  }\n]\n');
   await mkdir(join(root, "writable-jsonl"));
-  await writeFile(join(root, "writable-jsonl", "schema.vad"), 'table Item:\n  title Text\n  count Number\n');
+  await writeFile(join(root, "writable-jsonl", "schema.beetle"), 'table Item:\n  title Text\n  count Number\n');
   await writeFile(join(root, "writable-jsonl", "_store.jsonl"), '{"id":"one","title":"One","count":1}\r\n  {"id":"two","title":"Two","count":2}  \r\n');
   await mkdir(join(root, "writable-csv"));
-  await writeFile(join(root, "writable-csv", "schema.vad"), 'table Item:\n  title Text\n  count Number\n  notes Text\n');
+  await writeFile(join(root, "writable-csv", "schema.beetle"), 'table Item:\n  title Text\n  count Number\n  notes Text\n');
   await writeFile(join(root, "writable-csv", "_store.csv"), 'id,title,count,notes\r\none,One,1,"first\r\nnote"\r\ntwo,Two,2,plain\r\n');
   await mkdir(join(root, "sqlite"));
   const sqliteSchema = "create table items (id text primary key, title text not null, active boolean not null); create table memberships (list_id text not null, profile text not null, primary key (list_id, profile));";
@@ -178,7 +178,7 @@ describe("file-backed collections", () => {
   test("never falls back from duplicate declared identity", async () => {
     const duplicate = join(root, "duplicate");
     await mkdir(duplicate);
-    await writeFile(join(duplicate, "schema.vad"), 'table Item:\n  title Text\n');
+    await writeFile(join(duplicate, "schema.beetle"), 'table Item:\n  title Text\n');
     await writeFile(join(duplicate, "_store.json"), '[{"id":"same","title":"One"},{"id":"same","title":"Two"}]\n');
     const page = await childrenOf(new ProjectionProviderHost(), duplicate, "/duplicate", null, 20);
     expect(page.items.every((row) => row.ref.stableKey === null)).toBe(true);
@@ -188,7 +188,7 @@ describe("file-backed collections", () => {
   test("keeps CSV text keys exact and preserves undeclared columns as text", async () => {
     const directory = join(root, "typed-csv");
     await mkdir(directory);
-    await writeFile(join(directory, "schema.vad"), 'table Item (code):\n  code   Text\n  qty    Int\n  note   Text?\n  active Bool\n');
+    await writeFile(join(directory, "schema.beetle"), 'table Item (code):\n  code   Text\n  qty    Int\n  note   Text?\n  active Bool\n');
     await writeFile(join(directory, "_store.csv"), "code,qty,note,active\n001,2,,true\n010,0,x,false\n");
     const providers = new ProjectionProviderHost();
     const page = await childrenOf(providers, directory, "/typed-csv");
@@ -216,25 +216,25 @@ describe("file-backed collections", () => {
     await writeFile(join(directory, "schema.ts"), "export const schema = {};\n");
     expect(await detectProjection(directory)).toBeNull();
 
-    await writeFile(join(directory, "schema.vad"), "table Item:\n  title Text\n");
+    await writeFile(join(directory, "schema.beetle"), "table Item:\n  title Text\n");
     await writeFile(join(directory, "one.md"), "---\ntitle: One\n---\n");
     const definition = await detectProjection(directory);
     expect(definition).toMatchObject({ provider: "markdown", diagnostics: [], markdownPaths: [join(directory, "one.md")] });
   });
 
-  test("schema.vad sits beside a database backing", async () => {
+  test("schema.beetle sits beside a database backing", async () => {
     const directory = join(root, "sqlite-with-schema");
     await mkdir(directory);
     new Database(join(directory, "_store.sqlite3")).close();
-    await writeFile(join(directory, "schema.vad"), "table Item:\n");
+    await writeFile(join(directory, "schema.beetle"), "table Item:\n");
     const definition = await detectProjection(directory);
-    expect(definition).toMatchObject({ provider: "sqlite", diagnostics: [], schemaPath: join(directory, "schema.vad") });
+    expect(definition).toMatchObject({ provider: "sqlite", diagnostics: [], schemaPath: join(directory, "schema.beetle") });
   });
 
-  test("an invalid schema.vad is rejected with its diagnostic, not evaluated", async () => {
+  test("an invalid schema.beetle is rejected with its diagnostic, not evaluated", async () => {
     const directory = join(root, "invalid-schema");
     await mkdir(directory);
-    await writeFile(join(directory, "schema.vad"), "table Item:\n  title Txt\n");
+    await writeFile(join(directory, "schema.beetle"), "table Item:\n  title Txt\n");
     await writeFile(join(directory, "_store.json"), "[]\n");
     await expect(new ProjectionProviderHost().descriptor(directory)).rejects.toThrow("unknown-type at 2:3");
   });
@@ -242,7 +242,7 @@ describe("file-backed collections", () => {
   test("accepts and preserves undeclared Markdown frontmatter, including a page id", async () => {
     const directory = join(root, "markdown-open");
     await mkdir(directory);
-    await writeFile(join(directory, "schema.vad"), 'table Page:\n  title Text\n');
+    await writeFile(join(directory, "schema.beetle"), 'table Page:\n  title Text\n');
     await writeFile(join(directory, "one.md"), "---\nid: pg123\ntitle: One\nrating: 4\ntags: [a, b]\n---\nBody\n");
     await writeFile(join(directory, "two.md"), "---\ntitle: Two\nmeta:\n  tag: x\n  extra: y\n---\n");
     const page = await childrenOf(new ProjectionProviderHost(), directory, "/markdown-open", null, 20);

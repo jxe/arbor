@@ -18,13 +18,13 @@ export function idRow(id: string, fields: LogicalRow["fields"] = {}, created: nu
   return { key: [["id", id]], fields, created: ms(created), modified: ms(modified) };
 }
 
-/** A collection directory holding `schema.vad` and `tables`, with its objects added to `objects`. */
+/** A collection directory holding `schema.beetle` and `tables`, with its objects added to `objects`. */
 export function collectionDirectory(schemaSource: string, tables: LogicalTables, objects: Map<ObjectHash, Uint8Array>, extra: ProtocolDirectoryEntry[] = []): ObjectHash {
   const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
   const schemaBytes = new TextEncoder().encode(schemaSource);
   const encoded = encodeCollection(compileLogicalSchema(schemaBytes), tables);
   for (const bytes of encoded.objects.values()) put(bytes);
-  const entries = [{ name: "schema.vad", file: put(schemaBytes), created: 0, modified: 0 }, ...extra].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+  const entries = [{ name: "schema.beetle", file: put(schemaBytes), created: 0, modified: 0 }, ...extra].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   return put(encodeProtocolDirectory({ type: "directory", entries, collection: encoded.reference }));
 }
 

@@ -1,7 +1,7 @@
 import { readFile, realpath } from "node:fs/promises";
 import { canonicalCBORHash } from "@ovst/protocol";
 import { columnType, formatDiagnostic, layoutOf, PERSON_RELATION, relationshipsOf } from "@ovst/usl";
-import { compileSchema } from "@ovst/vad";
+import { compileSchema } from "@ovst/beetle";
 import { compareShapes, inspectSqlite, sqliteAffinity } from "@ovst/usl/verify";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
@@ -125,7 +125,7 @@ export async function resolveDatabaseLocation(
   return {
     directory,
     databasePath: join(directory, "_store.sqlite3"),
-    schemaPath: join(directory, "schema.vad"),
+    schemaPath: join(directory, "schema.beetle"),
     ...(boundary ? { tree: boundary.tree, path: logicalPath(boundary.root, directory) } : {}),
   };
 }
@@ -224,7 +224,7 @@ export function inspectSQLite(database: Database): Record<string, RelationMetada
  * Introspect a standalone SQLite database without requiring authored query
  * relationship metadata. Generic node providers use this for ordinary SQLite
  * files; executable-document databases normally use introspectStoreSchema,
- * which checks the database against its schema.vad and adds relationships.
+ * which checks the database against its schema.beetle and adds relationships.
  */
 export function introspectSQLiteDatabase(source: string | Database): StoreSchema {
   const database = typeof source === "string"
@@ -322,7 +322,7 @@ function fieldTypesOf(schema: ReturnType<typeof compileSchema>, tables: ReturnTy
 }
 
 /**
- * Check a database against the schema.vad beside it and describe it: its
+ * Check a database against the schema.beetle beside it and describe it: its
  * tables, the virtual `Person` relation when the schema refers to people, and
  * a relationship for each connection end.
  */

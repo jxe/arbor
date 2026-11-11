@@ -1,5 +1,0 @@
-// Used by uses.vad, to make Avatar ambiguous there.
-use "../supplies/data/schema.vad"
-
-view Avatar(person Person):
-  <Text>{person.name}</Text>

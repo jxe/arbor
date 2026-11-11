@@ -140,8 +140,8 @@ describe("table and rows objects", () => {
 });
 
 describe("collections", () => {
-  // packages/usl/examples/games.usl, as schema.vad.
-  const source = readFileSync(join(import.meta.dir, "../fixtures/games.vad"), "utf8");
+  // packages/usl/examples/games.usl, as schema.beetle.
+  const source = readFileSync(join(import.meta.dir, "../fixtures/games.beetle"), "utf8");
   const logical = compileLogicalSchema(source);
   const tables: LogicalTables = {
     Game: [

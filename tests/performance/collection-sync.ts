@@ -41,7 +41,7 @@ try {
   try {
     await daemon.synchronizeNow();
     await mkdir(join(folder, "items"));
-    await writeFile(join(folder, "items", "schema.vad"), "table Item:\n  title Text\n  done  Bool?\n");
+    await writeFile(join(folder, "items", "schema.beetle"), "table Item:\n  title Text\n  done  Bool?\n");
     await writeFile(join(folder, "items", "_store.jsonl"), rows(-1));
     let start = performance.now();
     await daemon.synchronizeNow();

@@ -53,7 +53,7 @@ struct RowQueueTests {
               Draft
               Polished
             """.utf8)))
-        let games = try ProtocolObjectCodec.object(.directory([.init(name: "schema.vad", file: schema.hash, created: 0, modified: 0)],
+        let games = try ProtocolObjectCodec.object(.directory([.init(name: "schema.beetle", file: schema.hash, created: 0, modified: 0)],
             collection: ProtocolCollectionReference(modelFingerprint: "sha256:" + String(repeating: "3", count: 64),
                                                     tables: [.init(model: "Game", table: table.hash)])))
         let root = try ProtocolObjectCodec.object(.directory([.init(name: "games", directory: games.hash)]))

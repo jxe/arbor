@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { Workspace } from "@ovst/story-sync";
 import { layoutOf, setupSql } from "@ovst/usl";
-import { compileSchema } from "@ovst/vad";
+import { compileSchema } from "@ovst/beetle";
 import { canonicalStableKey } from "@ovst/protocol";
 
 let root: string;
@@ -23,29 +23,29 @@ beforeAll(async () => {
   await writeFile(join(root, "expanded", "one.md"), "---\ntitle: One\n---\nExpanded body.\n");
 
   await mkdir(join(root, "markdown"));
-  await writeFile(join(root, "markdown", "schema.vad"), schema);
+  await writeFile(join(root, "markdown", "schema.beetle"), schema);
   await writeFile(join(root, "markdown", "one.md"), "---\nid: one\ntitle: One\n---\nRecord body.\n");
 
   for (const name of ["csv", "json", "jsonl"]) {
     await mkdir(join(root, name));
-    await writeFile(join(root, name, "schema.vad"), schema);
+    await writeFile(join(root, name, "schema.beetle"), schema);
   }
   await writeFile(join(root, "csv", "_store.csv"), "id,title\none,One\n");
   await writeFile(join(root, "json", "_store.json"), '[{"id":"one","title":"One"}]\n');
   await writeFile(join(root, "jsonl", "_store.jsonl"), '{"id":"one","title":"One"}\n');
 
   await mkdir(join(root, "outer", "deep", "nested"), { recursive: true });
-  await writeFile(join(root, "outer", "deep", "nested", "schema.vad"), schema);
+  await writeFile(join(root, "outer", "deep", "nested", "schema.beetle"), schema);
   await writeFile(join(root, "outer", "deep", "nested", "_store.json"), '[{"id":"one","title":"One"}]\n');
 
   await mkdir(join(root, "mixed"));
-  await writeFile(join(root, "mixed", "schema.vad"), schema);
+  await writeFile(join(root, "mixed", "schema.beetle"), schema);
   await writeFile(join(root, "mixed", "_store.json"), '[{"id":"collectionFile","title":"CollectionFile"}]\n');
   await writeFile(join(root, "mixed", "one.md"), "---\nid: physical\ntitle: Physical\n---\nBody.\n");
 
   await mkdir(join(root, "sqlite"));
   const items = "table items:\n  title Text\n";
-  await writeFile(join(root, "sqlite", "schema.vad"), items);
+  await writeFile(join(root, "sqlite", "schema.beetle"), items);
   const database = new Database(join(root, "sqlite", "_store.sqlite3"));
   database.exec(setupSql(layoutOf(compileSchema(items), { store: "database" }), "sqlite"));
   database.query("insert into items (id, title) values (?, ?)").run("one", "One");

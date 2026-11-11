@@ -1,5 +1,5 @@
 // Declarative collection schemas (spec 06 §2.4), compiled from a collection's
-// schema.vad. Pure: compiling, validation, CSV conversion, and generated
+// schema.beetle. Pure: compiling, validation, CSV conversion, and generated
 // declarations never execute authored code or touch the filesystem or network.
 export * from "./diagnostics.ts";
 export { compileCollectionSchema, compileCollectionSchemas, decodeSchemaSource, singleTable, type Check, type ChildNameRule, type CollectionLayout, type CollectionSchema, type CollectionSchemaSet, type CsvColumn } from "./compile.ts";

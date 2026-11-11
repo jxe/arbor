@@ -208,7 +208,7 @@ Every runtime may expose Overstory's built-in read, navigate, search, backlinks,
 node-query, and mutation operations. The node-query surface includes schema-
 governed collection and relational capabilities when the addressed source
 provides them. An agent may additionally name compiled
-[app](../../docs/overstory-spec/1.5-vad.md#6-handles-and-code-versions) query and mutation handles. Each
+[app](../../docs/overstory-spec/1.5-beetle.md#6-handles-and-code-versions) query and mutation handles. Each
 tool has a typed input/output boundary and retains tree/path provenance in its
 results.
 
@@ -225,7 +225,7 @@ Before execution, the runtime resolves an effective namespace from:
 
 The intersection is the complete authority. The agent and its tools cannot address a path, tree, credential, network target, or host capability outside it. A tool cannot widen the namespace of the agent that called it. Access changes during a run take effect before subsequent operations.
 
-This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](../../docs/overstory-spec/1.5-vad.md#36-vad-files) applies to agents and their tools.
+This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](../../docs/overstory-spec/1.5-beetle.md#36-beetle-files) applies to agents and their tools.
 
 #### 13.4 Consent and effects
 

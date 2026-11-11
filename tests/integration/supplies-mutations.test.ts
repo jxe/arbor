@@ -72,12 +72,12 @@ function sourceBindings() {
 
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "story-supplies-mutations-"));
-  await Promise.all(["_store.sqlite3", "schema.vad"].map((name) => cp(join(fixture, name), join(directory, name))));
+  await Promise.all(["_store.sqlite3", "schema.beetle"].map((name) => cp(join(fixture, name), join(directory, name))));
   databasePath = join(directory, "_store.sqlite3");
   const location = {
     directory,
     databasePath,
-    schemaPath: join(directory, "schema.vad"),
+    schemaPath: join(directory, "schema.beetle"),
     ...storeSource(),
   };
   const profiles = JSON.parse(await readFile(join(repository, "tests", "fixtures", "supplies", "profiles.json"), "utf8")) as Array<Record<string, unknown>>;
@@ -341,7 +341,7 @@ describe.serial("Supplies mutation runner", () => {
     const reopened = {
       directory,
       databasePath,
-      schemaPath: join(directory, "schema.vad"),
+      schemaPath: join(directory, "schema.beetle"),
       ...storeSource(),
     };
     const nextEngine = await SQLiteQueryEngine.open(reopened, { async resolve() { return { rows: [], dependencies: [] }; } });

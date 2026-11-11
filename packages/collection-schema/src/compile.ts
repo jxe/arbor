@@ -1,6 +1,6 @@
 import { revisionOf, type Hash } from "@ovst/protocol";
 import { layoutOf, type Column } from "@ovst/usl";
-import { compileSchema } from "@ovst/vad";
+import { compileSchema } from "@ovst/beetle";
 import { COLLECTION_SCHEMA_LIMITS, CollectionSchemaError, schemaFailure } from "./diagnostics.ts";
 
 /** Runtime check graph, built from the schema's files layout. */
@@ -63,12 +63,12 @@ const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 /** Decode exact schema bytes. The fingerprint is always of these bytes, never of a parsed form. */
 export function decodeSchemaSource(bytes: Uint8Array): string {
   if (bytes.byteLength > COLLECTION_SCHEMA_LIMITS["source-bytes"]) {
-    throw schemaFailure("schema-too-large", `schema.vad exceeds ${COLLECTION_SCHEMA_LIMITS["source-bytes"]} bytes`, undefined, "source-bytes");
+    throw schemaFailure("schema-too-large", `schema.beetle exceeds ${COLLECTION_SCHEMA_LIMITS["source-bytes"]} bytes`, undefined, "source-bytes");
   }
   try {
     return UTF8.decode(bytes);
   } catch {
-    throw schemaFailure("invalid-utf8", "schema.vad is not well-formed UTF-8");
+    throw schemaFailure("invalid-utf8", "schema.beetle is not well-formed UTF-8");
   }
 }
 
@@ -103,7 +103,7 @@ const SCALAR: Record<Column["type"], CsvColumn["scalar"]> = {
  * `@fold` keeps connections on rows, or a database, with join tables. */
 export type CollectionLayout = "files" | "database";
 
-/** Every table a collection's `schema.vad` stores, in one of its layouts. */
+/** Every table a collection's `schema.beetle` stores, in one of its layouts. */
 export interface CollectionSchemaSet {
   readonly revision: Hash;
   readonly source: string;
@@ -113,7 +113,7 @@ export interface CollectionSchemaSet {
 }
 
 /**
- * Compile a collection's `schema.vad` into one schema per
+ * Compile a collection's `schema.beetle` into one schema per
  * table it stores in data files: each model with data rows (fixed models and
  * Person aside), and each connection without `@fold`. Throws
  * {@link CollectionSchemaError}.
@@ -128,7 +128,7 @@ export function compileCollectionSchemas(input: Uint8Array | string, layout: Col
     })));
   }
   const stored = layoutOf(result, { store: layout });
-  if (!stored.length) throw schemaFailure("collection-tables", "A collection's schema.vad declares a table with data rows; this one has none");
+  if (!stored.length) throw schemaFailure("collection-tables", "A collection's schema.beetle declares a table with data rows; this one has none");
   const revision = revisionOf(bytes) as Hash;
   const tables = stored.map((table): CollectionSchema => {
     const model = result.models.find((m) => m.name === table.stores);
@@ -169,7 +169,7 @@ export function compileCollectionSchemas(input: Uint8Array | string, layout: Col
 }
 
 /**
- * Compile the `schema.vad` of a single-table collection, stored as
+ * Compile the `schema.beetle` of a single-table collection, stored as
  * `_store.*`: it must store exactly one table. Throws
  * {@link CollectionSchemaError}.
  */
@@ -181,7 +181,7 @@ export function singleTable(set: CollectionSchemaSet): CollectionSchema {
   if (set.tables.length !== 1) {
     throw schemaFailure(
       "collection-tables",
-      `A single-file collection's schema.vad stores one table; this one stores ${set.tables.map((t) => t.model).join(", ")}, so keep one file per table (\`<Table>.jsonl\`)`,
+      `A single-file collection's schema.beetle stores one table; this one stores ${set.tables.map((t) => t.model).join(", ")}, so keep one file per table (\`<Table>.jsonl\`)`,
     );
   }
   return set.tables[0]!;

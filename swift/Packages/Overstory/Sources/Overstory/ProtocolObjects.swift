@@ -12,7 +12,7 @@ public struct ProtocolCollectionTableReference: Hashable, Codable, Sendable {
     }
 }
 
-/// A directory's logical collection: the fingerprint of its `schema.vad`
+/// A directory's logical collection: the fingerprint of its `schema.beetle`
 /// model layer and one `table` object per model with data rows, in UTF-8
 /// order of model. The rows live in the tree; files and databases that hold
 /// them on a device are projections.
@@ -488,8 +488,8 @@ public enum ProtocolObjectCodec {
                 previousModel = utf8
                 try validateObjectHash(table.table)
             }
-            guard entries.contains(where: { $0.name == "schema.vad" && $0.file != nil }) else {
-                throw ProtocolValidationError.invalidValue("A collection's schema.vad must be a file entry")
+            guard entries.contains(where: { $0.name == "schema.beetle" && $0.file != nil }) else {
+                throw ProtocolValidationError.invalidValue("A collection's schema.beetle must be a file entry")
             }
         }
     }

@@ -41,7 +41,7 @@ export interface SnapshotCollection {
   replaces: readonly string[];
 }
 
-/** The collection of a directory holding `schema.vad`, given the names of
+/** The collection of a directory holding `schema.beetle`, given the names of
  * its files, or null when it is not a collection, so its files are
  * ordinary entries. */
 export type DescribeSnapshotCollectionFile = (

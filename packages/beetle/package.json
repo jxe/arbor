@@ -1,0 +1,24 @@
+{
+  "name": "@ovst/beetle",
+  "version": "0.1.0",
+  "description": "Beetle, the views-and-data language (.beetle): parser, formatter and checker for Overstory tables, views, rules and mutations.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jxe/arbor.git",
+    "directory": "packages/beetle"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "beetle": "./src/cli.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "@ovst/usl": "workspace:*"
+  }
+}

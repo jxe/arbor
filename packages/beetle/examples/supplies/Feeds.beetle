@@ -1,0 +1,22 @@
+// Data views: JSON for other programs, with the same reads, plans and live results as
+// the UI views. Feeds?view=ListsByOwner&owner=… returns { "lists": [ … ] }.
+use "data/schema.beetle"
+
+view ListsByOwner(owner Person) {
+  lists: {
+    name
+    size: count(l.items)
+    owner { name, handle }
+    practices: { name } for={p in l.items.practice} orderBy={p.name}
+  } for={l in List} where={l.owner == owner} orderBy={l.modified desc} limit={20}
+}
+
+view OnePractice(id) {
+  practice: {
+    name
+    about
+    authors { name }
+    lists: count(l in List where p in l.items.practice)
+    tagged: { tags { name, color } } if={count(p.tags) > 0}
+  } for={p in Practice} where={p.id == id}
+}

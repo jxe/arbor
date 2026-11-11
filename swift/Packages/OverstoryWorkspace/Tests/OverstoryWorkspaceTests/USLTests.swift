@@ -46,27 +46,27 @@ struct USLTests {
         }
     }
 
-    @Test("A schema.vad lays out the tables its schema.usl did")
-    func vadSchemasMatchUSL() throws {
+    @Test("A schema.beetle lays out the tables its schema.usl did")
+    func beetleSchemasMatchUSL() throws {
         let pairs = [
-            ("packages/vad/examples/supplies/data/schema.vad", "packages/usl/examples/supplies.usl"),
-            ("tests/fixtures/games.vad", "packages/usl/examples/games.usl"),
+            ("packages/beetle/examples/supplies/data/schema.beetle", "packages/usl/examples/supplies.usl"),
+            ("tests/fixtures/games.beetle", "packages/usl/examples/games.usl"),
         ]
-        for (vad, usl) in pairs {
-            let vadSource = try String(contentsOf: repositoryRoot.appending(path: vad), encoding: .utf8)
+        for (beetle, usl) in pairs {
+            let beetleSource = try String(contentsOf: repositoryRoot.appending(path: beetle), encoding: .utf8)
             let uslSource = try String(contentsOf: repositoryRoot.appending(path: usl), encoding: .utf8)
-            let fromVAD = compileCollectionSchema(vadSource)
+            let fromBeetle = compileCollectionSchema(beetleSource)
             let fromUSL = compileUSL(uslSource)
-            #expect(fromVAD.diagnostics == [], "\(vad)")
-            #expect(fromVAD.models.map(\.name) == fromUSL.models.map(\.name), "\(vad)")
+            #expect(fromBeetle.diagnostics == [], "\(beetle)")
+            #expect(fromBeetle.models.map(\.name) == fromUSL.models.map(\.name), "\(beetle)")
             for store in [USLStore.files, .database] {
-                #expect(try uslLayout(fromVAD, store: store) == uslLayout(fromUSL, store: store), "\(vad)")
+                #expect(try uslLayout(fromBeetle, store: store) == uslLayout(fromUSL, store: store), "\(beetle)")
             }
         }
     }
 
-    @Test("A schema.vad's views, rules, mutations and state tables are left out of its tables")
-    func vadSchemaSkipsTheRest() throws {
+    @Test("A schema.beetle's views, rules, mutations and state tables are left out of its tables")
+    func beetleSchemaSkipsTheRest() throws {
         let source = """
             // Lists.
             main table List:
@@ -99,7 +99,7 @@ struct USLTests {
             re List:
               name ~label("Title")
             """
-        let usl = uslSourceOfVAD(source)
+        let usl = uslSourceOfBeetle(source)
         // Read as Story reads it: a seed row may leave out a defaulted field.
         let result = compileCollectionSchema(source)
         #expect(result.diagnostics == [], "\(usl)")

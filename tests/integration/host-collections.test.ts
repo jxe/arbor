@@ -71,9 +71,9 @@ beforeAll(async () => {
     await cp(join(SUPPLIES, name), join(folder, "supplies", name), { recursive: true });
   }
   await mkdir(join(folder, "supplies", "data"));
-  for (const name of ["schema.vad", "_store.sqlite3"]) await cp(join(SUPPLIES, "data", name), join(folder, "supplies", "data", name));
+  for (const name of ["schema.beetle", "_store.sqlite3"]) await cp(join(SUPPLIES, "data", name), join(folder, "supplies", "data", name));
   // A declared view for the test (Supplies declares none, and its default line shows items, whose key has two columns).
-  const schemaPath = join(folder, "supplies", "data", "schema.vad");
+  const schemaPath = join(folder, "supplies", "data", "schema.beetle");
   await writeFile(schemaPath, (await Bun.file(schemaPath).text()).replace("main table List:\n", 'main table List:\n  ~views([{ label: "Names", line: [name, owner] }])\n'));
   await writeFile(join(folder, "supplies", "test-views.ts"), TEST_VIEWS);
   await writeFile(join(folder, "supplies", "escape.ts"), ESCAPE);
@@ -105,13 +105,13 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-/** The hash of a collection's schema.vad at the tree's head: a declared view's version. */
+/** The hash of a collection's schema.beetle at the tree's head: a declared view's version. */
 async function schemaHash(collection: string): Promise<string> {
   let directory = decodeProtocolDirectory(await host.overstoryd.object(host.overstoryd.currentUpdate(tree)!.root as ObjectHash));
   for (const name of collection.split("/").filter(Boolean)) {
     directory = decodeProtocolDirectory(await host.overstoryd.object(directory.entries.find((entry) => entry.name === name)!.directory as ObjectHash));
   }
-  return directory.entries.find((entry) => entry.name === "schema.vad")!.file!;
+  return directory.entries.find((entry) => entry.name === "schema.beetle")!.file!;
 }
 
 const materialized = () => join(dataRoot, "materialized", tree, encodeURIComponent("/supplies/data"), "_store.sqlite3");
@@ -269,7 +269,7 @@ describe.serial("rows on the host", () => {
     try {
       await daemon.synchronizeNow();
       const version = await schemaHash("/supplies/data");
-      const declared: HandleRef = { tree, path: "/supplies/data/schema.vad", name: "Names", version };
+      const declared: HandleRef = { tree, path: "/supplies/data/schema.beetle", name: "Names", version };
       const response = await requestViews(host.url, controller, [
         { id: "declared", handle: declared },
         { id: "authored", handle: handles.listName! },

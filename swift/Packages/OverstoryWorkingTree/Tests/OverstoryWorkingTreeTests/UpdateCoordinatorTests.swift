@@ -151,7 +151,7 @@ struct UpdateCoordinatorTests {
                 tables: [.init(model: "Game", table: table.hash)]
             )
             let directory = try ProtocolObjectCodec.object(.directory([
-                .init(name: "schema.vad", file: schema.hash, created: 0, modified: 0),
+                .init(name: "schema.beetle", file: schema.hash, created: 0, modified: 0),
             ], collection: reference))
             let snapshot = ProtocolSnapshot(root: directory.hash, objects: [directory, schema, table, rows])
             let replacement = try SnapshotBridge.replacement(

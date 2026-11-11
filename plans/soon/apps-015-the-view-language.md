@@ -1,9 +1,9 @@
-# Apps 015: VAD views and mutations
+# Apps 015: Beetle views and mutations
 
 **Why and when:** Joe decided on 2026-11-11 that views and mutations are written in a
-declarative language, now VAD, in `.vad` files, and TypeScript support for both is dropped. The spec
+declarative language, now Beetle, in `.beetle` files, and TypeScript support for both is dropped. The spec
 describes the target ([reading and watching §4](../../docs/overstory-spec/1.2-reading-and-watching.md#4-views),
-syntax in [the grammar](../../docs/overstory-spec/1.5-vad.md#8-grammar)). The
+syntax in [the grammar](../../docs/overstory-spec/1.5-beetle.md#8-grammar)). The
 reasons, from the thread "Review the Overstory spec with Joe":
 
 - A view's plan comes from its source, so tracing, stand-in rows, dual evaluation and
@@ -37,7 +37,7 @@ onward, which now draw `.view` widgets instead of running TSX.
 
 ## 1. Parser and checker
 
-- `packages/vad` (`@ovst/vad`), beside `packages/usl`: parser, formatter, and a checker that
+- `packages/beetle` (`@ovst/beetle`), beside `packages/usl`: parser, formatter, and a checker that
   resolves every table, field and path against the bound schemas, types parameters,
   finds each element's names, and reports source spans.
 - The checker rejects a `limit` whose conditions or ordering read state.
@@ -49,23 +49,23 @@ onward, which now draw `.view` widgets instead of running TSX.
 **Verify:** the Profile, List and Home views and all 13 Supplies mutations from the
 exploration check; their plans match what tracing produces today for the same pages.
 
-**Done (2026-11-11):** `packages/vad` (`@ovst/vad`; first built as `packages/uvl` for
-`.view` files, then reworked when USL and UVL merged into VAD) parses, formats (`vad fmt`,
-comments kept) and checks `.vad` files, a collection's `schema.vad` and pages' view
-blocks, with pick-list `use`. A `schema.vad`'s tables check through `@ovst/usl`
-(`compileSchema`), so its layout and fingerprint are USL's: Supplies' `schema.vad` matches
+**Done (2026-11-11):** `packages/beetle` (`@ovst/beetle`; first built as `packages/uvl` for
+`.view` files, then reworked when USL and UVL merged into Beetle) parses, formats (`beetle fmt`,
+comments kept) and checks `.beetle` files, a collection's `schema.beetle` and pages' view
+blocks, with pick-list `use`. A `schema.beetle`'s tables check through `@ovst/usl`
+(`compileSchema`), so its layout and fingerprint are USL's: Supplies' `schema.beetle` matches
 its `schema.usl`. State tables (`my`/`session`), enum values by name, `if`/`group`, rule
 lines and mutation facts are checked. Supplies' Home, Profile, List, Practices, Timer,
-Today, cards and all 13 mutations are in `packages/vad/examples/supplies` and check clean;
-`examples/invalid` holds the errors. Plans are VAD's own nested `ElementPlan`s (rules
+Today, cards and all 13 mutations are in `packages/beetle/examples/supplies` and check clean;
+`examples/invalid` holds the errors. Plans are Beetle's own nested `ElementPlan`s (rules
 expanded, state-reading conditions split off for the client, `expandsBy`), and mutations
 report writes, `let` names and public errors. Vectors:
-`docs/overstory-spec/conformance/vad.json`.
+`docs/overstory-spec/conformance/beetle.json`.
 
 **Left in this step:** lowering an `ElementPlan` to the SQLite engine's `QueryPlan`, and
 comparing those plans with what tracing produces for the TSX pages. Then Overstory's own
 readers of `schema.usl` (apps-runtime, collection-schema, overstoryd, overstoryd-exec,
-story-sync, the Swift readers) switch to `schema.vad`; external users (cranberries,
+story-sync, the Swift readers) switch to `schema.beetle`; external users (cranberries,
 excellences, supplies-remake) stay on npm `@ovst/usl` (Joe, 2026-11-11). Existing trees'
 `schema.usl` files get a one-off conversion that Joe runs.
 
@@ -110,7 +110,7 @@ the removed modules.
 Joe decided on 2026-11-11 that a `.view` file is a node's body, like a `.md` file, so
 `List.view` answers at `List`, and that pages may hold fenced `view` blocks
 ([locators §7](../../docs/overstory-spec/1.6-locators.md#7-view-addresses),
-[§3.7](../../docs/overstory-spec/1.5-vad.md#37-view-blocks-in-pages)).
+[§3.7](../../docs/overstory-spec/1.5-beetle.md#37-view-blocks-in-pages)).
 
 - Node mapping in both stacks (`packages/protocol` pages and path reads, Swift
   `ProtocolPage`/`ProtocolPathRead`): `x.view` and `x/_index.view` supply node `x`;

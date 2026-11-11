@@ -1,0 +1,35 @@
+// The view at List: its curators, a like button, and its practices with this list's tags.
+use "data/schema.beetle"
+use "parts/cards.beetle" (PracticeCard, Avatar)
+use "mutations.beetle" (toggleListReaction)
+
+view(id):
+  state showTags = true
+
+  <Shell title={l.name}
+    for={l in List} where={l.id == id}
+    fallback={<Shell title="List unavailable" />}>
+
+    <Row slot="subtitle">
+      <Text style="secondary">a list by</Text>
+      <Avatar person={l.owner} />
+      <Avatar person={c} for={c in l.contributors.person} where={c != l.owner} orderBy={c.name} />
+    </Row>
+
+    <Button slot="actions" action={toggleListReaction(l: l)}
+      if={l.visibility == Public, me != null}>
+      👍 {count(l.reactions)}
+    </Button>
+    <Toggle slot="actions" value={showTags}>Tags</Toggle>
+
+    <Markdown source={l.about} />
+
+    <Grid columns={3}>
+      <Column for={i in l.items}>
+        <PracticeCard p={i.practice} />
+        <Row if={showTags}>
+          <Badge color={t.color} for={t in i.practice.tags} where={t.list == l}>{t.name}</Badge>
+        </Row>
+      </Column>
+    </Grid>
+  </Shell>

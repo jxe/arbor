@@ -1,7 +1,7 @@
 import { USL_LIMITS } from "@ovst/usl";
 
 /** A collection's schema file. */
-export const COLLECTION_SCHEMA_SOURCE = "schema.vad";
+export const COLLECTION_SCHEMA_SOURCE = "schema.beetle";
 
 /** Limits on a collection schema and on validating its rows (spec 06 §2.4). */
 export const COLLECTION_SCHEMA_LIMITS = {
@@ -15,7 +15,7 @@ export const COLLECTION_SCHEMA_LIMITS = {
 export type CollectionSchemaLimit = keyof typeof COLLECTION_SCHEMA_LIMITS;
 
 /**
- * Why a schema was rejected: a VAD or USL checker code (`unknown-type`,
+ * Why a schema was rejected: a Beetle or USL checker code (`unknown-type`,
  * `duplicate-field`, `limit`, ...) or one of the collection's own.
  */
 export type SchemaDiagnosticCode = "invalid-utf8" | "schema-too-large" | "collection-tables" | (string & {});

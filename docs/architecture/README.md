@@ -14,7 +14,7 @@ behavior below is installed or deployed.
 - [Story apps](story-browser/README.md): editor runtime ownership, local state, and recovery.
 - [Executable-document runtime](apps-runtime/README.md): queries and mutations.
 - [Old names that remain](old-names.md): the `arbor` and `canopy` spellings still in the code on purpose, and why.
-- [Collection schemas](collection-schema/README.md): collection `schema.vad` compilation, validation, and the collection-file codec.
+- [Collection schemas](collection-schema/README.md): collection `schema.beetle` compilation, validation, and the collection-file codec.
 
 ## Components
 
@@ -62,7 +62,7 @@ and the CLI share them ([local state](story-browser/local-state.md)).
 | `overstoryd-merge` | The merge sidecar: the question loop and its in-memory cache of entry states (started from provenance indexes), snapshot choices, intent engine and model, format rules, Markdown and web formats, retained states in memory, log decisions, the `overstoryd-merge` CLI ([merge sidecar](overstoryd/merge-tool.md)) | protocol, object-store, merge-protocol, tree-merge, tree-sitter, saxes |
 | `merge-protocol` | The contract between overstoryd and a merge sidecar: log entries, the merge question and answer, refusal codes; no merge logic ([writing a sidecar](overstoryd/writing-a-sidecar.md)) ([README](../../packages/merge-protocol/README.md)) | protocol, zod |
 | `tree-merge` | The three-way snapshot tree merge with its Markdown and collection-file rules and model hashes ([README](../../packages/tree-merge/README.md)) | protocol, collection-schema |
-| `collection-schema` | Collection schemas from `schema.vad`: compilation through `vad` and `usl`, validator, CSV cell conversion, generated declarations, logical names, the bounded schema cache, and the collection-file codec; pure, with no code execution, filesystem, or network ([README](collection-schema/README.md)) | protocol, usl, `csv-parse` |
+| `collection-schema` | Collection schemas from `schema.beetle`: compilation through `beetle` and `usl`, validator, CSV cell conversion, generated declarations, logical names, the bounded schema cache, and the collection-file codec; pure, with no code execution, filesystem, or network ([README](collection-schema/README.md)) | protocol, usl, `csv-parse` |
 | `apps-runtime` | Query core and node queries, the SQLite engine, live streams and observers, mutations, authoring API, host integration, and `collections/` (the projection-provider contract types) ([README](../../packages/apps-runtime/README.md)) | protocol, usl |
 | `story-sync` | The daemon: workspace and editor, tree manager, sync and account HTTP, browser routes, filesystem object source and node surfaces, events, and `state/` (tree registry and placement sync metadata, connections, local accounts, providers, object index) | protocol, client, fs, apps-runtime, collection-schema |
 | `cli` | `story`: daemon supervision, identity, placement, moves, cloud sessions; `daemon-client.ts` is its `StorySyncRESTClient` for the daemon's loopback surface | story-sync, protocol, fs |

@@ -295,7 +295,7 @@ export async function mergeProtocolTrees(
     }
     let directory: ProtocolDirectory = { type: "directory", entries: sortedEntries(entries) };
     // A collection's rows merge after its entries, since they are checked
-    // against the folder's merged schema.vad.
+    // against the folder's merged schema.beetle.
     if (baseDirectory.collection || candidateDirectory.collection || currentDirectory.collection) {
       const priorConflicts = conflicts.length;
       const [baseState, candidateState, currentState] = [baseDirectory, candidateDirectory, currentDirectory]

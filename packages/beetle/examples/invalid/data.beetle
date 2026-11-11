@@ -1,0 +1,23 @@
+// Data views that don't check.
+use "../supplies/data/schema.beetle"
+
+view Bad(id) {
+  // expect: data-entry-key
+  name
+  lists: {
+    // expect: unknown-field
+    colour
+    // expect: not-a-relationship
+    name { size }
+    // expect: duplicate-key
+    colour: 1
+  } for={l in List} where={l.id == id}
+  // expect: not-data
+  go: <Text>x</Text>
+  // expect: limit
+  few: { name } for={p in Practice} limit={"ten"}
+  // expect: unknown-attribute
+  one: { a: 1 } key={1}
+  // expect: where-without-for
+  two: { a: 1 } where={id == ""}
+}

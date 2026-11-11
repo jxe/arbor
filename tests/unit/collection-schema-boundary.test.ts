@@ -54,14 +54,14 @@ describe("collection schema package boundary", () => {
 
   test("the pure package executes no code and reaches no filesystem, network, or runtime code generation", async () => {
     const manifest = JSON.parse(await readFile(join(root, "packages/collection-schema/package.json"), "utf8")) as { dependencies: Record<string, string> };
-    expect(Object.keys(manifest.dependencies).sort()).toEqual(["@ovst/protocol", "@ovst/usl", "@ovst/vad", "csv-parse"]);
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(["@ovst/beetle", "@ovst/protocol", "@ovst/usl", "csv-parse"]);
     for (const path of await sourceFiles(join(root, "packages/collection-schema/src"))) {
       const source = await readFile(path, "utf8");
       expect(source, path).not.toMatch(/from "(?:node:|bun:|@overstory\/(?!protocol))/);
       expect(source, path).not.toMatch(/\b(?:eval|Function|fetch|Bun\.build|import)\s*\(/);
     }
     const closure = await resolvedClosure(["packages/collection-schema/src/index.ts"]);
-    expect(closure.filter((path) => !/^(?:packages\/(?:collection-schema|protocol|usl|vad)\/|node_modules\/.*(?:csv-parse|@noble\/hashes|yaml)\/)/.test(path))).toEqual([]);
+    expect(closure.filter((path) => !/^(?:packages\/(?:collection-schema|protocol|usl|beetle)\/|node_modules\/.*(?:csv-parse|@noble\/hashes|yaml)\/)/.test(path))).toEqual([]);
   });
 
   test("the resolved import closures of overstoryd, the merge worker, and Story Sync exclude QuickJS", async () => {
@@ -93,7 +93,7 @@ describe("collection schema package boundary", () => {
         "",
       ].join("\n"));
       const collection = join(directory, "people");
-      await Bun.write(join(collection, "schema.vad"), 'main table Item:\n  count Int\n');
+      await Bun.write(join(collection, "schema.beetle"), 'main table Item:\n  count Int\n');
       await Bun.write(join(collection, "_store.csv"), "id,count\n001,1\n002,2\n");
       await writeFile(join(directory, "exercise.ts"), `
         import { CollectionProjections } from ${module("story-sync/src/state/index.ts")};

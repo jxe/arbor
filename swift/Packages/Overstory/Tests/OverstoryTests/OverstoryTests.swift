@@ -160,7 +160,7 @@ struct ProtocolObjectTests {
         let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
         let schema = try ProtocolObjectCodec.object(.file(Data("main table Game (id):\n".utf8)))
         let root = try ProtocolObjectCodec.object(.directory(
-            [.init(name: "schema.vad", file: schema.hash, created: 0, modified: 0)],
+            [.init(name: "schema.beetle", file: schema.hash, created: 0, modified: 0)],
             collection: ProtocolCollectionReference(modelFingerprint: schema.hash, tables: [.init(model: "Game", table: table.hash)])
         ))
         let objects = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, table, rows]))

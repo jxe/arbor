@@ -1,7 +1,7 @@
 {
   "name": "@ovst/collection-schema",
   "version": "0.1.0",
-  "description": "Declarative collection schemas: compiled from a collection's schema.vad, row validation, CSV cell conversion, generated type declarations, and the collection-file codec. Pure: no code execution, filesystem, or network access.",
+  "description": "Declarative collection schemas: compiled from a collection's schema.beetle, row validation, CSV cell conversion, generated type declarations, and the collection-file codec. Pure: no code execution, filesystem, or network access.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -9,7 +9,7 @@
   "dependencies": {
     "@ovst/protocol": "workspace:*",
     "@ovst/usl": "workspace:*",
-    "@ovst/vad": "workspace:*",
+    "@ovst/beetle": "workspace:*",
     "csv-parse": "6.1.0"
   }
 }

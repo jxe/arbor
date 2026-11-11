@@ -15,7 +15,7 @@
 //   collection's folder, as the host's conversion did), and a `.mdx` page
 //   becomes its canonical file (Apps 011);
 // - a collection's rows get Unix-ms times and tagged Date fields, and its
-//   schema.usl becomes the schema.vad it converts to (same models);
+//   schema.usl becomes the schema.beetle it converts to (same models);
 // - its profile facts are read again from the new root.
 import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
@@ -28,7 +28,7 @@ import {
 } from "@ovst/protocol";
 import { decodeCBOR } from "@ovst/protocol/cbor";
 import { compareUTF8 } from "@ovst/protocol/utf8";
-import { convertVerified, movesColors } from "../../../../tools/convert-usl-to-vad.ts";
+import { convertVerified, movesColors } from "../../../../tools/convert-usl-to-beetle.ts";
 import { storedProfileOf, type StoredProfile } from "../../src/profile.ts";
 
 /** The `change` of every migrated tree's first entry, and its `change_id`. */
@@ -257,7 +257,7 @@ async function rewrite(objects: Objects, tree: string, head: ObjectHash, held: M
     }
     let collection: CollectionReference | undefined;
     if (directory.collection) {
-      // The schema becomes schema.vad (Apps 015): the same models, so the
+      // The schema becomes schema.beetle (Apps 015): the same models, so the
       // same fingerprint, unless enum colors moved from `~color` into data,
       // which changes it (Joe, 2026-11-11). The entry keeps the schema.usl
       // entry's times.
@@ -265,12 +265,12 @@ async function rewrite(objects: Objects, tree: string, head: ObjectHash, held: M
       const usl = index < 0 ? undefined : entries[index]!;
       if (!usl?.file) throw new Error(`${tree}:${path || "/"}: a collection without a schema.usl file`);
       const uslText = new TextDecoder("utf-8", { fatal: true }).decode(await objects.bytes(usl.file));
-      const vad = new TextEncoder().encode(convertVerified(uslText));
-      entries[index] = { name: "schema.vad", file: objects.put(vad), created: usl.created, modified: usl.modified };
+      const beetle = new TextEncoder().encode(convertVerified(uslText));
+      entries[index] = { name: "schema.beetle", file: objects.put(beetle), created: usl.created, modified: usl.modified };
       entries.sort((a, b) => compareUTF8(a.name, b.name));
       report.converted.schemas++;
-      const schema = compileLogicalSchema(vad);
-      if (schema.fingerprint !== directory.collection.modelFingerprint && !movesColors(uslText)) throw new Error(`${tree}:${path || "/"}: schema.vad changes the model fingerprint`);
+      const schema = compileLogicalSchema(beetle);
+      if (schema.fingerprint !== directory.collection.modelFingerprint && !movesColors(uslText)) throw new Error(`${tree}:${path || "/"}: schema.beetle changes the model fingerprint`);
       const tables: Record<string, Awaited<ReturnType<typeof legacyRows>>> = {};
       for (const { model, table } of directory.collection.tables) tables[model] = await legacyRows(objects, table);
       const encoded = encodeCollection(schema, tables as Parameters<typeof encodeCollection>[1]);

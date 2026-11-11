@@ -33,7 +33,7 @@ export async function generateTreeTypes(options: GenerateTreeTypesOptions): Prom
       const shape = await provider.schemaTypes(absolute).catch(() => { temporaryFailure = true; return null; });
       if (shape) {
         const treePath = directory.treePath;
-        const schemaPath = join(absolute, schemaName ?? "schema.vad");
+        const schemaPath = join(absolute, schemaName ?? "schema.beetle");
         if (shape.kind === "database") {
           if (!shape.tables) {
             temporaryFailure = true;

@@ -82,7 +82,7 @@ test("unknown rules are a typed refusal", async () => {
 
 async function collection(rows: unknown[]): Promise<TreeSnapshot> {
   const root = await mkdtemp(join(directory, "collection-"));
-  await writeFile(join(root, "schema.vad"), 'table Item:\n  title Text\n');
+  await writeFile(join(root, "schema.beetle"), 'table Item:\n  title Text\n');
   await writeFile(join(root, "_store.json"), JSON.stringify(rows) + "\n");
   const host = new CollectionProjections();
   return await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (path, names) => host.read(path, names)));

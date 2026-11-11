@@ -1,0 +1,3023 @@
+{
+  "description": "Beetle (spec 1.5): each file's diagnostics (line, column, code), its views' plans, and its mutations' writes, let names and public errors, as packages/beetle checks them. `files` is the tree, by logical path; a case checks one file in it. Regenerate with `bun tests/support/regenerate-beetle.ts`.",
+  "files": {
+    "/invalid/cycle.beetle": "// expect: use-cycle\nuse \"uses.beetle\"\n",
+    "/invalid/data.beetle": "// Data views that don't check.\nuse \"../supplies/data/schema.beetle\"\n\nview Bad(id) {\n  // expect: data-entry-key\n  name\n  lists: {\n    // expect: unknown-field\n    colour\n    // expect: not-a-relationship\n    name { size }\n    // expect: duplicate-key\n    colour: 1\n  } for={l in List} where={l.id == id}\n  // expect: not-data\n  go: <Text>x</Text>\n  // expect: limit\n  few: { name } for={p in Practice} limit={\"ten\"}\n  // expect: unknown-attribute\n  one: { a: 1 } key={1}\n  // expect: where-without-for\n  two: { a: 1 } where={id == \"\"}\n}\n",
+    "/invalid/elements.beetle": "// Drawing views, limits, conditions and state.\nuse \"../supplies/data/schema.beetle\"\nuse \"../supplies/parts/cards.beetle\"\n\nview():\n  state q = \"\"\n\n  <Column>\n    // expect: missing-attribute\n    <PracticeCard />\n    // expect: unknown-attribute\n    <Avatar person={me} size={3} />\n    // expect: type-mismatch\n    <PracticeCard p={l} for={l in List} />\n    // expect: limit-reads-state\n    <PracticeCard p={p}\n      for={p in Practice} where={q in p.name}\n      limit={10} />\n    // expect: not-a-condition\n    <Text for={p in Practice} where={p.name}>{p.name}</Text>\n    // expect: not-a-collection\n    <Text for={l in List} where={me in l.owner}>{l.name}</Text>\n    // expect: set-comparison\n    <Text for={p in Practice} where={p.authors == me}>{p.name}</Text>\n    // expect: where-without-for\n    <Text where={q == \"\"}>Type to search</Text>\n    // expect: if-with-for\n    <Text for={l in List} if={q == \"\"}>{l.name}</Text>\n    // expect: group-without-for\n    <Rows group={q} />\n    // expect: set-target\n    <Button action={set(p, 1)}>Go</Button>\n    // expect: fallback-element\n    <Text fallback=\"none\">x</Text>\n  </Column>\n",
+    "/invalid/more-cards.beetle": "// Used by uses.beetle, to make Avatar ambiguous there.\nuse \"../supplies/data/schema.beetle\"\n\nview Avatar(person Person):\n  <Text>{person.name}</Text>\n",
+    "/invalid/mutations.beetle": "// Mutations that write what they can't.\nuse \"../supplies/data/schema.beetle\"\n\nmutation bad(l List, p Practice):\n  // expect: implicit-field\n  l.modified = now\n  // expect: missing-field\n  Tag(list: l)\n  // expect: fact-key\n  Contribution(list: l, last: today)\n  // expect: type-mismatch\n  l.items = [l]\n  // expect: not-writable\n  Visibility(name: \"Hidden\")\n  // expect: fact-argument\n  Practice(\"walking\")\n  // expect: unknown-table\n  Nothing(a: 1)\n  // expect: conflicting-writes\n  l.name = \"b\"\n  l.name = \"c\"\n  // expect: error-outside-if\n  forbidden \"never\"\n\nmutation guarded(l List):\n  if me == null:\n    // expect: error-not-alone\n    unauthorized \"Sign in\"\n    l.name = \"x\"\n\n// expect: row-action\nmutation edit(name Text) for List.edit:\n  if me == null:\n    unauthorized\n",
+    "/invalid/names.beetle": "// Names that don't resolve, or clash.\nuse \"../supplies/data/schema.beetle\"\n// expect: unknown-pick\nuse \"../supplies/parts/cards.beetle\" (PracticeCard, Missing)\n\n// expect: builtin-name\nrule count(x List):\n  x.name == \"\"\n\nview(id):\n  <Column for={l in List} where={l.id == id}>\n    // expect: unknown-name\n    <Text>{nobody.name}</Text>\n    // expect: unknown-field\n    <Text>{l.colour}</Text>\n    // expect: enum-value\n    <Text if={l.visibility == Hidden}>hidden</Text>\n    // expect: duplicate-name\n    <Text for={l in List}>{l.name}</Text>\n    // expect: no-clock\n    <Text>{today}</Text>\n    // expect: unknown-element\n    <card />\n  </Column>\n\n// expect: two-unnamed-views\nview():\n  <Text>again</Text>\n",
+    "/invalid/rules.beetle": "// Rules may not refer to themselves.\nuse \"../supplies/data/schema.beetle\"\n\n// expect: rule-recursion\nrule above(a, b):\n  a == b or above(a, b)\n",
+    "/invalid/syntax.beetle": "// expect: syntax\nview(:\n  <Text>broken</Text>\n\nmutation m():\n  // expect: syntax\n  insert List { name: \"x\" }\n\nview ok():\n  // expect: syntax\n  <Column><Text>unclosed</Column>\n\nview Old() {\n  // expect: syntax\n  lists: for l in List { name }\n}\n",
+    "/invalid/tables.beetle": "// Tables a file that isn't a schema declares.\nuse \"../supplies/data/schema.beetle\"\n\n// expect: data-table-outside-schema\ntable Note:\n  text Text\n\nmy table Pin:\n  // expect: unknown-type\n  list    Lisst\n  // expect: implicit-field\n  created Date\n  // expect: default-value\n  at      Date = count(List)\n  // expect: state-connection\n  Practice.pins[]\n\n// expect: duplicate-name\nsession table List:\n  name Text\n\nenum Mood:\n  Calm\n  Busy\n\nview():\n  <Column>\n    // expect: enum-value\n    <Text for={p in Pin} where={Sleepy == Calm}>{p.list.name}</Text>\n  </Column>\n",
+    "/invalid/uses.beetle": "// Uses that don't resolve.\n// expect: use-not-found\nuse \"nowhere.beetle\"\n// expect: use-cycle\nuse \"cycle.beetle\"\n// expect: ambiguous-use\nuse \"../supplies/parts/cards.beetle\"\nuse \"more-cards.beetle\"\n\nview():\n  <Text>hi</Text>\n",
+    "/supplies/Feeds.beetle": "// Data views: JSON for other programs, with the same reads, plans and live results as\n// the UI views. Feeds?view=ListsByOwner&owner=… returns { \"lists\": [ … ] }.\nuse \"data/schema.beetle\"\n\nview ListsByOwner(owner Person) {\n  lists: {\n    name\n    size: count(l.items)\n    owner { name, handle }\n    practices: { name } for={p in l.items.practice} orderBy={p.name}\n  } for={l in List} where={l.owner == owner} orderBy={l.modified desc} limit={20}\n}\n\nview OnePractice(id) {\n  practice: {\n    name\n    about\n    authors { name }\n    lists: count(l in List where p in l.items.practice)\n    tagged: { tags { name, color } } if={count(p.tags) > 0}\n  } for={p in Practice} where={p.id == id}\n}\n",
+    "/supplies/Home.beetle": "// Supplies' home page: the most liked public lists.\nuse \"data/schema.beetle\"\nuse \"parts/cards.beetle\"\n\nview():\n  <Shell title=\"Meaning Supplies\" subtitle=\"a directory of social practices\">\n    <Section title=\"Popular lists\">\n      <Grid columns={2}>\n        <ListCard list={l}\n          for={l in List} where={l.visibility == Public}\n          orderBy={count(l.reactions) desc} limit={12} />\n      </Grid>\n    </Section>\n  </Shell>\n",
+    "/supplies/List.beetle": "// The view at List: its curators, a like button, and its practices with this list's tags.\nuse \"data/schema.beetle\"\nuse \"parts/cards.beetle\" (PracticeCard, Avatar)\nuse \"mutations.beetle\" (toggleListReaction)\n\nview(id):\n  state showTags = true\n\n  <Shell title={l.name}\n    for={l in List} where={l.id == id}\n    fallback={<Shell title=\"List unavailable\" />}>\n\n    <Row slot=\"subtitle\">\n      <Text style=\"secondary\">a list by</Text>\n      <Avatar person={l.owner} />\n      <Avatar person={c} for={c in l.contributors.person} where={c != l.owner} orderBy={c.name} />\n    </Row>\n\n    <Button slot=\"actions\" action={toggleListReaction(l: l)}\n      if={l.visibility == Public, me != null}>\n      👍 {count(l.reactions)}\n    </Button>\n    <Toggle slot=\"actions\" value={showTags}>Tags</Toggle>\n\n    <Markdown source={l.about} />\n\n    <Grid columns={3}>\n      <Column for={i in l.items}>\n        <PracticeCard p={i.practice} />\n        <Row if={showTags}>\n          <Badge color={t.color} for={t in i.practice.tags} where={t.list == l}>{t.name}</Badge>\n        </Row>\n      </Column>\n    </Grid>\n  </Shell>\n",
+    "/supplies/Practices.beetle": "// Search and sort practices. The search text is state, so it never leaves the device:\n// the host returns every practice and the client filters them.\nuse \"data/schema.beetle\"\nuse \"parts/cards.beetle\"\n\nview():\n  state q = \"\"\n  keep sortBy = \"name\"\n\n  <Shell title=\"Practices\">\n    <Row slot=\"actions\">\n      <TextField value={q} placeholder=\"Search\" />\n      <Button action={set(sortBy, \"name\")} selected={sortBy == \"name\"}>A–Z</Button>\n      <Button action={set(sortBy, \"authors\")} selected={sortBy == \"authors\"}>Most authors</Button>\n    </Row>\n    <Grid columns={3}>\n      <PracticeCard p={p}\n        for={p in Practice} where={q == \"\" or q in p.name}\n        orderBy={sortBy == \"name\" ? p.name : count(p.authors) desc}\n        fallback={<Text style=\"secondary\">No practices match “{q}”.</Text>} />\n    </Grid>\n  </Shell>\n",
+    "/supplies/Profile.beetle": "// A person's page. There are no per-table read rules: what a view may read is what its\n// caller may read.\nuse \"data/schema.beetle\"\nuse \"parts/cards.beetle\"\n\nrule curatedBy(l List, person Person):\n  l.owner == person\nrule curatedBy(l List, person Person):\n  person in l.contributors.person\n\nview(id):\n  <Shell title={person.name} subtitle=\"@{person.handle}\"\n    for={person in Person} where={person.id == id}\n    fallback={<Shell title=\"Profile not found\" />}>\n\n    <Section title=\"Practices\">\n      <Grid columns={3}>\n        <PracticeCard p={p} for={p in Practice} where={person in p.authors} orderBy={p.name} />\n      </Grid>\n    </Section>\n\n    <Section title=\"Lists featuring their practices\">\n      <Grid columns={2}>\n        <ListCard list={l} for={l in List} where={person in l.items.practice.authors} />\n      </Grid>\n    </Section>\n\n    <Section title=\"Lists they curate\">\n      <Grid columns={2}>\n        <ListCard list={l} for={l in List} where={curatedBy(l, person)} orderBy={l.name} />\n      </Grid>\n    </Section>\n\n    <Section title=\"Collaborators\">\n      <Row>\n        <Avatar person={other}\n          for={p in Practice, other in p.authors} where={person in p.authors, other != person}\n          orderBy={other.name} />\n      </Row>\n    </Section>\n\n    <Section title=\"Who wrote what with them\">\n      <Text for={p in Practice, other in p.authors} where={person in p.authors, other != person}>\n        {other.name} on {p.name}\n      </Text>\n    </Section>\n  </Shell>\n",
+    "/supplies/Timer.beetle": "// A widget with its own tables, declared beside the view that uses them.\n\nmy table Lap:  // one viewer's rows, across the whole app\n  at    Date\n  label Text\n\nmutation lap(label Text):\n  Lap(at: now, label: label)\n\nview(minutes Int?):  // configuration is the view block's attributes\n  state running = false  // state x = v is a one-row session table\n  state elapsed = 0\n  every 1s → set(elapsed, running ? elapsed + 1 : elapsed)\n\n  <Column>\n    <Text style=\"heading\">{elapsed} s of {(minutes ?? 25) * 60}</Text>\n    <Row>\n      <Button action={set(running, not running)}>{running ? \"Stop\" : \"Start\"}</Button>\n      <Button action={lap(label: \"Lap \" + (count(Lap) + 1))}>Lap</Button>\n    </Row>\n    <Text for={l in Lap} orderBy={l.at desc}>{l.label}</Text>\n  </Column>\n",
+    "/supplies/Today.md": "---\ndate: 2026-11-11\n---\n\n# Today\n\n```view\nuse \"Timer.beetle\" (view as Timer)\n<Timer minutes={50} />\n```\n\n```view\nview Late():\n  <Column>\n    <Text for={c in page.children} where={not c.done, c.due < page.date}>{c.name}</Text>\n  </Column>\n```\n",
+    "/supplies/data/schema.beetle": "// Supplies' schema, in the one language. A collection's data tables can only be\n// declared here; views, rules and mutations may sit beside them.\n// Was: examples/supplies/data/schema.usl.\n\nmain table List:\n  name        Text\n  about       Markdown?\n  visibility  Visibility\n  kind        ListKind\n  openToEdits Bool\n  owner       Person\n  @index(owner, modified)  // my lists, newest first\n\nList.owner      <-> Person.ownedLists[]\nList.visibility <-> Visibility.lists[]\nList.kind       <-> ListKind.lists[]\n\ntable Practice:\n  name  unique Text\n  about Markdown?\n\nPractice.authors[] <-> Person.practices[]\n\n// A connection table, because tags hang off it.\ntable Item:\n  ordered List.items[]\n  Practice.items[]\n\n// A tag's id is unique only within its list.\ntable Tag (list, id):\n  name  Text\n  color Text?\n\nTag.list        <-> List.tags[]\nTag.practices[] <-> Practice.tags[]\n\ntable Reaction:\n  List.reactions[]\n  Person.reactions[]\n  emoji Text\n\ntable Contribution:\n  List.contributors[]\n  Person.contributions[]\n  first Date = today  // a default, written only when the row is created\n  last  Date\n\nenum Visibility:\n  Public\n  Private\n\nenum ListKind:\n  Standard\n  Tagged\n\n// --------------------------------------------------------------- arrangements\n// What `~views` used to say: ordinary views over the standard Rows element, which\n// Story draws natively and lets readers edit. Addressed as data/schema?view=ByOwner.\n\nview ByOwner():\n  <Rows for={l in List} group={l.owner} orderBy={l.modified desc}>\n    <Bullet value={l.visibility} />\n    <Text>{l.name}</Text>\n    <Count of={l.items} />\n  </Rows>\n\n// Rules and mutations: ../mutations.beetle (they could sit here just as well).\n",
+    "/supplies/mutations.beetle": "// Supplies' mutations as facts: each line says what holds afterwards. (Joe chose facts\n// over statements, 2026-11-11.)\n//\n//   Table(field: value, …)      a row with these key fields exists with these values:\n//                               inserted if missing, updated if there. With no key\n//                               fields given (an id-keyed table), it is a new row.\n//   not Table(field: value, …)  no row matches: matching rows are deleted\n//   row.field = value           the field has this value\n//   let name = Table(…)         names the new row for the lines below (no return value)\n//                               (the receipt carries every row written, by table)\n//   other(arg: value)           another mutation's facts hold too\n//   if …:                       the facts below hold only if the condition does\n//   for … where …:              the facts below hold for each match, as on a view element\n//   unauthorized | forbidden | missing | invalid | conflict \"message\"\n//                               fail with that public error (HTTP 401/403/404/422/409);\n//                               if any failure applies, nothing is written\n//\n// Every fact reads the state from before the mutation. A field written only on creation\n// takes its table's default (Contribution.first Date = today in the schema).\nuse \"data/schema.beetle\"\n\nrule editor(l List):\n  l.owner == me or l.openToEdits\n\n// ------------------------------------------------------------- shared steps\n\nmutation recordContributor(l List):\n  if l.owner != me:\n    Contribution(list: l, person: me, last: today)\n\n// ------------------------------------------------------------- lists\n\nmutation createList(name Text, visibility Visibility):\n  if me == null:\n    unauthorized \"This operation requires a Story user\"\n  List(owner: me, name: name, visibility: visibility, kind: Standard, openToEdits: false)\n\nmutation renameList(l List, name Text):\n  if l.owner != me:\n    forbidden \"Only the owner can rename this list\"\n  l.name = name\n\nmutation setListSharing(l List, visibility Visibility, openToEdits Bool):\n  if l.owner != me:\n    forbidden \"Only the owner can change sharing\"\n  l.visibility = visibility\n  l.openToEdits = openToEdits\n\nmutation setListKind(l List, kind ListKind):\n  if l.owner != me:\n    forbidden \"Only the owner can change the list kind\"\n  l.kind = kind\n\nmutation toggleListReaction(l List):\n  if me == null:\n    unauthorized \"This operation requires a Story user\"\n  if l.visibility != Public:\n    missing \"Only public lists can be liked\"\n  if me in l.reactions.person:\n    not Reaction(list: l, person: me)\n  if l.reactions.person excludes me:\n    Reaction(list: l, person: me, emoji: \"👍\")\n\nmutation duplicateList(original List):\n  if me == null:\n    unauthorized \"This operation requires a Story user\"\n  if original.visibility != Public and original.owner != me:\n    missing \"List not found\"\n  List(owner: me, name: \"Copy of \" + original.name, about: original.about,\n       visibility: original.visibility, kind: Standard, openToEdits: false,\n       items: original.items.practice)\n\n// ------------------------------------------------------------- membership and order\n\nmutation setListPractice(l List, p Practice, included Bool):\n  if not editor(l):\n    forbidden \"You cannot edit this list\"\n  if included and l.items.practice excludes p:\n    Item(list: l, practice: p)\n    recordContributor(l: l)\n  if not included and p in l.items.practice:\n    not Item(list: l, practice: p)\n    recordContributor(l: l)\n\nmutation reorderList(l List, practices Practice[]):\n  if not editor(l):\n    forbidden \"You cannot edit this list\"\n  l.items = practices\n  recordContributor(l: l)\n\n// ------------------------------------------------------------- tags\n\nmutation createListTag(l List, name Text, color Text?):\n  if l.owner != me:\n    forbidden \"Only the owner can create tags\"\n  Tag(list: l, name: name, color: color)\n\nmutation deleteListTag(l List, t Tag):\n  if l.owner != me:\n    forbidden \"Only the owner can delete tags\"\n  if t.list != l:\n    missing \"Tag not found\"\n  not Tag(list: l, id: t.id)  // its taggings go with it\n\nmutation setPracticeTag(l List, p Practice, t Tag, included Bool):\n  if not editor(l):\n    forbidden \"You cannot edit this list\"\n  if l.items.practice excludes p:\n    invalid \"The practice is not on this list\"\n  // Tag.practices is an unnamed connection, so it is written as a field\n  if included and t.practices excludes p:\n    t.practices = t.practices + p\n    recordContributor(l: l)\n  if not included and p in t.practices:\n    t.practices = t.practices - p\n    recordContributor(l: l)\n\n// ------------------------------------------------------------- practices\n\nmutation createPractice(name Text, about Markdown, addToList List?):\n  if me == null:\n    unauthorized \"This operation requires a Story user\"\n  if addToList != null and not editor(addToList):\n    forbidden \"You cannot edit this list\"\n  let practice = Practice(name: name, about: about, authors: [me])\n  if addToList != null:\n    Item(list: addToList, practice: practice)\n    recordContributor(l: addToList)\n\nmutation updatePractice(p Practice, name Text, about Markdown):\n  if me == null:\n    unauthorized \"This operation requires a Story user\"\n  if count(p.authors) > 0 and p.authors excludes me:\n    forbidden \"Only an author can edit this practice\"\n  p.name = name\n  p.about = about\n",
+    "/supplies/parts/cards.beetle": "// Views drawn as elements. Used with: use \"parts/cards.beetle\" (ListCard, PracticeCard)\nuse \"../data/schema.beetle\"\n\nview ListCard(list List):\n  <Card>\n    <Row>\n      <Link style=\"heading\" to=\"List?id={list.id}\">{list.name}</Link>\n      <Text style=\"secondary\">{count(list.items)} practices</Text>\n    </Row>\n    <Markdown source={list.about} />\n  </Card>\n\nview PracticeCard(p Practice):\n  <Card>\n    <Link style=\"heading\" to=\"Practice?id={p.id}\">{p.name}</Link>\n    <Row>\n      <Text style=\"secondary\">by</Text>\n      <Avatar person={a} for={a in p.authors} orderBy={a.name} />\n    </Row>\n    <Markdown source={p.about} lines={6} />\n  </Card>\n\nview Avatar(person Person):\n  <Link to=\"Profile?id={person.id}\">\n    <Portrait src={person.portrait} name={person.name} />\n    {person.name}\n  </Link>\n"
+  },
+  "cases": [
+    {
+      "path": "/invalid/cycle.beetle",
+      "diagnostics": [
+        {
+          "line": 2,
+          "column": 1,
+          "code": "use-cycle"
+        }
+      ],
+      "views": [],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/data.beetle",
+      "diagnostics": [
+        {
+          "line": 6,
+          "column": 3,
+          "code": "data-entry-key"
+        },
+        {
+          "line": 9,
+          "column": 5,
+          "code": "unknown-field"
+        },
+        {
+          "line": 11,
+          "column": 5,
+          "code": "not-a-relationship"
+        },
+        {
+          "line": 13,
+          "column": 5,
+          "code": "duplicate-key"
+        },
+        {
+          "line": 16,
+          "column": 7,
+          "code": "not-data"
+        },
+        {
+          "line": 18,
+          "column": 44,
+          "code": "limit"
+        },
+        {
+          "line": 20,
+          "column": 17,
+          "code": "unknown-attribute"
+        },
+        {
+          "line": 22,
+          "column": 17,
+          "code": "where-without-for"
+        }
+      ],
+      "views": [
+        {
+          "name": "Bad",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": null,
+          "data": {
+            "entries": [
+              {
+                "key": "name",
+                "field": "name"
+              },
+              {
+                "key": "lists",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "id"
+                        ]
+                      },
+                      {
+                        "param": "id"
+                      }
+                    ]
+                  }
+                ],
+                "record": {
+                  "entries": [
+                    {
+                      "key": "colour",
+                      "field": "colour"
+                    },
+                    {
+                      "key": "name",
+                      "field": "name",
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "size",
+                            "field": "size"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "colour",
+                      "value": {
+                        "value": 1
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "key": "go",
+                "value": {
+                  "element": "Text"
+                }
+              },
+              {
+                "key": "few",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  }
+                ],
+                "limit": {
+                  "value": "ten"
+                },
+                "record": {
+                  "entries": [
+                    {
+                      "key": "name",
+                      "field": "name"
+                    }
+                  ]
+                }
+              },
+              {
+                "key": "one",
+                "record": {
+                  "entries": [
+                    {
+                      "key": "a",
+                      "value": {
+                        "value": 1
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "key": "two",
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "param": "id"
+                      },
+                      {
+                        "value": ""
+                      }
+                    ]
+                  }
+                ],
+                "record": {
+                  "entries": [
+                    {
+                      "key": "a",
+                      "value": {
+                        "value": 1
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/elements.beetle",
+      "diagnostics": [
+        {
+          "line": 10,
+          "column": 6,
+          "code": "missing-attribute"
+        },
+        {
+          "line": 12,
+          "column": 25,
+          "code": "unknown-attribute"
+        },
+        {
+          "line": 14,
+          "column": 22,
+          "code": "type-mismatch"
+        },
+        {
+          "line": 18,
+          "column": 7,
+          "code": "limit-reads-state"
+        },
+        {
+          "line": 20,
+          "column": 38,
+          "code": "not-a-condition"
+        },
+        {
+          "line": 22,
+          "column": 40,
+          "code": "not-a-collection"
+        },
+        {
+          "line": 24,
+          "column": 38,
+          "code": "set-comparison"
+        },
+        {
+          "line": 26,
+          "column": 11,
+          "code": "where-without-for"
+        },
+        {
+          "line": 28,
+          "column": 27,
+          "code": "if-with-for"
+        },
+        {
+          "line": 30,
+          "column": 11,
+          "code": "group-without-for"
+        },
+        {
+          "line": 32,
+          "column": 25,
+          "code": "set-target"
+        },
+        {
+          "line": 34,
+          "column": 11,
+          "code": "fallback-element"
+        }
+      ],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [
+            {
+              "name": "q",
+              "kind": "state"
+            }
+          ],
+          "events": [],
+          "plan": {
+            "type": "PracticeCard",
+            "at": "10:5",
+            "draws": {
+              "view": "PracticeCard",
+              "from": "/supplies/parts/cards.beetle",
+              "args": {}
+            }
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/more-cards.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "Avatar",
+          "params": [
+            {
+              "name": "person",
+              "type": "Person",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Text",
+            "at": "5:3",
+            "reads": [
+              {
+                "path": {
+                  "param": "person"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/mutations.beetle",
+      "diagnostics": [
+        {
+          "line": 6,
+          "column": 5,
+          "code": "implicit-field"
+        },
+        {
+          "line": 8,
+          "column": 3,
+          "code": "missing-field"
+        },
+        {
+          "line": 10,
+          "column": 3,
+          "code": "fact-key"
+        },
+        {
+          "line": 12,
+          "column": 13,
+          "code": "type-mismatch"
+        },
+        {
+          "line": 14,
+          "column": 3,
+          "code": "not-writable"
+        },
+        {
+          "line": 16,
+          "column": 12,
+          "code": "fact-argument"
+        },
+        {
+          "line": 18,
+          "column": 3,
+          "code": "unknown-table"
+        },
+        {
+          "line": 21,
+          "column": 3,
+          "code": "conflicting-writes"
+        },
+        {
+          "line": 23,
+          "column": 3,
+          "code": "error-outside-if"
+        },
+        {
+          "line": 28,
+          "column": 5,
+          "code": "error-not-alone"
+        },
+        {
+          "line": 32,
+          "column": 30,
+          "code": "row-action"
+        }
+      ],
+      "views": [],
+      "mutations": [
+        {
+          "name": "bad",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "insert",
+              "table": "Contribution",
+              "fields": [
+                "last",
+                "list"
+              ]
+            },
+            {
+              "op": "update",
+              "table": "List",
+              "fields": [
+                "items",
+                "modified",
+                "name"
+              ]
+            },
+            {
+              "op": "insert",
+              "table": "Practice",
+              "fields": []
+            },
+            {
+              "op": "insert",
+              "table": "Tag",
+              "fields": [
+                "list"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden"
+          ],
+          "reads": [
+            "Contribution",
+            "List",
+            "Practice",
+            "Tag"
+          ]
+        },
+        {
+          "name": "guarded",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "table": "List",
+              "fields": [
+                "name"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "unauthorized"
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "edit",
+          "params": [
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "rowAction": {
+            "model": "List",
+            "op": "edit"
+          },
+          "writes": [],
+          "lets": [],
+          "errors": [
+            "unauthorized"
+          ],
+          "reads": []
+        }
+      ]
+    },
+    {
+      "path": "/invalid/names.beetle",
+      "diagnostics": [
+        {
+          "line": 4,
+          "column": 53,
+          "code": "unknown-pick"
+        },
+        {
+          "line": 7,
+          "column": 6,
+          "code": "builtin-name"
+        },
+        {
+          "line": 13,
+          "column": 12,
+          "code": "unknown-name"
+        },
+        {
+          "line": 15,
+          "column": 14,
+          "code": "unknown-field"
+        },
+        {
+          "line": 17,
+          "column": 31,
+          "code": "enum-value"
+        },
+        {
+          "line": 19,
+          "column": 16,
+          "code": "duplicate-name"
+        },
+        {
+          "line": 21,
+          "column": 12,
+          "code": "no-clock"
+        },
+        {
+          "line": 23,
+          "column": 6,
+          "code": "unknown-element"
+        },
+        {
+          "line": 27,
+          "column": 1,
+          "code": "two-unnamed-views"
+        }
+      ],
+      "views": [
+        {
+          "name": "",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Column",
+            "at": "11:3",
+            "for": [
+              {
+                "name": "l",
+                "source": {
+                  "model": "List"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "id"
+                    ]
+                  },
+                  {
+                    "param": "id"
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "l"
+            ],
+            "children": [
+              {
+                "type": "Text",
+                "at": "13:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "nobody"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "at": "15:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "colour"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "at": "17:5",
+                "if": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "visibility"
+                        ]
+                      },
+                      {
+                        "name": "Hidden"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "at": "19:5",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "expandsBy": [
+                  "l"
+                ],
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": null
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/rules.beetle",
+      "diagnostics": [
+        {
+          "line": 5,
+          "column": 6,
+          "code": "rule-recursion"
+        }
+      ],
+      "views": [],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/syntax.beetle",
+      "diagnostics": [
+        {
+          "line": 2,
+          "column": 6,
+          "code": "syntax"
+        },
+        {
+          "line": 7,
+          "column": 3,
+          "code": "syntax"
+        },
+        {
+          "line": 11,
+          "column": 25,
+          "code": "syntax"
+        },
+        {
+          "line": 15,
+          "column": 10,
+          "code": "syntax"
+        }
+      ],
+      "views": [],
+      "mutations": [
+        {
+          "name": "m",
+          "params": [],
+          "writes": [],
+          "lets": [],
+          "errors": [],
+          "reads": []
+        }
+      ]
+    },
+    {
+      "path": "/invalid/tables.beetle",
+      "diagnostics": [
+        {
+          "line": 5,
+          "column": 7,
+          "code": "data-table-outside-schema"
+        },
+        {
+          "line": 10,
+          "column": 3,
+          "code": "unknown-type"
+        },
+        {
+          "line": 12,
+          "column": 3,
+          "code": "implicit-field"
+        },
+        {
+          "line": 14,
+          "column": 18,
+          "code": "default-value"
+        },
+        {
+          "line": 16,
+          "column": 3,
+          "code": "state-connection"
+        },
+        {
+          "line": 19,
+          "column": 15,
+          "code": "duplicate-name"
+        },
+        {
+          "line": 29,
+          "column": 33,
+          "code": "enum-value"
+        }
+      ],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Text",
+            "at": "29:5",
+            "for": [
+              {
+                "name": "p",
+                "source": {
+                  "model": "Pin"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "name": "Sleepy"
+                  },
+                  {
+                    "enum": "Mood",
+                    "value": "Calm"
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "p"
+            ],
+            "reads": [
+              {
+                "path": {
+                  "name": "p"
+                },
+                "fields": [
+                  "list",
+                  "name"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/uses.beetle",
+      "diagnostics": [
+        {
+          "line": 3,
+          "column": 1,
+          "code": "use-not-found"
+        },
+        {
+          "line": 5,
+          "column": 1,
+          "code": "use-cycle"
+        },
+        {
+          "line": 8,
+          "column": 1,
+          "code": "ambiguous-use"
+        }
+      ],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": null
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Feeds.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "ListsByOwner",
+          "params": [
+            {
+              "name": "owner",
+              "type": "Person",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": null,
+          "data": {
+            "entries": [
+              {
+                "key": "lists",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "owner"
+                        ]
+                      },
+                      {
+                        "param": "owner"
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "modified"
+                      ]
+                    },
+                    "desc": true
+                  }
+                ],
+                "limit": {
+                  "value": 20
+                },
+                "record": {
+                  "entries": [
+                    {
+                      "key": "name",
+                      "field": "name"
+                    },
+                    {
+                      "key": "size",
+                      "value": {
+                        "call": "count",
+                        "args": [
+                          {
+                            "path": {
+                              "name": "l"
+                            },
+                            "fields": [
+                              "items"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "owner",
+                      "field": "owner",
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "name",
+                            "field": "name"
+                          },
+                          {
+                            "key": "handle",
+                            "field": "handle"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "practices",
+                      "for": [
+                        {
+                          "name": "p",
+                          "source": {
+                            "path": {
+                              "name": "l"
+                            },
+                            "fields": [
+                              "items",
+                              "practice"
+                            ]
+                          }
+                        }
+                      ],
+                      "orderBy": [
+                        {
+                          "value": {
+                            "path": {
+                              "name": "p"
+                            },
+                            "fields": [
+                              "name"
+                            ]
+                          },
+                          "desc": false
+                        }
+                      ],
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "name",
+                            "field": "name"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "OnePractice",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": null,
+          "data": {
+            "entries": [
+              {
+                "key": "practice",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "id"
+                        ]
+                      },
+                      {
+                        "param": "id"
+                      }
+                    ]
+                  }
+                ],
+                "record": {
+                  "entries": [
+                    {
+                      "key": "name",
+                      "field": "name"
+                    },
+                    {
+                      "key": "about",
+                      "field": "about"
+                    },
+                    {
+                      "key": "authors",
+                      "field": "authors",
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "name",
+                            "field": "name"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "lists",
+                      "value": {
+                        "call": "count",
+                        "over": {
+                          "name": "l",
+                          "source": {
+                            "model": "List"
+                          }
+                        },
+                        "where": [
+                          {
+                            "op": "in",
+                            "args": [
+                              {
+                                "name": "p"
+                              },
+                              {
+                                "path": {
+                                  "name": "l"
+                                },
+                                "fields": [
+                                  "items",
+                                  "practice"
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "tagged",
+                      "if": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "call": "count",
+                              "args": [
+                                {
+                                  "path": {
+                                    "name": "p"
+                                  },
+                                  "fields": [
+                                    "tags"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "value": 0
+                            }
+                          ]
+                        }
+                      ],
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "tags",
+                            "field": "tags",
+                            "record": {
+                              "entries": [
+                                {
+                                  "key": "name",
+                                  "field": "name"
+                                },
+                                {
+                                  "key": "color",
+                                  "field": "color"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Home.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "ListCard",
+            "at": "9:9",
+            "for": [
+              {
+                "name": "l",
+                "source": {
+                  "model": "List"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "visibility"
+                    ]
+                  },
+                  {
+                    "enum": "Visibility",
+                    "value": "Public"
+                  }
+                ]
+              }
+            ],
+            "orderBy": [
+              {
+                "value": {
+                  "call": "count",
+                  "args": [
+                    {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "reactions"
+                      ]
+                    }
+                  ]
+                },
+                "desc": true
+              }
+            ],
+            "limit": {
+              "value": 12
+            },
+            "expandsBy": [
+              "l"
+            ],
+            "draws": {
+              "view": "ListCard",
+              "from": "/supplies/parts/cards.beetle",
+              "args": {
+                "list": {
+                  "name": "l"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/List.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [
+            {
+              "name": "showTags",
+              "kind": "state"
+            }
+          ],
+          "events": [],
+          "plan": {
+            "type": "Shell",
+            "at": "9:3",
+            "for": [
+              {
+                "name": "l",
+                "source": {
+                  "model": "List"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "id"
+                    ]
+                  },
+                  {
+                    "param": "id"
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "l"
+            ],
+            "reads": [
+              {
+                "path": {
+                  "name": "l"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ],
+            "children": [
+              {
+                "type": "Avatar",
+                "at": "15:7",
+                "draws": {
+                  "view": "Avatar",
+                  "from": "/supplies/parts/cards.beetle",
+                  "args": {
+                    "person": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "owner"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Avatar",
+                "at": "16:7",
+                "for": [
+                  {
+                    "name": "c",
+                    "source": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "contributors",
+                        "person"
+                      ]
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "!=",
+                    "args": [
+                      {
+                        "name": "c"
+                      },
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "owner"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "c"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    "desc": false
+                  }
+                ],
+                "expandsBy": [
+                  "c"
+                ],
+                "draws": {
+                  "view": "Avatar",
+                  "from": "/supplies/parts/cards.beetle",
+                  "args": {
+                    "person": {
+                      "name": "c"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Button",
+                "at": "19:5",
+                "if": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "visibility"
+                        ]
+                      },
+                      {
+                        "enum": "Visibility",
+                        "value": "Public"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "!=",
+                    "args": [
+                      {
+                        "builtin": "me"
+                      },
+                      {
+                        "value": null
+                      }
+                    ]
+                  }
+                ],
+                "reads": [
+                  {
+                    "call": "count",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "reactions"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Markdown",
+                "at": "25:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "about"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "at": "28:7",
+                "for": [
+                  {
+                    "name": "i",
+                    "source": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "items"
+                      ]
+                    }
+                  }
+                ],
+                "expandsBy": [
+                  "i"
+                ],
+                "children": [
+                  {
+                    "type": "PracticeCard",
+                    "at": "29:9",
+                    "draws": {
+                      "view": "PracticeCard",
+                      "from": "/supplies/parts/cards.beetle",
+                      "args": {
+                        "p": {
+                          "path": {
+                            "name": "i"
+                          },
+                          "fields": [
+                            "practice"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "Row",
+                    "at": "30:9",
+                    "clientIf": [
+                      {
+                        "state": "showTags"
+                      }
+                    ],
+                    "children": [
+                      {
+                        "type": "Badge",
+                        "at": "31:11",
+                        "for": [
+                          {
+                            "name": "t",
+                            "source": {
+                              "path": {
+                                "name": "i"
+                              },
+                              "fields": [
+                                "practice",
+                                "tags"
+                              ]
+                            }
+                          }
+                        ],
+                        "where": [
+                          {
+                            "op": "==",
+                            "args": [
+                              {
+                                "path": {
+                                  "name": "t"
+                                },
+                                "fields": [
+                                  "list"
+                                ]
+                              },
+                              {
+                                "name": "l"
+                              }
+                            ]
+                          }
+                        ],
+                        "expandsBy": [
+                          "t"
+                        ],
+                        "reads": [
+                          {
+                            "path": {
+                              "name": "t"
+                            },
+                            "fields": [
+                              "color"
+                            ]
+                          },
+                          {
+                            "path": {
+                              "name": "t"
+                            },
+                            "fields": [
+                              "name"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Practices.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [
+            {
+              "name": "q",
+              "kind": "state"
+            },
+            {
+              "name": "sortBy",
+              "kind": "keep"
+            }
+          ],
+          "events": [],
+          "plan": {
+            "type": "PracticeCard",
+            "at": "17:7",
+            "for": [
+              {
+                "name": "p",
+                "source": {
+                  "model": "Practice"
+                }
+              }
+            ],
+            "clientWhere": [
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "state": "q"
+                      },
+                      {
+                        "value": ""
+                      }
+                    ]
+                  },
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "state": "q"
+                      },
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "name"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "clientOrderBy": [
+              {
+                "value": {
+                  "op": "?:",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "state": "sortBy"
+                        },
+                        {
+                          "value": "name"
+                        }
+                      ]
+                    },
+                    {
+                      "path": {
+                        "name": "p"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    {
+                      "call": "count",
+                      "args": [
+                        {
+                          "path": {
+                            "name": "p"
+                          },
+                          "fields": [
+                            "authors"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "desc": true
+              }
+            ],
+            "expandsBy": [
+              "p"
+            ],
+            "draws": {
+              "view": "PracticeCard",
+              "from": "/supplies/parts/cards.beetle",
+              "args": {
+                "p": {
+                  "name": "p"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Profile.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Shell",
+            "at": "12:3",
+            "for": [
+              {
+                "name": "person",
+                "source": {
+                  "model": "Person"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "path": {
+                      "name": "person"
+                    },
+                    "fields": [
+                      "id"
+                    ]
+                  },
+                  {
+                    "param": "id"
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "person"
+            ],
+            "reads": [
+              {
+                "path": {
+                  "name": "person"
+                },
+                "fields": [
+                  "name"
+                ]
+              },
+              {
+                "path": {
+                  "name": "person"
+                },
+                "fields": [
+                  "handle"
+                ]
+              }
+            ],
+            "children": [
+              {
+                "type": "PracticeCard",
+                "at": "18:9",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "name": "person"
+                      },
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "authors"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "p"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    "desc": false
+                  }
+                ],
+                "expandsBy": [
+                  "p"
+                ],
+                "draws": {
+                  "view": "PracticeCard",
+                  "from": "/supplies/parts/cards.beetle",
+                  "args": {
+                    "p": {
+                      "name": "p"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "ListCard",
+                "at": "24:9",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "name": "person"
+                      },
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "items",
+                          "practice",
+                          "authors"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "expandsBy": [
+                  "l"
+                ],
+                "draws": {
+                  "view": "ListCard",
+                  "from": "/supplies/parts/cards.beetle",
+                  "args": {
+                    "list": {
+                      "name": "l"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "ListCard",
+                "at": "30:9",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          {
+                            "path": {
+                              "name": "l"
+                            },
+                            "fields": [
+                              "owner"
+                            ]
+                          },
+                          {
+                            "name": "person"
+                          }
+                        ]
+                      },
+                      {
+                        "op": "in",
+                        "args": [
+                          {
+                            "name": "person"
+                          },
+                          {
+                            "path": {
+                              "name": "l"
+                            },
+                            "fields": [
+                              "contributors",
+                              "person"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    "desc": false
+                  }
+                ],
+                "expandsBy": [
+                  "l"
+                ],
+                "draws": {
+                  "view": "ListCard",
+                  "from": "/supplies/parts/cards.beetle",
+                  "args": {
+                    "list": {
+                      "name": "l"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Avatar",
+                "at": "36:9",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  },
+                  {
+                    "name": "other",
+                    "source": {
+                      "path": {
+                        "name": "p"
+                      },
+                      "fields": [
+                        "authors"
+                      ]
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "name": "person"
+                      },
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "authors"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "!=",
+                    "args": [
+                      {
+                        "name": "other"
+                      },
+                      {
+                        "name": "person"
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "other"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    "desc": false
+                  }
+                ],
+                "expandsBy": [
+                  "other"
+                ],
+                "draws": {
+                  "view": "Avatar",
+                  "from": "/supplies/parts/cards.beetle",
+                  "args": {
+                    "person": {
+                      "name": "other"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Text",
+                "at": "43:7",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  },
+                  {
+                    "name": "other",
+                    "source": {
+                      "path": {
+                        "name": "p"
+                      },
+                      "fields": [
+                        "authors"
+                      ]
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "name": "person"
+                      },
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "authors"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "!=",
+                    "args": [
+                      {
+                        "name": "other"
+                      },
+                      {
+                        "name": "person"
+                      }
+                    ]
+                  }
+                ],
+                "expandsBy": [
+                  "p",
+                  "other"
+                ],
+                "reads": [
+                  {
+                    "path": {
+                      "name": "other"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  },
+                  {
+                    "path": {
+                      "name": "p"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Timer.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [
+            {
+              "name": "minutes",
+              "type": "Int",
+              "arity": "optional"
+            }
+          ],
+          "state": [
+            {
+              "name": "running",
+              "kind": "state"
+            },
+            {
+              "name": "elapsed",
+              "kind": "state"
+            }
+          ],
+          "events": [
+            "every 1s"
+          ],
+          "plan": {
+            "type": "Button",
+            "at": "19:7",
+            "reads": [
+              {
+                "call": "count",
+                "args": [
+                  {
+                    "model": "Lap"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": [
+        {
+          "name": "lap",
+          "params": [
+            {
+              "name": "label",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "insert",
+              "table": "Lap",
+              "fields": [
+                "at",
+                "label"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [],
+          "reads": [
+            "Lap"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "/supplies/Today.md",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "#1",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Timer",
+            "at": "16:1",
+            "draws": {
+              "view": "Timer",
+              "from": "/supplies/Timer.beetle",
+              "args": {
+                "minutes": {
+                  "value": 50
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Late",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Text",
+            "at": "15:5",
+            "for": [
+              {
+                "name": "c",
+                "source": {
+                  "path": {
+                    "builtin": "page"
+                  },
+                  "fields": [
+                    "children"
+                  ]
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "not",
+                "args": [
+                  {
+                    "path": {
+                      "name": "c"
+                    },
+                    "fields": [
+                      "done"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "<",
+                "args": [
+                  {
+                    "path": {
+                      "name": "c"
+                    },
+                    "fields": [
+                      "due"
+                    ]
+                  },
+                  {
+                    "path": {
+                      "builtin": "page"
+                    },
+                    "fields": [
+                      "date"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "c"
+            ],
+            "reads": [
+              {
+                "path": {
+                  "name": "c"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/data/schema.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "ByOwner",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Rows",
+            "at": "61:3",
+            "for": [
+              {
+                "name": "l",
+                "source": {
+                  "model": "List"
+                }
+              }
+            ],
+            "group": {
+              "path": {
+                "name": "l"
+              },
+              "fields": [
+                "owner"
+              ]
+            },
+            "orderBy": [
+              {
+                "value": {
+                  "path": {
+                    "name": "l"
+                  },
+                  "fields": [
+                    "modified"
+                  ]
+                },
+                "desc": true
+              }
+            ],
+            "expandsBy": [
+              "l"
+            ],
+            "children": [
+              {
+                "type": "Bullet",
+                "at": "62:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "visibility"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "at": "63:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Count",
+                "at": "64:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "items"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/mutations.beetle",
+      "diagnostics": [],
+      "views": [],
+      "mutations": [
+        {
+          "name": "recordContributor",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "table": "Contribution",
+              "fields": [
+                "last",
+                "list",
+                "person"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [],
+          "reads": [
+            "Contribution",
+            "List"
+          ]
+        },
+        {
+          "name": "createList",
+          "params": [
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            },
+            {
+              "name": "visibility",
+              "type": "Visibility",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "insert",
+              "table": "List",
+              "fields": [
+                "kind",
+                "name",
+                "openToEdits",
+                "owner",
+                "visibility"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "unauthorized"
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "renameList",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "table": "List",
+              "fields": [
+                "name"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden"
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "setListSharing",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "visibility",
+              "type": "Visibility",
+              "arity": "one"
+            },
+            {
+              "name": "openToEdits",
+              "type": "Bool",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "table": "List",
+              "fields": [
+                "openToEdits",
+                "visibility"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden"
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "setListKind",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "kind",
+              "type": "ListKind",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "table": "List",
+              "fields": [
+                "kind"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden"
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "toggleListReaction",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "delete",
+              "table": "Reaction"
+            },
+            {
+              "op": "upsert",
+              "table": "Reaction",
+              "fields": [
+                "emoji",
+                "list",
+                "person"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "unauthorized",
+            "missing"
+          ],
+          "reads": [
+            "List",
+            "Reaction"
+          ]
+        },
+        {
+          "name": "duplicateList",
+          "params": [
+            {
+              "name": "original",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "insert",
+              "table": "List",
+              "fields": [
+                "about",
+                "items",
+                "kind",
+                "name",
+                "openToEdits",
+                "owner",
+                "visibility"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "unauthorized",
+            "missing"
+          ],
+          "reads": [
+            "Item",
+            "List"
+          ]
+        },
+        {
+          "name": "setListPractice",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            },
+            {
+              "name": "included",
+              "type": "Bool",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "table": "Contribution",
+              "fields": [
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "delete",
+              "table": "Item"
+            },
+            {
+              "op": "upsert",
+              "table": "Item",
+              "fields": [
+                "list",
+                "practice"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden"
+          ],
+          "reads": [
+            "Item",
+            "List",
+            "Practice"
+          ]
+        },
+        {
+          "name": "reorderList",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "practices",
+              "type": "Practice",
+              "arity": "many"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "table": "Contribution",
+              "fields": [
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "update",
+              "table": "List",
+              "fields": [
+                "items"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden"
+          ],
+          "reads": [
+            "List",
+            "Practice"
+          ]
+        },
+        {
+          "name": "createListTag",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            },
+            {
+              "name": "color",
+              "type": "Text",
+              "arity": "optional"
+            }
+          ],
+          "writes": [
+            {
+              "op": "insert",
+              "table": "Tag",
+              "fields": [
+                "color",
+                "list",
+                "name"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden"
+          ],
+          "reads": [
+            "List",
+            "Tag"
+          ]
+        },
+        {
+          "name": "deleteListTag",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "t",
+              "type": "Tag",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "delete",
+              "table": "Tag"
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden",
+            "missing"
+          ],
+          "reads": [
+            "List",
+            "Tag"
+          ]
+        },
+        {
+          "name": "setPracticeTag",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            },
+            {
+              "name": "t",
+              "type": "Tag",
+              "arity": "one"
+            },
+            {
+              "name": "included",
+              "type": "Bool",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "table": "Contribution",
+              "fields": [
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "update",
+              "table": "Tag",
+              "fields": [
+                "practices"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "forbidden",
+            "invalid"
+          ],
+          "reads": [
+            "Item",
+            "List",
+            "Practice",
+            "Tag"
+          ]
+        },
+        {
+          "name": "createPractice",
+          "params": [
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            },
+            {
+              "name": "about",
+              "type": "Markdown",
+              "arity": "one"
+            },
+            {
+              "name": "addToList",
+              "type": "List",
+              "arity": "optional"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "table": "Contribution",
+              "fields": [
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "upsert",
+              "table": "Item",
+              "fields": [
+                "list",
+                "practice"
+              ]
+            },
+            {
+              "op": "insert",
+              "table": "Practice",
+              "fields": [
+                "about",
+                "authors",
+                "name"
+              ]
+            }
+          ],
+          "lets": [
+            {
+              "name": "practice",
+              "table": "Practice"
+            }
+          ],
+          "errors": [
+            "unauthorized",
+            "forbidden"
+          ],
+          "reads": [
+            "Item",
+            "List",
+            "Practice"
+          ]
+        },
+        {
+          "name": "updatePractice",
+          "params": [
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            },
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            },
+            {
+              "name": "about",
+              "type": "Markdown",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "table": "Practice",
+              "fields": [
+                "about",
+                "name"
+              ]
+            }
+          ],
+          "lets": [],
+          "errors": [
+            "unauthorized",
+            "forbidden"
+          ],
+          "reads": [
+            "Practice"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "/supplies/parts/cards.beetle",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "ListCard",
+          "params": [
+            {
+              "name": "list",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Link",
+            "at": "7:7",
+            "reads": [
+              {
+                "path": {
+                  "param": "list"
+                },
+                "fields": [
+                  "id"
+                ]
+              },
+              {
+                "path": {
+                  "param": "list"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "PracticeCard",
+          "params": [
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Link",
+            "at": "15:5",
+            "reads": [
+              {
+                "path": {
+                  "param": "p"
+                },
+                "fields": [
+                  "id"
+                ]
+              },
+              {
+                "path": {
+                  "param": "p"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "Avatar",
+          "params": [
+            {
+              "name": "person",
+              "type": "Person",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Link",
+            "at": "24:3",
+            "reads": [
+              {
+                "path": {
+                  "param": "person"
+                },
+                "fields": [
+                  "id"
+                ]
+              },
+              {
+                "path": {
+                  "param": "person"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ],
+            "children": [
+              {
+                "type": "Portrait",
+                "at": "25:5",
+                "reads": [
+                  {
+                    "path": {
+                      "param": "person"
+                    },
+                    "fields": [
+                      "portrait"
+                    ]
+                  },
+                  {
+                    "path": {
+                      "param": "person"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    }
+  ]
+}

@@ -13,14 +13,14 @@ import { encodeCanonicalCBOR } from "@ovst/protocol/cbor";
 import { decodeLogEntry } from "@ovst/merge-protocol";
 import { createHostSchema } from "../../src/schema.ts";
 import { compileLogicalSchema } from "@ovst/collection-schema";
-import { convertVerified } from "../../../../tools/convert-usl-to-vad.ts";
+import { convertVerified } from "../../../../tools/convert-usl-to-beetle.ts";
 import { HostDaemon } from "@ovst/overstoryd";
 import { runBatch } from "../tools/batch.ts";
 import { migrateNextBatch, steps } from "./run.ts";
 
 let sandbox: string, schema32: string;
 const usl = "main model Event {\n  name Text\n  on Date\n}\n";
-// The fingerprint the USL had is the converted VAD's: the converter checks it.
+// The fingerprint the USL had is the converted Beetle's: the converter checks it.
 const fingerprint = compileLogicalSchema(convertVerified(usl)).fingerprint;
 const enc = new TextEncoder();
 
@@ -153,7 +153,7 @@ test("each tree starts again at one update holding its head with entry times, pa
   expect(row).toMatchObject({ created: Date.parse("2026-11-01T10:00:00.000Z"), modified: Date.parse("2026-11-02T10:00:00.000Z") });
   expect(row!.fields.on).toBeInstanceOf(CBORTag);
   expect(events.collection!.modelFingerprint).toBe(fingerprint);
-  expect(events.entries.map((e) => e.name)).toEqual(["schema.vad"]);
+  expect(events.entries.map((e) => e.name)).toEqual(["schema.beetle"]);
   expect(new TextDecoder().decode(await store.read(events.entries[0]!.file!))).toBe(convertVerified(usl));
 
   expect((db.query("SELECT tree_id, facts FROM profile_facts").all() as Array<{ tree_id: string; facts: string }>).map((r) => [r.tree_id, JSON.parse(r.facts).type])).toEqual([["t_two", "person"]]);

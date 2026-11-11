@@ -532,8 +532,8 @@ public enum WorkspaceCollectionError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .notCollection: "This folder holds no logical collection."
-        case .noSchema: "This collection has no schema.vad."
-        case .schema(let message): "This collection's schema.vad has errors: \(message)"
+        case .noSchema: "This collection has no schema.beetle."
+        case .schema(let message): "This collection's schema.beetle has errors: \(message)"
         case .missingRows: "Some of this collection's rows aren't on this device yet."
         case .unreadable(let message): message
         }

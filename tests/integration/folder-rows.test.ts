@@ -27,15 +27,15 @@ beforeAll(async () => {
   state = join(sandbox, "home");
   folder = join(sandbox, "tree");
   await Promise.all([state, join(folder, "items")].map((path) => mkdir(path, { recursive: true })));
-  await writeFile(join(folder, "items", "schema.vad"), SCHEMA);
+  await writeFile(join(folder, "items", "schema.beetle"), SCHEMA);
   await writeFile(join(folder, "items", "_store.jsonl"), '{"id":"a","title":"A"}\n{"id":"b","title":"B"}\n');
   await mkdir(join(folder, "games"));
-  await writeFile(join(folder, "games", "schema.vad"), GAMES);
+  await writeFile(join(folder, "games", "schema.beetle"), GAMES);
   await writeFile(join(folder, "games", "Game.jsonl"), '{"id":"g1","name":"Chess"}\n');
   await writeFile(join(folder, "games", "List.jsonl"), '{"id":"l1","name":"Favorites"}\n');
   await writeFile(join(folder, "games", "List_games.jsonl"), "");
   await mkdir(join(folder, "supplies"));
-  await writeFile(join(folder, "supplies", "schema.vad"), await readFile(join(SUPPLIES, "schema.vad")));
+  await writeFile(join(folder, "supplies", "schema.beetle"), await readFile(join(SUPPLIES, "schema.beetle")));
   await copyFile(join(SUPPLIES, "_store.sqlite3"), join(folder, "supplies", "_store.sqlite3"));
   host = await serveHost({ dataRoot: join(sandbox, "host"), accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });

@@ -15,7 +15,7 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 | | [`tree-merge`](tree-merge/README.md) | The three-way snapshot tree merge, shared by the merge sidecar and Story Sync tree recovery |
 | | [`collection-schema`](collection-schema/README.md) | Collection schemas (`schema.usl`) and the collection-file codec |
 | | [`usl`](usl/README.md) | Ultimate Schema Language (`.usl`): checker, layout, relationships, setup SQL, and store checks |
-| | [`vad`](vad/README.md) | VAD (`.vad` files, view blocks): parser, formatter, checker and view plans |
+| | [`beetle`](beetle/README.md) | Beetle (`.beetle` files, view blocks): parser, formatter, checker and view plans |
 | | [`apps-runtime`](apps-runtime/README.md) | The executable-document runtime |
 | Client stack | [`client`](client/README.md) | Synchronizing a working tree against a host |
 | | [`fs`](fs/README.md) | Materializing trees on a filesystem |

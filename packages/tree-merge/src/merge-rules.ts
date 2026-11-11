@@ -255,7 +255,7 @@ export interface CollectionFieldConflict extends RowFieldConflict {
 /**
  * `collection-fields-v1` (spec 10 §7.1): merge two changes to a logical
  * collection model by model, by row identity and then field by field.
- * `merged` is the folder as its entries merged, holding the `schema.vad` the
+ * `merged` is the folder as its entries merged, holding the `schema.beetle` the
  * result is checked against; its rows are encoded from the merged tables.
  * Field conflicts keep current's value and are reported for a decision; a
  * merge the schema rejects is a conflict on the folder, which keeps

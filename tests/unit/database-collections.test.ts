@@ -21,7 +21,7 @@ afterAll(async () => { await rm(sandbox, { recursive: true, force: true }); });
 /** A copy of the Supplies data folder. */
 async function supplies(name: string): Promise<string> {
   const directory = join(sandbox, name);
-  await Bun.write(join(directory, "schema.vad"), Bun.file(join(SUPPLIES, "schema.vad")));
+  await Bun.write(join(directory, "schema.beetle"), Bun.file(join(SUPPLIES, "schema.beetle")));
   await copyFile(join(SUPPLIES, "_store.sqlite3"), join(directory, "_store.sqlite3"));
   return directory;
 }
@@ -48,7 +48,7 @@ describe("a folder's SQLite database", () => {
   test("is held in the tree as its logical rows, and the database files are never entries", async () => {
     const tree = await snapshot(await supplies("described"), projections());
     const directory = decodeProtocolDirectory(tree.objects.get(tree.root)!);
-    expect(directory.entries.map((e) => e.name)).toEqual(["schema.vad"]);
+    expect(directory.entries.map((e) => e.name)).toEqual(["schema.beetle"]);
     const tables = await rows(tree.objects, tree.root);
     expect(tables.List).toHaveLength(3);
     // Flags are booleans and null columns are absent.
@@ -62,7 +62,7 @@ describe("a folder's SQLite database", () => {
     const tree = await snapshot(await supplies("source"), collections);
     const target = join(sandbox, "materialized");
     await materializeTree(target, tree.root, async (hash) => tree.objects.get(hash)!, undefined, [], undefined, (dir, object, load) => collections.write(dir, object, load));
-    expect((await readdir(target)).sort()).toEqual(["_store.sqlite3", "schema.vad"]);
+    expect((await readdir(target)).sort()).toEqual(["_store.sqlite3", "schema.beetle"]);
     expect((await snapshot(target, collections)).root).toBe(tree.root);
   });
 

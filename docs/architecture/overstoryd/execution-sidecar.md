@@ -79,7 +79,7 @@ activations } })`), and the code runs with each caller's own authority.
 
 **Declared views** need no activation: the built-in list view is the sidecar's own code
 (`declaredView` in `@ovst/apps-runtime`). A handle whose path is a collection's
-`schema.vad` names one of that schema's `~views` labels, and its version is the schema
+`schema.beetle` names one of that schema's `~views` labels, and its version is the schema
 file's object hash. overstoryd checks the version against the schema at the tree's head;
 the sidecar checks it against the schema the materialization was built from, and answers
 `not-found` for a label the schema doesn't declare. Its value is `presentView`'s lines and

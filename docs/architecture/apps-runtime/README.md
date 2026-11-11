@@ -11,8 +11,8 @@ input and authorization inside one transaction and commits retry-stable
 receipts with the data change. Document compilation and presentation are
 not current architecture; they are [Apps 001 and 003](../../../plans/README.md).
 Collection schemas are not executed here or anywhere: they are declarative
-`schema.vad` files interpreted by [`collection-schema`](../collection-schema/README.md).
-A SQLite store's `schema.vad` is read by `introspectStoreSchema`
+`schema.beetle` files interpreted by [`collection-schema`](../collection-schema/README.md).
+A SQLite store's `schema.beetle` is read by `introspectStoreSchema`
 (`src/schema.ts`), which checks the database against the schema's database
 layout and derives query relationships from its connections, with people as
 the virtual `Person` relation.

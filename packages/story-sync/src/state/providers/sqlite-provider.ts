@@ -260,7 +260,7 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
       let schema: StoreSchema;
       try {
         schema = await introspectStoreSchema({
-          databasePath: definition.storePath!, schemaPath: definition.schemaPath ?? join(directory, "schema.vad"),
+          databasePath: definition.storePath!, schemaPath: definition.schemaPath ?? join(directory, "schema.beetle"),
         }, database);
       } catch (error) {
         if (!(error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT")) throw error;

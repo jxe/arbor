@@ -139,7 +139,7 @@ function collection(basis: string, name: string) {
   for (const [hash, bytes] of encoded.objects) objects.set(hash, bytes);
   const value = decodeProtocolDirectory(objects.get(basis)!);
   value.entries = value.entries.filter(e => e.name === "_index.md");
-  value.entries.push({ name: "schema.vad", file: file(source), created: 0, modified: 0 });
+  value.entries.push({ name: "schema.beetle", file: file(source), created: 0, modified: 0 });
   value.collection = encoded.reference;
   return directory(value);
 }
@@ -429,7 +429,7 @@ test("the host validates logical collections itself", async () => {
   const people = (rows: ReturnType<typeof idRow>[], modelFingerprint = fingerprint) => {
     const table = encodeLogicalTable(rows);
     for (const [hash, bytes] of table.objects) objects.set(hash, bytes);
-    return directory({ type: "directory", entries: [{ name: "schema.vad", file: file(schema), created: 0, modified: 0 }],
+    return directory({ type: "directory", entries: [{ name: "schema.beetle", file: file(schema), created: 0, modified: 0 }],
       collection: { version: 1, modelFingerprint, tables: [{ model: "Item", table: table.hash }] } });
   };
   // A row the schema rejects, and a reference naming another schema, are both refused.
@@ -447,7 +447,7 @@ test("the host validates logical collections itself", async () => {
   };
   const before = await readPage();
   expect(before).toContain("people/a");
-  expect(before).not.toContain("schema.vad");
+  expect(before).not.toContain("schema.beetle");
   // A restarted host reads the same rows from the stored objects.
   await stop(); await start();
   expect(await readPage()).toBe(before);

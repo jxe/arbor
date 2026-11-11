@@ -1,5 +1,5 @@
 // A directory's logical collection as the tree holds it (spec 06 §2.1): its
-// `schema.vad` entry, its `collection` reference, and the rows that reference
+// `schema.beetle` entry, its `collection` reference, and the rows that reference
 // reaches, named as the folder's logical children.
 
 import {
@@ -103,15 +103,15 @@ export function checkCollectionNames(entries: Iterable<string>, schema: LogicalS
 }
 
 function schemaFailure(error: unknown): never {
-  if (error instanceof CollectionSchemaError) throw new ProtocolCollectionError("schema", `Invalid schema.vad: ${error.message}`);
+  if (error instanceof CollectionSchemaError) throw new ProtocolCollectionError("schema", `Invalid schema.beetle: ${error.message}`);
   throw error;
 }
 
-/** The compiled schema entry of a collection directory, its `schema.vad`. */
+/** The compiled schema entry of a collection directory, its `schema.beetle`. */
 export async function directoryCollectionSchema(directory: ProtocolDirectory, load: Load, schemas: CollectionSchemaCache = sharedCollectionSchemaCache): Promise<LogicalSchema> {
   const name = collectionSchemaName(directory.entries.map((e) => e.name));
   const entry = directory.entries.find((e) => e.name === name)?.file;
-  if (!entry) throw new ProtocolCollectionError("schema", "A collection's schema.vad must be a file entry");
+  if (!entry) throw new ProtocolCollectionError("schema", "A collection's schema.beetle must be a file entry");
   try {
     return schemas.compileLogical(await load(entry));
   } catch (error) {
@@ -165,7 +165,7 @@ export async function loadDirectoryCollection(
 
 /**
  * The directory with its collection set to `tables`, and every object that
- * holds them. The directory's entries must already hold its `schema.vad`.
+ * holds them. The directory's entries must already hold its `schema.beetle`.
  * Throws {@link ProtocolCollectionError} for rows the schema rejects.
  */
 export async function encodeDirectoryCollection(

@@ -1,0 +1,136 @@
+// Supplies' mutations as facts: each line says what holds afterwards. (Joe chose facts
+// over statements, 2026-11-11.)
+//
+//   Table(field: value, …)      a row with these key fields exists with these values:
+//                               inserted if missing, updated if there. With no key
+//                               fields given (an id-keyed table), it is a new row.
+//   not Table(field: value, …)  no row matches: matching rows are deleted
+//   row.field = value           the field has this value
+//   let name = Table(…)         names the new row for the lines below (no return value)
+//                               (the receipt carries every row written, by table)
+//   other(arg: value)           another mutation's facts hold too
+//   if …:                       the facts below hold only if the condition does
+//   for … where …:              the facts below hold for each match, as on a view element
+//   unauthorized | forbidden | missing | invalid | conflict "message"
+//                               fail with that public error (HTTP 401/403/404/422/409);
+//                               if any failure applies, nothing is written
+//
+// Every fact reads the state from before the mutation. A field written only on creation
+// takes its table's default (Contribution.first Date = today in the schema).
+use "data/schema.beetle"
+
+rule editor(l List):
+  l.owner == me or l.openToEdits
+
+// ------------------------------------------------------------- shared steps
+
+mutation recordContributor(l List):
+  if l.owner != me:
+    Contribution(list: l, person: me, last: today)
+
+// ------------------------------------------------------------- lists
+
+mutation createList(name Text, visibility Visibility):
+  if me == null:
+    unauthorized "This operation requires a Story user"
+  List(owner: me, name: name, visibility: visibility, kind: Standard, openToEdits: false)
+
+mutation renameList(l List, name Text):
+  if l.owner != me:
+    forbidden "Only the owner can rename this list"
+  l.name = name
+
+mutation setListSharing(l List, visibility Visibility, openToEdits Bool):
+  if l.owner != me:
+    forbidden "Only the owner can change sharing"
+  l.visibility = visibility
+  l.openToEdits = openToEdits
+
+mutation setListKind(l List, kind ListKind):
+  if l.owner != me:
+    forbidden "Only the owner can change the list kind"
+  l.kind = kind
+
+mutation toggleListReaction(l List):
+  if me == null:
+    unauthorized "This operation requires a Story user"
+  if l.visibility != Public:
+    missing "Only public lists can be liked"
+  if me in l.reactions.person:
+    not Reaction(list: l, person: me)
+  if l.reactions.person excludes me:
+    Reaction(list: l, person: me, emoji: "👍")
+
+mutation duplicateList(original List):
+  if me == null:
+    unauthorized "This operation requires a Story user"
+  if original.visibility != Public and original.owner != me:
+    missing "List not found"
+  List(owner: me, name: "Copy of " + original.name, about: original.about,
+       visibility: original.visibility, kind: Standard, openToEdits: false,
+       items: original.items.practice)
+
+// ------------------------------------------------------------- membership and order
+
+mutation setListPractice(l List, p Practice, included Bool):
+  if not editor(l):
+    forbidden "You cannot edit this list"
+  if included and l.items.practice excludes p:
+    Item(list: l, practice: p)
+    recordContributor(l: l)
+  if not included and p in l.items.practice:
+    not Item(list: l, practice: p)
+    recordContributor(l: l)
+
+mutation reorderList(l List, practices Practice[]):
+  if not editor(l):
+    forbidden "You cannot edit this list"
+  l.items = practices
+  recordContributor(l: l)
+
+// ------------------------------------------------------------- tags
+
+mutation createListTag(l List, name Text, color Text?):
+  if l.owner != me:
+    forbidden "Only the owner can create tags"
+  Tag(list: l, name: name, color: color)
+
+mutation deleteListTag(l List, t Tag):
+  if l.owner != me:
+    forbidden "Only the owner can delete tags"
+  if t.list != l:
+    missing "Tag not found"
+  not Tag(list: l, id: t.id)  // its taggings go with it
+
+mutation setPracticeTag(l List, p Practice, t Tag, included Bool):
+  if not editor(l):
+    forbidden "You cannot edit this list"
+  if l.items.practice excludes p:
+    invalid "The practice is not on this list"
+  // Tag.practices is an unnamed connection, so it is written as a field
+  if included and t.practices excludes p:
+    t.practices = t.practices + p
+    recordContributor(l: l)
+  if not included and p in t.practices:
+    t.practices = t.practices - p
+    recordContributor(l: l)
+
+// ------------------------------------------------------------- practices
+
+mutation createPractice(name Text, about Markdown, addToList List?):
+  if me == null:
+    unauthorized "This operation requires a Story user"
+  if addToList != null and not editor(addToList):
+    forbidden "You cannot edit this list"
+  let practice = Practice(name: name, about: about, authors: [me])
+  if addToList != null:
+    Item(list: addToList, practice: practice)
+    recordContributor(l: addToList)
+
+mutation updatePractice(p Practice, name Text, about Markdown):
+  if me == null:
+    unauthorized "This operation requires a Story user"
+  if count(p.authors) > 0 and p.authors excludes me:
+    forbidden "Only an author can edit this practice"
+  p.name = name
+  p.about = about

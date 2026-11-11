@@ -15,12 +15,12 @@ export type ProtocolContentEntry = Extract<ProtocolDirectoryEntry, { created: nu
 export interface ProtocolDirectory {
   type: "directory";
   entries: ProtocolDirectoryEntry[];
-  /** The rows of the folder's logical collection (spec 06 §2.1); its `schema.vad` is an entry. */
+  /** The rows of the folder's logical collection (spec 06 §2.1); its `schema.beetle` is an entry. */
   collection?: CollectionReference;
 }
 
 /** A collection folder's schema file entry (spec 1.5 §5). */
-export const COLLECTION_SCHEMA_NAME = "schema.vad";
+export const COLLECTION_SCHEMA_NAME = "schema.beetle";
 
 export function isCollectionSchemaName(name: string): boolean {
   return name === COLLECTION_SCHEMA_NAME;
@@ -451,7 +451,7 @@ export function decodeDirectoryValue(bytes: Uint8Array): ProtocolDirectory {
     });
     const collection = record.collection === undefined ? undefined : decodeCollectionReference(record.collection);
     const schemaName = collectionSchemaName(entries.map((entry) => entry.name));
-    if (collection && !entries.find((entry) => entry.name === schemaName)?.file) throw new Error("A collection's schema.vad must be a file entry");
+    if (collection && !entries.find((entry) => entry.name === schemaName)?.file) throw new Error("A collection's schema.beetle must be a file entry");
     const directory: ProtocolDirectory = { type: "directory", entries, ...(collection ? { collection } : {}) };
     const canonical = encodeCanonicalCBOR(directory);
     if (canonical.length !== bytes.length || canonical.some((byte, index) => byte !== bytes[index])) throw new Error("Directory object is not canonical CBOR");

@@ -5,7 +5,7 @@
 Canonical CBOR and `canonicalCBORHash` live in `protocol`. Snapshot bundles
 contain only a version and hash-ordered object byte strings (raw files and
 canonical CBOR directories, tables and rows); the root stays in the request
-URL. A directory with a logical collection keeps its `schema.vad` as an
+URL. A directory with a logical collection keeps its `schema.beetle` as an
 ordinary entry and a `collection` reference naming one `table` object per
 model, each listing its rows in content-defined `rows` chunks (spec 06 §2.1).
 Every graph walk follows those edges (`protocolObjectReferences` in
