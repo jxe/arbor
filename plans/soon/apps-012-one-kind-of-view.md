@@ -7,9 +7,9 @@ is the built-in list view, served through the same route as an authored view. Wh
 Story's side.
 
 The spec describes the target:
-- [apps and views §4.1](../../docs/overstory-spec/4.1-apps-and-views.md#4-views)
+- [apps and views §3](../../docs/overstory-spec/4.1-apps-and-views.md#3-views)
   makes a `~views` entry a **declared view**.
-- [apps and views §12.1](../../docs/overstory-spec/4.1-apps-and-views.md#121-evaluate-and-stream-views)
+- [apps and views §11.1](../../docs/overstory-spec/4.1-apps-and-views.md#111-evaluate-and-stream-views)
   names both kinds with one `HandleRef`: for a declared view, the collection's `schema.usl`,
   a label, and the schema file's hash.
 
@@ -50,7 +50,7 @@ updates on the same row changes.
 - An authored view can draw a declared view as an element, for example an app's own
   page that shows its collection "By status".
 - Row actions in the built-in list come from the app's row-action mutations
-  (`mutation … for Model.op`, [apps and views §15.5](../../docs/overstory-spec/4.1-apps-and-views.md#155-mutations)) when it has
+  (`mutation … for Model.op`, [apps and views §6.1](../../docs/overstory-spec/4.1-apps-and-views.md#61-statements)) when it has
   them, and otherwise from plain row edits (Schema language 007).
 
 **Verify:** the People directory and the games sandbox look and edit the same before and

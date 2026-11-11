@@ -223,7 +223,7 @@ Page menus provide ordinary rename, move, copy, Trash, restore, and asset import
 
 ## Agents
 
-Overstory clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../overstory-spec/4.1-apps-and-views.md#13-agents); Story's panels, streaming presentation, and approval controls are reference design.
+Overstory clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../overstory-spec/4.1-apps-and-views.md#12-agents); Story's panels, streaming presentation, and approval controls are reference design.
 
 ## First launch and identity
 

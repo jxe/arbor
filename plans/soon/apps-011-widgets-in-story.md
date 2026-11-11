@@ -7,7 +7,7 @@ other people wait for Apps 010.
 **Why and when:** Joe wants to embed small apps in Story pages, drawn natively, not in a web
 view and not with React (Joe, 2026-11-05, in the apps discussion). Since 2026-11-11 they are
 written in the declarative view language, UVL, in `.view` files, not TSX
-([apps and views §15](../../docs/overstory-spec/4.1-apps-and-views.md#15-the-language)). This is the third of the three apps plans Joe split on 2026-11-06. It absorbs
+([apps and views](../../docs/overstory-spec/4.1-apps-and-views.md)). This is the third of the three apps plans Joe split on 2026-11-06. It absorbs
 Apps 001 (the Supplies site) and Apps 003 (compiler and editor tooling). Those deleted plans
 are in git history, and the parts that still apply are below.
 
@@ -33,7 +33,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   | Reader | Personal data, as `personal model X` or `personal model X (placement)`, read like any model |
 
   The spec now has these as state models
-  ([apps and views §4.5](../../docs/overstory-spec/4.1-apps-and-views.md#45-state)), with
+  ([apps and views §4](../../docs/overstory-spec/4.1-apps-and-views.md#4-state)), with
   `state` and `keep` as one-row shorthands and `session` models for fast state such as games.
 
   An app reads and writes only its own personal models, with no prompt, written locally
@@ -83,7 +83,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   - Story waits up to about 100 ms so all of an evaluation's streams are at one tree version.
 - Views on a placed tree are evaluated against Story Sync's local SQLite. Otherwise
   Story asks the host for the view's `rows` answer
-  ([apps and views §12.1](../../docs/overstory-spec/4.1-apps-and-views.md#121-evaluate-and-stream-views))
+  ([apps and views §11.1](../../docs/overstory-spec/4.1-apps-and-views.md#111-evaluate-and-stream-views))
   and evaluates the view itself, so state changes stay on the device.
 
 ## 3. The SwiftUI renderer
@@ -99,7 +99,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
 - Placement identity, page and personal models, `state` and `keep`, as decided above.
 - Decide where kept page and personal rows are stored and how they reach the reader's other
   devices, then write it into
-  [apps and views §4.5](../../docs/overstory-spec/4.1-apps-and-views.md#45-state).
+  [apps and views §4](../../docs/overstory-spec/4.1-apps-and-views.md#4-state).
 - Personal rows live under the reader's own tree and sync like any collection.
 - Port Supplies' List, Practice and search screens as widgets. They are the acceptance
   corpus.
@@ -124,7 +124,7 @@ site, served by overstoryd and later from a host such as Vercel.
 ## Code to bring in line with the spec (Joe, 2026-11-11)
 
 The spec addresses views by file path with the extension
-([apps and views §1](../../docs/overstory-spec/4.1-apps-and-views.md#1-views-and-their-addresses)),
+([apps and views §8.1](../../docs/overstory-spec/4.1-apps-and-views.md#81-addresses)),
 now `views/list.view`, the view at `views/list` (a `.view` file is a node's body, like a
 `.md` file). `.mdx` is gone. Still to do in code:
 

@@ -124,7 +124,7 @@ view():
   </Column>
 ```
 
-and draws it in his page with a view block ([view blocks](4.1-apps-and-views.md#157-view-blocks-in-pages)):
+and draws it in his page with a view block ([view blocks](4.1-apps-and-views.md#82-view-blocks-in-pages)):
 
 ````md
 ```view
@@ -134,15 +134,15 @@ use "views/practices.view" as Practices
 ````
 
 The server has enabled hosting for the tree, so it checks the file and binds
-`Practice` to `(tr_…, /practices, model fingerprint)` ([files and handles](4.1-apps-and-views.md#3-files-and-named-handles)).
+`Practice` to `(tr_…, /practices, model fingerprint)` ([handles](4.1-apps-and-views.md#23-handles-and-code-versions)).
 The plan comes from the source alone: the `Link` expands once per published
-practice ([expansion](4.1-apps-and-views.md#43-expansion), [the language](4.1-apps-and-views.md#15-the-language)).
+practice ([expansion](4.1-apps-and-views.md#34-expansion), [the language](4.1-apps-and-views.md)).
 A visitor's browser receives the page with the view drawn as HTML. Story opens
 `QUERY /.overstory/trees/tr_…/views` naming the view's handle and code version,
 receives the plan's rows as `result`, then `ready`, and draws the view natively.
 When Joe edits the CSV, the tree advances, the host sees which rows the plan
 read changed, and a new `result` with a new `outputHash` follows
-([apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views)).
+([apps and views §11.1](4.1-apps-and-views.md#111-evaluate-and-stream-views)).
 
 ## 8. Run a mutation
 
@@ -161,8 +161,8 @@ caller-chosen `mutationID`. The runtime checks the guards, then submits the
 insert as one guarded update of row operations. The receipt's `affected` names
 that accepted update, and Alice's watch sees an ordinary `tree.update` frame;
 Joe's Mac rewrites the CSV. A retry with the same `mutationID` returns the
-original receipt and does nothing twice ([mutations](4.1-apps-and-views.md#5-mutations),
-[apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations), [actions](4.1-apps-and-views.md#154-actions-forms-and-events)).
+original receipt and does nothing twice ([mutations](4.1-apps-and-views.md#6-mutations),
+[apps and views §11.2](4.1-apps-and-views.md#112-execute-named-mutations), [actions](4.1-apps-and-views.md#5-actions-forms-and-events)).
 
 ## 9. Rename the canonical URL
 
