@@ -5,6 +5,7 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
+    "@ovst/beetle": "workspace:*",
     "@ovst/collection-schema": "workspace:*",
     "@ovst/exec-protocol": "workspace:*",
     "@ovst/merge-protocol": "workspace:*",

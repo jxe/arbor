@@ -1,7 +1,7 @@
 {
   "name": "@ovst/beetle",
   "version": "0.1.0",
-  "description": "Beetle, the views-and-data language (.beetle): parser, formatter and checker for Overstory tables, views, rules and mutations.",
+  "description": "Beetle, the views-and-data language (.beetle): parser, formatter, checker, evaluator and mutation runner for Overstory tables, views, rules and mutations.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -19,6 +19,7 @@
     "README.md"
   ],
   "dependencies": {
+    "@noble/hashes": "^2.2.0",
     "@ovst/usl": "workspace:*"
   }
 }

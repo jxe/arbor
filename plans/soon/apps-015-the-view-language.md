@@ -84,6 +84,26 @@ excellences, supplies-remake) stay on npm `@ovst/usl` (Joe, 2026-11-11). Existin
 **Verify:** `tests/integration/host-collections.test.ts` ported to `.view` sources, plus
 the no-gap and retry tests unchanged.
 
+**Done (2026-11-11, branch `claude/project-thread-kn7ley`, off the Protocol 003 branch):**
+`packages/beetle` has a row store over a collection's database layout (`store.ts`), an
+evaluator for view trees and data views (`eval.ts`) and a mutation runner (`mutate.ts`);
+see its README. overstoryd runs them in process for the trees `OVERSTORYD_BEETLE` names
+(`beetle-host.ts`): the views route streams a `.beetle` file's, page's or schema's view
+over the accepted rows and answers again on each accepted update to the tree (or to a
+profile it drew); the mutate route checks the file at the head, runs the mutation as its
+caller, diffs the rows into row operations and submits one update guarded on that head,
+with receipts (`rows`, `affected`) kept in `<dataRoot>/beetle/receipts.sqlite3`, retries
+and a rerun when the head moved. Public errors answer 401/403/404/422/409. Tests:
+`tests/unit/beetle-eval.test.ts` (Supplies' views and all 13 mutations) and
+`tests/integration/beetle-host.test.ts`.
+
+**Left in this step:** the `rows` answer form (refused for now with
+`unsupported-operation`), HTML for a browser `GET`, finer live dependencies than "the
+tree changed", porting `host-collections.test.ts` once Supplies is ported (step 4),
+collections in another tree than the view's, and a row created and edited in the same
+millisecond (its `modified` can't move, so the diff refuses it; the sidecar has the same
+limit).
+
 ## 3. Evaluator, in Story
 
 - A Swift port of the checker's plan and of the evaluator, sharing the conformance fixtures.

@@ -115,8 +115,10 @@ function pagesOption(value: string | undefined): boolean | string[] {
  */
 function collectionsOption(): HostCollectionsOptions | undefined {
   const file = process.env.OVERSTORYD_ACTIVATIONS?.trim();
-  if (!file) return undefined;
+  const beetle = beetleOption(process.env.OVERSTORYD_BEETLE);
+  if (!file) return beetle ? { beetle } : undefined;
   return {
+    ...(beetle ? { beetle } : {}),
     activations: async () => {
       const value = JSON.parse(await Bun.file(resolve(file)).text()) as unknown;
       if (!Array.isArray(value) || value.some((entry) => typeof entry?.tree !== "string" || typeof entry?.path !== "string" || typeof entry?.root !== "string")) {
@@ -125,6 +127,17 @@ function collectionsOption(): HostCollectionsOptions | undefined {
       return value as Activation[];
     },
   };
+}
+
+/**
+ * `OVERSTORYD_BEETLE`: the trees whose Beetle views and mutations the host runs in
+ * process (Apps 015), `1` for every tree or tree IDs separated by commas.
+ */
+function beetleOption(value: string | undefined): "all" | string[] | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed === "1") return "all";
+  return trimmed.split(",").map((tree) => tree.trim()).filter(Boolean);
 }
 
 function trustedProxyHops(): number {

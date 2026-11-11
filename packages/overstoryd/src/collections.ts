@@ -44,6 +44,7 @@ import type { ExecActivations, ExecCollection, ExecHandle, ExecHandleRef, ExecPu
 import { loadActivation, type Activation } from "./activations.ts";
 import { ExecProcess, ExecUnavailableError } from "./exec-process.ts";
 import { ANY_TREE } from "./execution-authority.ts";
+import { BeetleHost, type BeetleHostOptions } from "./beetle-host.ts";
 import type { HostDaemon, UpdateCaller } from "./overstoryd.ts";
 
 type Row = Record<string, JSONValue>;
@@ -257,6 +258,11 @@ export interface HostCollectionsOptions {
   materializedBytes?: number;
   /** How long a materialization goes unused before it counts as idle (default 15 minutes). */
   materializedIdleMs?: number;
+  /**
+   * The trees whose Beetle views and mutations the host runs in process (Apps 015):
+   * `"all"`, a list, or a test. Unset, it runs none.
+   */
+  beetle?: BeetleHostOptions["trees"];
 }
 
 /** The context the host's mutate route gives a mutation: the caller the update is submitted as. */
@@ -323,12 +329,15 @@ export class HostCollections implements AsyncDisposable {
   private readonly listeners = new Map<string, Set<(change: Change) => void>>();
   private origin?: string;
   readonly sidecar: ExecProcess;
+  /** The in-process Beetle runtime, when any tree's hosting is enabled for it. */
+  readonly beetle: BeetleHost | null;
   /** How many times a file was found written by another connection after a mutation; each one was rebuilt. */
   foreignWrites = 0;
 
   constructor(readonly daemon: HostDaemon, readonly dataRoot: string, private readonly options: HostCollectionsOptions) {
     const command = options.command ?? [process.execPath, Bun.resolveSync("@ovst/overstoryd-exec/cli", import.meta.dir)];
     this.sidecar = new ExecProcess(() => this.command(command), { deadlineMs: options.deadlineMs ?? 30_000 });
+    this.beetle = options.beetle ? new BeetleHost(daemon, dataRoot, { trees: options.beetle, ...(options.now ? { now: options.now } : {}) }) : null;
     this.stopAccepted = daemon.subscribeAccepted((update) => {
       this.publishAll({ kind: "profile", tree: update.tree });
       for (const collection of this.open.values()) {
@@ -619,6 +628,16 @@ export class HostCollections implements AsyncDisposable {
         if (!Array.isArray(request.views) || request.views.length === 0) throw new Error("views must be a nonempty array");
         // The route checked that every handle names its source tree.
         const tree = request.views[0]!.handle.tree;
+        if (this.beetle) {
+          const beetle = await Promise.all(request.views.map((mount) => mount?.handle && this.beetle!.names(tree, mount.handle)));
+          if (beetle.some(Boolean)) {
+            if (!beetle.every(Boolean)) throw new Error("A stream holds Beetle views or sidecar views, not both");
+            const ids = new Set(request.views.map((mount) => mount.id));
+            if (ids.size !== request.views.length || [...ids].some((id) => typeof id !== "string" || !id)) throw new Error("Mounted view ids must be non-empty and unique");
+            await this.beetle.verify(request);
+            return this.beetle.stream(request, context as HostViewsContext);
+          }
+        }
         const ids = new Set<string>();
         const mounts: Mount[] = [];
         for (const mount of request.views) {
@@ -722,6 +741,7 @@ export class HostCollections implements AsyncDisposable {
    * again.
    */
   async mutate(request: MutationCallRequest, context: HostMutationContext): Promise<MutationResultReceipt> {
+    if (this.beetle && request.handle && await this.beetle.names(request.handle.tree, request.handle)) return this.beetle.mutate(request, context);
     const entry = await this.handle("mutations", request.handle);
     if (!entry) throw new ExecRefusal({ code: "not-found", message: "The mutation handle or version is not active", retryable: false });
     const account = context.caller?.account;
@@ -773,6 +793,7 @@ export class HostCollections implements AsyncDisposable {
     clearInterval(this.sweeper);
     this.stopAccepted();
     await this.sidecar[Symbol.asyncDispose]();
+    await this.beetle?.[Symbol.asyncDispose]();
     await Promise.allSettled([...this.turns.values()]);
     for (const collection of this.open.values()) await collection[Symbol.asyncDispose]();
     this.open.clear();

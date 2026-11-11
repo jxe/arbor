@@ -27,6 +27,8 @@ export interface MutationOutcome {
   rows: Record<string, RowsByTable>;
   /** The rows it wrote, by table: each one's key. */
   writes: Record<string, unknown[]>;
+  /** Of those, the rows it deleted, by table. */
+  deleted: Record<string, unknown[]>;
 }
 
 const ERROR_TEXT: Record<string, string> = {
@@ -176,9 +178,12 @@ class MutationRun {
       return c;
     };
     const writes: Record<string, unknown[]> = {};
-    const wrote = (table: string, key: unknown) => {
-      const list = (writes[table] ??= []);
-      if (!list.some((k) => canonical(k) === canonical(key))) list.push(key);
+    const removed: Record<string, unknown[]> = {};
+    const wrote = (table: string, key: unknown, deleted = false) => {
+      for (const into of deleted ? [writes, removed] : [writes]) {
+        const list = (into[table] ??= []);
+        if (!list.some((k) => canonical(k) === canonical(key))) list.push(key);
+      }
     };
     // Per row: the columns facts give it, and the to-many connections they write.
     type Pending = { store: Store; row: Row; exists: boolean; columns: RowData; links: Map<string, Value>; fields: Set<string> };
@@ -228,7 +233,7 @@ class MutationRun {
       for (const { store, row } of deleted.values()) {
         const c = copy(store);
         c.delete(c.match(row.table, row.key, row.key.map((k) => row.data[k])));
-        wrote(row.table, row.keyValue);
+        wrote(row.table, row.keyValue, true);
       }
       for (const p of pending.values()) {
         const c = copy(p.store);
@@ -265,7 +270,7 @@ class MutationRun {
       const c = after.get(store);
       if (c) rows[path] = c.data();
     }
-    return { rows, writes };
+    return { rows, writes, deleted: removed };
   }
 
   /** The fields a new row isn't given, from their defaults. */
@@ -293,7 +298,7 @@ class MutationRun {
   }
 
   /** A to-many connection written as a whole: the far-end rows it reaches, in order for an `ordered` end (§4.1). */
-  private link(store: Store, row: Row, field: string, value: Value, wrote: (table: string, key: unknown) => void): void {
+  private link(store: Store, row: Row, field: string, value: Value, wrote: (table: string, key: unknown, deleted?: boolean) => void): void {
     const place = store.schema.place(row.model, field);
     if (place.kind !== "relationship") throw new BeetleError("invalid", `${row.model}.${field} can't be written`);
     const r = place.relationship;
@@ -311,7 +316,7 @@ class MutationRun {
       const gone = existing.filter((j) => !want.has(targetKey(j)));
       if (gone.length) {
         store.delete(gone);
-        for (const g of gone) wrote(through.relation, g.keyValue);
+        for (const g of gone) wrote(through.relation, g.keyValue, true);
       }
       const have = new Set(existing.filter((j) => want.has(targetKey(j))).map(targetKey));
       desired.forEach((t, i) => {

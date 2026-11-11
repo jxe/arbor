@@ -9,7 +9,8 @@
 // - A to-many read gives distinct rows: in position order for an `ordered` end, otherwise
 //   in canonical key order.
 
-import { createHash } from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import {
   layoutOf,
   relationshipsOf,
@@ -68,7 +69,7 @@ export const compareRows = (a: Row, b: Row): number => compareBytes(a.keyText, b
 
 /** A UUID derived from `seed`, the form new rows' ids take, so a retried mutation makes the same ids. */
 export function derivedID(seed: string): string {
-  const value = createHash("sha256").update(seed).digest("hex");
+  const value = bytesToHex(sha256(new TextEncoder().encode(seed)));
   const variant = ((Number.parseInt(value[16]!, 16) & 0x3) | 0x8).toString(16);
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-5${value.slice(13, 16)}-${variant}${value.slice(17, 20)}-${value.slice(20, 32)}`;
 }

@@ -53,10 +53,41 @@ bun packages/beetle/src/cli.ts plan [--root tree] file.beetle...
 
 Paths in `use` resolve within the tree at `--root` (default: the current directory).
 
-Not yet: lowering plans to the SQLite engine's `QueryPlan`, and the evaluator (Apps 015
-steps 1–3).
+**Running views and mutations** (spec §3–4), the same on a host and, ported, in Story:
 
-Tests: `tests/unit/beetle.test.ts` ([examples](examples) check clean and are in the
+- `compileProgram(source, { path, read })`: `checkView`'s result plus what the file binds
+  (its views, rules, mutations and the schemas' checked tables), for the evaluator.
+- `Store` / `StoreSchema`: one collection's rows in its database layout (`layoutOf(…, {
+  store: "database" })`, the form the host materializes), read along USL's
+  relationships. People are rows of `Person` keyed by profile id, their other fields
+  (name, handle…) given by the caller; enum values are `EnumValue`s with their records.
+  A to-many read is in position order for an `ordered` end, otherwise in key order.
+- `new Evaluator(program, rows, { me, now, page, person })`: `view(name, input)` draws a
+  view into plain `{type, props, children, key}` nodes: `for`, `where`, `if`, `orderBy`,
+  `group` (`#group` nodes), `limit`, `fallback`, `key` and `slot`; one element per
+  distinct combination of the names it uses (§3.5); named views drawn in place with
+  their state at its initial values, each in its own file's names; rules (alternatives
+  are *or*); built-ins; spec nulls. A `Rows` element is one node whose children are
+  `#row` lines. Props carry a row as `{ row, key }`, an enum value with its fields, and an
+  action as `{ action, from, args }` or `{ set, value }`. `data(name, input)` answers a
+  data view's JSON, rows as their keys. Table-typed inputs resolve keys to rows, and a
+  key with no row is `missing`; other inputs are checked against their types (`invalid`).
+- `runMutation(evaluator, name, input, { mutationID })`: gathers the mutation's facts
+  against the rows as they were, ends at the first public error (`BeetleError`, writing
+  nothing), and applies the facts together: upserts by key, inserts with an id derived
+  from the mutation identity, field lines, defaults, a new row on an `ordered` end placed
+  last, to-many connections written as a whole (join rows, or a connection table's rows,
+  in order), deletes cascading by the layout's foreign keys, and `conflict` for facts
+  that can't both hold. It returns each changed collection's rows and the rows written
+  (and deleted) by table; a host diffs them into row operations.
+
+overstoryd runs these in process for the trees `OVERSTORYD_BEETLE` names
+(`packages/overstoryd/src/beetle-host.ts`). Not yet: the `rows` answer form, Story's
+Swift evaluator, and lowering plans to SQL.
+
+Tests: `tests/unit/beetle-eval.test.ts` (Supplies' views and all 13 mutations over a
+small set of rows), `tests/integration/beetle-host.test.ts` (on the host), and
+`tests/unit/beetle.test.ts` ([examples](examples) check clean and are in the
 conventional form; `examples/invalid` reports exactly its `// expect:` codes, each at or
 after its comment; plans and writes of the Supplies files; the conformance vectors in
 `docs/overstory-spec/conformance/beetle.json` are current. Regenerate them with

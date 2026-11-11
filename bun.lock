@@ -6,6 +6,7 @@
       "name": "arbor",
       "dependencies": {
         "@ovst/apps-runtime": "workspace:*",
+        "@ovst/beetle": "workspace:*",
         "@ovst/cli": "workspace:*",
         "@ovst/client": "workspace:*",
         "@ovst/collection-schema": "workspace:*",
@@ -21,7 +22,6 @@
         "@ovst/story-web": "workspace:*",
         "@ovst/tree-merge": "workspace:*",
         "@ovst/usl": "workspace:*",
-        "@ovst/beetle": "workspace:*",
         "@ovst/working-tree": "workspace:*",
       },
       "devDependencies": {
@@ -46,9 +46,20 @@
       "name": "@ovst/apps-runtime",
       "version": "0.1.0",
       "dependencies": {
+        "@ovst/beetle": "workspace:*",
         "@ovst/protocol": "workspace:*",
         "@ovst/usl": "workspace:*",
-        "@ovst/beetle": "workspace:*",
+      },
+    },
+    "packages/beetle": {
+      "name": "@ovst/beetle",
+      "version": "0.1.0",
+      "bin": {
+        "beetle": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@noble/hashes": "^2.2.0",
+        "@ovst/usl": "workspace:*",
       },
     },
     "packages/cli": {
@@ -79,9 +90,9 @@
       "name": "@ovst/collection-schema",
       "version": "0.1.0",
       "dependencies": {
+        "@ovst/beetle": "workspace:*",
         "@ovst/protocol": "workspace:*",
         "@ovst/usl": "workspace:*",
-        "@ovst/beetle": "workspace:*",
         "csv-parse": "6.1.0",
       },
     },
@@ -120,6 +131,7 @@
       "name": "@ovst/overstoryd",
       "version": "0.1.0",
       "dependencies": {
+        "@ovst/beetle": "workspace:*",
         "@ovst/collection-schema": "workspace:*",
         "@ovst/exec-protocol": "workspace:*",
         "@ovst/merge-protocol": "workspace:*",
@@ -215,16 +227,6 @@
       },
       "dependencies": {
         "csv-parse": "6.1.0",
-      },
-    },
-    "packages/beetle": {
-      "name": "@ovst/beetle",
-      "version": "0.1.0",
-      "bin": {
-        "beetle": "./src/cli.ts",
-      },
-      "dependencies": {
-        "@ovst/usl": "workspace:*",
       },
     },
     "packages/working-tree": {
@@ -367,6 +369,8 @@
 
     "@ovst/apps-runtime": ["@ovst/apps-runtime@workspace:packages/apps-runtime"],
 
+    "@ovst/beetle": ["@ovst/beetle@workspace:packages/beetle"],
+
     "@ovst/cli": ["@ovst/cli@workspace:packages/cli"],
 
     "@ovst/client": ["@ovst/client@workspace:packages/client"],
@@ -398,8 +402,6 @@
     "@ovst/tree-merge": ["@ovst/tree-merge@workspace:packages/tree-merge"],
 
     "@ovst/usl": ["@ovst/usl@workspace:packages/usl"],
-
-    "@ovst/beetle": ["@ovst/beetle@workspace:packages/beetle"],
 
     "@ovst/working-tree": ["@ovst/working-tree@workspace:packages/working-tree"],
 
