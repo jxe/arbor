@@ -1,6 +1,6 @@
 # Apps 014: USL plugins
 
-**Why and when:** later. Joe, 2026-11-11: instead of extending the view language, real code
+**Why and when:** later. Joe, 2026-11-11: instead of extending UVL, real code
 extends the *data*: plugins for USL types, derived and real-time data, and two-way string and
 date work, in a real programming language, but never mixed into a `.view` file or standing
 in for one. This came after views and mutations moved to the declarative language
@@ -13,7 +13,7 @@ is meant to land here.
 
 ## The sketch (from the thread, 2026-11-11)
 
-Real code extends the *data*, not the view language. A plugin is a TypeScript (or Wasm) module
+Real code extends the *data*, not UVL. A plugin is a TypeScript (or Wasm) module
 that USL imports; `.view` and declared mutations only ever see richer types, relations, derived
 fields and models. Four kinds, from purest to most effectful:
 

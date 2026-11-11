@@ -1,4 +1,4 @@
-# Apps 015: The view language
+# Apps 015: UVL, the view language
 
 **Why and when:** Joe decided on 2026-11-11 that views and mutations are written in a
 declarative language in `.view` files, and TypeScript support for both is dropped. The spec
@@ -37,7 +37,7 @@ onward, which now draw `.view` widgets instead of running TSX.
 
 ## 1. Parser and checker
 
-- A package for the language, beside `packages/usl`: parser, formatter, and a checker that
+- `packages/uvl` (`@ovst/uvl`), beside `packages/usl`: parser, formatter, and a checker that
   resolves every model, field and path against the bound USL schemas, types parameters,
   finds each element's names, and reports source spans.
 - The checker rejects a `limit` whose conditions or ordering read state.

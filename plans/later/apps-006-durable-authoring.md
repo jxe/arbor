@@ -7,7 +7,7 @@
 **PLANNED · after Apps
 [005](../../status.md#views-on-the-host-and-declared-views--2026-11-08); coordinates [011](../soon/apps-011-widgets-in-story.md).**
 **Superseded in part (Joe, 2026-11-11):** views and mutations are now written in the
-declarative view language ([apps and views §15](../../docs/overstory-spec/4.1-apps-and-views.md#15-the-language)),
+declarative view language, UVL ([apps and views §15](../../docs/overstory-spec/4.1-apps-and-views.md#15-the-language)),
 and TypeScript authoring is gone ([Apps 015](../soon/apps-015-the-view-language.md)). The
 TypeScript signatures below (`authority`, `step`, transaction callbacks) are a record of the
 earlier design; durable workflows and combined author/user authority must be redesigned as

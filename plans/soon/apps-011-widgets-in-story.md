@@ -1,12 +1,12 @@
 # Apps 011: Widgets in Story
 
-**Order:** after [Apps 015](apps-015-the-view-language.md) (the view language). Joe's own widgets can be
+**Order:** after [Apps 015](apps-015-the-view-language.md) (UVL, the view language). Joe's own widgets can be
 built and tried while [Apps 010](../later/apps-010-activation-and-lending.md) lands. Widgets from
 other people wait for Apps 010.
 
 **Why and when:** Joe wants to embed small apps in Story pages, drawn natively, not in a web
 view and not with React (Joe, 2026-11-05, in the apps discussion). Since 2026-11-11 they are
-written in the declarative view language in `.view` files, not TSX
+written in the declarative view language, UVL, in `.view` files, not TSX
 ([apps and views §15](../../docs/overstory-spec/4.1-apps-and-views.md#15-the-language)). This is the third of the three apps plans Joe split on 2026-11-06. It absorbs
 Apps 001 (the Supplies site) and Apps 003 (compiler and editor tooling). Those deleted plans
 are in git history, and the parts that still apply are below.

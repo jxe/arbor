@@ -76,7 +76,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | 3. Accounts, access and federation | [accounts and devices](3.1-accounts-and-devices.md) | Profile identity, host accounts, tree configurations, device pairing and sessions, and declaring, activating and mounting trees |
 | | [access control](3.2-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
 | | [federation](3.3-federation.md) | Home and placement hosts, placement accounts, invitations accepted as placements, published device keys, and visitor sessions |
-| 4. Apps | [apps and views](4.1-apps-and-views.md) | Views, rules and mutations in the declarative view language (`.view` files), and agents: addresses, queries, mutations, state, identity, hosting, consent, data disclosure |
+| 4. Apps | [apps and views](4.1-apps-and-views.md) | Views, rules and mutations in UVL, the declarative Ultimate View Language (`.view` files), and agents: addresses, queries, mutations, state, identity, hosting, consent, data disclosure |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for

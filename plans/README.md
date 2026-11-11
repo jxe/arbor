@@ -150,7 +150,7 @@ kinds the same way.
 **[Release 003: the iPhone app on the App Store](soon/release-003-app-store.md).** So Story can be found without a TestFlight invitation. A sketch of what review requires: account deletion, report
 and block, and policy pages. The sample pages are the reviewer's way in.
 
-**[Apps 015: the view language](soon/apps-015-the-view-language.md).** Joe, 2026-11-11:
+**[Apps 015: UVL, the view language](soon/apps-015-the-view-language.md).** Joe, 2026-11-11:
 views and mutations are written in a declarative language in `.view` files, and TypeScript
 support for both goes. Parser and checker, evaluators on the host and in Story, Supplies
 ported, the TypeScript path removed.
@@ -169,7 +169,7 @@ milestone 5.
 
 **[Apps 014: USL plugins](later/apps-014-usl-plugins.md).** A sketch: real code extends
 the data (value types, two-way relations, derived fields and models, live sources) instead
-of the view language. After Apps 015.
+of UVL. After Apps 015.
 
 **[Apps 010: activation and lending](later/apps-010-activation-and-lending.md).**
 After Apps 005: code runs as an activated app under an execution token with lenders, not as
