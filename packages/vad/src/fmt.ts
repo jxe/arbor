@@ -55,7 +55,7 @@ export function expr(e: Expr): string {
     case "duration": return e.text;
     case "template": return `"${templateText(e.parts, /["{}]/g)}"`;
     case "list": return `[${e.items.map(expr).join(", ")}]`;
-    case "record": return e.entries.length ? `{ ${e.entries.map((x) => `${x.name}: ${expr(x.value)}`).join(", ")} }` : "{}";
+    case "record": return e.entries.length ? `{ ${e.entries.map((x) => `${/^[A-Za-z_][A-Za-z0-9_]*$/.test(x.name) ? x.name : quote(x.name)}: ${expr(x.value)}`).join(", ")} }` : "{}";
     case "field": return `${wrap(e.object, 9)}.${e.name}`;
     case "call": return `${e.callee}(${e.args.map((a) => (a.name ? `${a.name}: ` : "") + expr(a.value)).join(", ")})`;
     case "unary": return e.operator === "not" ? `not ${wrap(e.operand, 8)}` : `-${wrap(e.operand, 8)}`;
@@ -70,6 +70,7 @@ export function expr(e: Expr): string {
       const where = e.where.length ? ` where ${e.where.map(expr).join(", ")}` : "";
       return `${e.binding.name} in ${expr(e.binding.source)}${where}`;
     }
+    case "annotated": return expr(e.value) + attrsText(e.attrs);
   }
 }
 
@@ -304,7 +305,7 @@ function memberLines(members: TableMember[], indent: string): string[] {
         return;
       }
       case "mention":
-        lines.push(...withComments([`${indent}${m.name}${attrsText(m.attrs)}`], m.comments, indent));
+        lines.push(...withComments([`${indent}${/^[A-Za-z_][A-Za-z0-9_]*$/.test(m.name) ? m.name : quote(m.name)}${attrsText(m.attrs)}`], m.comments, indent));
         return;
     }
   });

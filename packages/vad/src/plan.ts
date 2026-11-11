@@ -358,7 +358,7 @@ export class ElementPlanner {
       case "unary": return { op: e.operator, args: [this.expr(e.operand, env, lookup)] };
       case "binary": return { op: e.operator, args: [this.expr(e.left, env, lookup), this.expr(e.right, env, lookup)] };
       case "choice": return { op: "?:", args: [this.expr(e.test, env, lookup), this.expr(e.then, env, lookup), this.expr(e.otherwise, env, lookup)] };
-      case "comprehension": return { value: null };
+      case "comprehension": case "annotated": return { value: null };
       case "call": {
         const first = e.args[0]?.value;
         if (AGGREGATES.has(e.callee) && first?.kind === "comprehension") {

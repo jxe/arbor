@@ -1087,13 +1087,65 @@ function schemaAttributes(c: Cursor): SchemaAttribute[] {
       c.pos += 1;
       args = [];
       if (!c.accept(")")) {
-        do args.push(expression(c));
+        do args.push(schemaArgument(c));
         while (c.accept(","));
         c.expect(")", "',' or ')'");
       }
     }
     attrs.push({ sigil: ch, name, args, span: c.span(start) });
   }
+}
+
+/**
+ * A schema attribute's argument: an expression, where a list item or record value may be a
+ * name with attributes of its own (`~views([{ line: [name, leads ~label("lead")] }])`), and
+ * a record's keys may be quoted.
+ */
+function schemaArgument(c: Cursor): Expr {
+  c.ws();
+  const start = c.pos;
+  if (c.peek() === "[") {
+    c.pos += 1;
+    const items: Expr[] = [];
+    if (!c.accept("]")) {
+      do {
+        if (c.lookingAt("]")) break; // a trailing comma
+        items.push(schemaArgument(c));
+      } while (c.accept(","));
+      c.expect("]", "',' or ']'");
+    }
+    return { kind: "list", items, span: c.span(start) };
+  }
+  if (c.peek() === "{") {
+    c.pos += 1;
+    const entries: { name: string; nameSpan: Span; value: Expr }[] = [];
+    if (!c.accept("}")) {
+      do {
+        if (c.lookingAt("}")) break;
+        c.ws();
+        const nameStart = c.pos;
+        const name = c.peek() === '"' ? plainString(c) : c.ident("a field name");
+        const nameSpan = c.span(nameStart);
+        c.expect(":");
+        entries.push({ name, nameSpan, value: schemaArgument(c) });
+      } while (c.accept(","));
+      c.expect("}", "',' or '}'");
+    }
+    return { kind: "record", entries, span: c.span(start) };
+  }
+  // A path, `visits.at`, is one name here, as in USL.
+  let value: Expr;
+  const first = c.identAt();
+  if (first && c.text[c.pos + first.length] === "." && IDENT_START.test(c.text[c.pos + first.length + 1] ?? "")) {
+    let name = c.ident();
+    while (c.peek() === "." && IDENT_START.test(c.peek(1))) {
+      c.pos += 1;
+      name += "." + c.ident("a field name");
+    }
+    value = { kind: "name", name, span: c.span(start) };
+  } else value = expression(c);
+  const attrs = schemaAttributes(c);
+  return attrs.length ? { kind: "annotated", value, attrs, span: c.span(start) } : value;
 }
 
 function arity(c: Cursor): TypeRef["arity"] {
@@ -1246,7 +1298,7 @@ function tableMembers(src: Source, first: number, last: number, diagnostics: Dia
     }
     if (context === "re") {
       c.ws();
-      const name = c.ident("a field or value name");
+      const name = c.peek() === '"' ? plainString(c) : c.ident("a field or value name");
       const attrs = schemaAttributes(c);
       return finishMember({ kind: "mention", name, attrs, span: c.span(start), blankBefore: false, comments: [] });
     }

@@ -658,6 +658,9 @@ export class Checker {
       case "comprehension":
         this.error("syntax", "`name in source where …` is an argument of count or exists", e.span);
         return ANY;
+      case "annotated":
+        this.error("syntax", "A name takes attributes only in a schema attribute's arguments", e.span);
+        return ANY;
       case "name": return this.nameType(e, scope, ctx);
       case "field": {
         const object = this.typeOf(e.object, scope, ctx);

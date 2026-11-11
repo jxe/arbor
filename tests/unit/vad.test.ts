@@ -292,3 +292,47 @@ describe("vad conformance vectors", () => {
     expect(stored).toEqual(JSON.parse(JSON.stringify(vadVectors())));
   });
 });
+
+describe("converting schema.usl to schema.vad", () => {
+  const root = join(import.meta.dir, "../..");
+  const schemas = [
+    "examples/supplies/data/schema.usl",
+    "tests/fixtures/workspace/books/schema.usl",
+    "tools/directory-seed/people/schema.usl",
+    "tools/directory-seed/trees/schema.usl",
+    ...["books", "excellences", "games", "stress", "supplies"].map((name) => `packages/usl/examples/${name}.usl`),
+  ];
+  for (const path of schemas) {
+    test(`${path} converts to the same tables, layout and presentation, formatted`, async () => {
+      const { convertVerified } = await import("../../tools/convert-usl-to-vad.ts");
+      const vad = convertVerified(readFileSync(join(root, path), "utf8"));
+      expect(formatView(vad)).toBe(vad);
+    });
+  }
+
+  test("~views keeps names with attributes, paths and quoted mentions", () => {
+    const source = [
+      "main table Game:",
+      "  name   Text",
+      "  status Status",
+      "",
+      "Game.status <-> Status.games[]",
+      "",
+      "enum Status:",
+      "  Draft",
+      '  "In review"',
+      "",
+      "re Game:",
+      '  ~views([{ label: "By game", line: [status ~bullet, name, name ~label("title")], sort: modified }])',
+      "",
+      "re Status:",
+      '  "In review" ~color("#bd861a")',
+      "",
+    ].join("\n");
+    expect(formatView(source)).toBe(source);
+    const schema = compileSchema(source);
+    expect(schema.diagnostics).toEqual([]);
+    const game = schema.models.find((m) => m.name === "Game")!;
+    expect(JSON.stringify(game)).toContain('"bullet"');
+  });
+});

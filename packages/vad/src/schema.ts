@@ -24,6 +24,10 @@ function arg(e: Expr): Usl.Expr {
       if (typeof e.value === "number") return { kind: "number", value: e.value, at: position };
       return { kind: "ident", name: String(e.value), attrs: [], at: position };
     case "list": return { kind: "list", items: e.items.map(arg), at: position };
+    case "annotated": {
+      const value = arg(e.value);
+      return value.kind === "ident" ? { ...value, attrs: attributes(e.attrs) } : value;
+    }
     case "record": return { kind: "object", entries: e.entries.map((x) => ({ key: x.name, value: arg(x.value), at: at(x.nameSpan) })), at: position };
     default: return { kind: "string", value: "", at: position };
   }

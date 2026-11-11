@@ -43,7 +43,9 @@ export type Expr =
   | { kind: "choice"; test: Expr; then: Expr; otherwise: Expr; span: Span }
   | { kind: "element"; element: Element; span: Span }
   /** `name in source where …`, the argument of `count(…)` or `exists(…)`. */
-  | { kind: "comprehension"; binding: Binding; where: Expr[]; span: Span };
+  | { kind: "comprehension"; binding: Binding; where: Expr[]; span: Span }
+  /** `name ~attr(…)`: a name with attributes, only inside a schema attribute's arguments (`~views`). */
+  | { kind: "annotated"; value: Expr; attrs: SchemaAttribute[]; span: Span };
 
 export type TextPart = string | Expr;
 
