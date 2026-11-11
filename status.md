@@ -766,7 +766,7 @@ writes through.
   seed (`tools/directory-seed.ts`, `_version` 5) and kept by `PersonalDirectoryKeeper` in the
   background. People holds `Tie` facts; Trees holds `Tree`, `Visit` and `Placement` facts, each
   keyed so devices never race. A directory from an older seed is replaced, which empties it.
-- **USL summaries** ([spec 11 §5.1](docs/overstory-spec/1.5-vad.md#51-arrangements)):
+- **USL summaries** ([spec 11 §3.1](docs/overstory-spec/1.5-vad.md#31-elements)):
   `rows: field`, `re Person { ~views }`, paths through connections, `~latest`, `~earliest`,
   `~count` and `~ago`, in both stacks with shared vectors (`df636b4`). The Mac draws `~ago` as
   a relative time.
