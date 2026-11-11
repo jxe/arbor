@@ -359,12 +359,14 @@ distinct from the string `"2026-10-28"`. YAML features with no value
 (anchors, aliases, comments and explicit tags other than timestamps) are not
 part of a page.
 
-An `ObjectEnvelope` is JSON transport packaging for the same canonical object
-bytes when another operation, such as an update request, carries objects inside
-JSON. Its `hash` is the SHA-256 hash derived from its decoded `bytes`:
+When another operation, such as an update request or a watch frame, carries
+complete objects, it carries them as the snapshot bundle does: an `objects`
+array of each object's exact bytes, padded base64 in JSON and a byte string in
+CBOR (§4.4), with no hash beside them. The receiver hashes each one, as it
+must anyway, and an object is named by that hash wherever it is referenced:
 
 ```ts
-type ObjectEnvelope = { hash: Hash; bytes: string };
+type ObjectBytes = string; // JSON: padded base64 of one object's canonical bytes
 ```
 
 Section 4.1 defines the common encoding and hash rules.
@@ -465,7 +467,7 @@ type AcceptedTransition = TransitionPayload & {
 };
 
 type TransitionPayload = {
-  objects: ObjectEnvelope[];
+  objects: ObjectBytes[];
   deltas: ObjectDelta[];
 };
 
@@ -473,7 +475,7 @@ type ObjectDelta = {
   base: Hash;
   result: Hash;
   instructions: Array<
-    | { copy: { offset: number; length: number } }
+    | { copy: [offset: number, length: number] }
     | { insert: string }
   >;
 };
@@ -621,7 +623,7 @@ GET /.overstory/trees/{TreeID}/objects/{hash}
 ```
 
 This route returns the same object bytes carried in a snapshot bundle
-or `ObjectEnvelope`, but directly as the response body. The hash is present in
+or an `objects` array, but directly as the response body. The hash is present in
 the URL and repeated as the quoted ETag. The response uses `application/octet-stream`,
 must hash to the requested value, and uses the same access-sensitive `Vary` and
 `Cache-Control` policy as an accepted snapshot.
@@ -639,16 +641,14 @@ A client may use it to refetch one missing or corrupt object of a
 retained root instead of downloading a complete snapshot. Because objects are immutable and addressed by their bytes,
 successful responses can be cached and reused after verification.
 
-#### 1.2.2 Material references and selectors
+#### 1.2.2 References and selectors
 
 ```ts
-type Material =
-  | { kind: "basis"; path: string; object: Hash }
-  | { kind: "operation"; change: string; operation: string }
-  | { kind: "alternative"; update: string; conflict: string; alternative: string };
-
-type Ref = {
-  material: Material;
+type Ref = (
+  | { path: string; object: Hash }                           // basis material
+  | { change: string; operation: string }                    // an operation's result
+  | { update: string; conflict: string; alternative: string } // an alternative
+) & {
   within?: string[];
   range?: [number, number];
 };
@@ -658,8 +658,13 @@ type EntryDestination = { parent: Ref; name: string };
 Change, operation, conflict and alternative keys are 1–128 ASCII letters, digits,
 underscores or hyphens.
 
+A reference's kind is told by its keys, as a directory entry's is: `path`
+and `object` name *basis* material, `change` and `operation` an operation's
+result, and `update`, `conflict` and `alternative` an alternative. A reference
+carrying keys of two kinds is invalid.
+
 All references are scoped to the addressed TreeID and remain subject to current
-authorization. On reads, `basis` names the exact object at a logical path in the
+authorization. On reads, a basis reference names the exact object at a logical path in the
 requested accepted state. On writes, it names that object in the element's authored
 basis. For the first element this is the accepted state at request `base`;
 for later elements it is the preceding submitted candidate together with its authored
@@ -668,14 +673,14 @@ semantic effects, not merely its root hash. Paths are NFC, absolute and at most
 Other paths have no trailing slash, empty/dot components, backslashes or NUL.
 Root material cannot itself be moved, removed or replaced as an entry.
 
-`operation` names a retained material result. On writes, it may also name the result
+An operation reference names a retained material result. On writes, it may also name the result
 of an earlier operation in this change or submitted prefix. Forward references, cycles and references to an
 operation with no material result are invalid. An operation result is not a backend
 graph ID and does not inherently create a new origin. The host retains its
 immutable binding and the provenance needed to transport selections through later
 changes. Missing history requires an explicit failure, never fuzzy text matching.
 
-`alternative` names material in an exact retained accepted `update`. Update IDs are
+An alternative reference names material in an exact retained accepted `update`. Update IDs are
 opaque, nonempty strings of at most 1024 UTF-8 bytes. Conflict and alternative IDs
 come from the host. The update identifies the reviewed alternative revision;
 bytes, display order and current paths cannot substitute for identity.
@@ -763,12 +768,12 @@ resolution the client obtains the evidence required for the affected dependency
 closure. Unrelated sync requires neither a complete traversal nor that closure.
 The host still validates all guards and combinations at acceptance.
 
-`affected` uses the same material references as updates. A `basis` reference is
+`affected` uses the same references as updates. A basis reference is
 interpreted at the page's `update`. Absence decisions can address a destination parent
 or retained material rather than inventing a nonexistent file path. Whole-entry,
 placement and text selections therefore share the same identity vocabulary.
-An alternative is addressed in a mutation by an `alternative` material reference
-using this page's state and its decision/alternative IDs. Its value supplies exact
+An alternative is addressed in a mutation by an alternative reference
+using this page's update and its decision/alternative IDs. Its value supplies exact
 text or the existing explicitly typed entry representation; `absent` represents
 nonexistence. `placement`, when present, identifies the proposed parent and name
 for an entry value, not a second independent copy. It is invalid for text or absence.
@@ -809,7 +814,7 @@ labels rather than mutation opcodes. They produce ordinary operations and resolu
 declarations. Requests remain subject to current authorization and guarded evidence.
 Optional offline inspection caching does not grant current-state authority.
 
-IDs and references use [§1.2.2](#122-material-references-and-selectors) syntax. Decisions, alternatives, dependencies, actions and
+IDs and references use [§1.2.2](#122-references-and-selectors) syntax. Decisions, alternatives, dependencies, actions and
 contributions must be unique within their stated scopes; dependencies cannot refer to
 self but cycles between decisions are permitted. Empty alternative sets, invalid
 selected IDs, malformed references and invalid values fail decoding. Open decisions
@@ -932,12 +937,14 @@ type UpdateRequest = {
   updates: CandidateUpdate[];
 };
 
-type CandidateUpdate = TransitionPayload & {
+type CandidateUpdate = {
   change: string;
-  trace: Frame[] | null;
   candidate: Hash | null;
-  resolves: ResolutionDeclaration[];
+  trace?: Frame[] | null;                // omitted: null, snapshot semantics
+  resolves?: ResolutionDeclaration[];    // omitted: []
   ifCurrent?: string;
+  objects?: ObjectBytes[];               // omitted: []
+  deltas?: ObjectDelta[];                // omitted: []
 };
 ```
 
@@ -959,8 +966,12 @@ hint it may skip. There is no capability-discovery endpoint or negotiation
 mechanism: a request the host does not support fails closed with no
 translation and no alternate route.
 `resolves` declares guarded decisions endorsed by this candidate; empty means none.
-These fields are required, included
-in request identity, and preserved verbatim in an adopted or retried prefix.
+An omitted `trace`, `resolves`,
+`objects` or `deltas` means `null` or `[]`, so the smallest update is
+`{ change, candidate, objects }`; identity is computed over the filled-in
+values (§2.4), so omitting a field and sending its default are the same request.
+A sender may omit them; it never sends `null` for a list. They are included in
+request identity and preserved in an adopted or retried prefix.
 There is no residual payload or implicit downgrade to snapshot semantics.
 
 `base` is the id of the accepted update and `tree.update` watchpoint from which
@@ -987,11 +998,7 @@ same time:
   "updates": [
     {
       "change": "change-one",
-      "trace": null,
-      "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "resolves": [],
-      "objects": [],
-      "deltas": []
+      "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
     }
   ]
 }
@@ -1003,19 +1010,11 @@ same time:
   "updates": [
     {
       "change": "change-one",
-      "trace": null,
-      "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "resolves": [],
-      "objects": [],
-      "deltas": []
+      "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
     },
     {
       "change": "change-two",
-      "trace": null,
-      "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-      "resolves": [],
-      "objects": [],
-      "deltas": []
+      "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
     }
   ]
 }
@@ -1224,8 +1223,10 @@ applied exactly becomes a new client-owned conflict before submission.
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
 of `{ domain: "arbor-update/2", tree, base, change, trace, candidate, resolves, ifCurrent }`,
-with absent `ifCurrent` encoded as CBOR null, and a derived candidate's
-`candidate` as CBOR null. Execution is deterministic (a row operation carries its
+with absent `ifCurrent` encoded as CBOR null, an omitted `trace` as CBOR null,
+an omitted `resolves` as an empty array, and a derived candidate's
+`candidate` as CBOR null. Omitting a field and sending its default therefore
+give the same digest. Execution is deterministic (a row operation carries its
 `at`), so a retried derived candidate derives the same root under the same digest. The digest covers the whole trace,
 including each frame's `before` and `after` as stated or omitted, so the same operations divided into
 different frames are a different change. Ordered arrays retain their submitted
@@ -1278,11 +1279,11 @@ object reachable in the relevant basis graph:
 
 | Representation | Update submission | Accepted transition | Intended use |
 |---|---|---|---|
-| `ObjectEnvelope` | Yes | Yes | New objects, or whenever complete canonical bytes are smallest |
+| `objects` entry | Yes | Yes | New objects, or whenever complete canonical bytes are smallest |
 | `ObjectDelta` | Yes | Yes | Any changed file or directory whose predecessor shares most of its bytes |
 
 An `ObjectDelta` concatenates ordered instructions into the complete canonical
-bytes of the `result` object. `copy` addresses the exact canonical bytes of the
+bytes of the `result` object. `copy` is `[offset, length]` into the exact canonical bytes of the
 `base` object and `insert` is canonical padded base64 in JSON or a byte string
 in CBOR (§4.4). Copy ranges are
 nonempty, nonnegative safe JSON integers wholly within the base bytes; inserts
@@ -1476,8 +1477,9 @@ chosen by ordinary HTTP content negotiation, never required:
   it. A host accepts and produces both; a client may use either, and may mix
   them (a CBOR request with a JSON response, or the reverse).
 - A CBOR body is the canonical CBOR (§4.1) of exactly the value the JSON body
-  would carry, with a byte string wherever JSON carries padded base64: an
-  object envelope's `bytes` and an object delta's `insert`. Keys, nesting,
+  would carry, with a byte string wherever JSON carries padded base64: each
+  member of `objects` and an object delta's `insert`. In CBOR, `objects` is
+  therefore exactly a snapshot bundle's `objects`. Keys, nesting,
   `null`, and the rules for optional fields are unchanged. There is no second
   schema.
 - A receiver decodes canonical CBOR only. A non-minimal length, an indefinite

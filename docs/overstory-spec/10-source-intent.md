@@ -9,7 +9,7 @@ reference implementation's progress toward it.
 
 Every candidate has required `change`, `candidate`, `trace` and `resolves`
 fields. `change` identifies an immutable authored change within its TreeID and uses
-the [material-reference key syntax](01-tree-operations.md#122-material-references-and-selectors).
+the [reference key syntax](01-tree-operations.md#122-references-and-selectors).
 A random UUID is suitable for a new change. Exact retry and
 adoption retain its identity and semantics; clients MUST NOT reuse it for different
 intent. Change identities within a request are distinct.
@@ -103,8 +103,8 @@ their results arrive, and applies each result as a watch frame.
 
 ## 3. References in authored changes
 
-[Tree operations §1.2.2](01-tree-operations.md#122-material-references-and-selectors)
-defines `Material`, `Ref`, `EntryDestination` and their selectors for both reads and
+[Tree operations §1.2.2](01-tree-operations.md#122-references-and-selectors)
+defines `Ref`, `EntryDestination` and their selectors for both reads and
 writes. Authored operations additionally use:
 
 ```ts
