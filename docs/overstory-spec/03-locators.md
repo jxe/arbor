@@ -160,7 +160,7 @@ search for an ID finds every link that names it:
 | `[["id",42]]` | `id=42` |
 | `[["t","a b"]]` | `t:a%20b` |
 
-The token appears in exactly two places, one per kind of surface:
+A stable key is spelled on each surface as follows:
 
 | Surface | Spelling |
 |---|---|
@@ -179,10 +179,8 @@ overstory://<TreeID>/practices/walking;overstory-key=slug:walking
 ```
 
 The same syntax is used for a Markdown `id`, a collection primary key, or any
-later schema identity rule. There is no `PageID` locator variant and no row-only
-locator shape. A bare `#<fragment>` is only ever a content fragment: earlier
-bare `#<PageID>` and `#row=<key>` input, and base64url key tokens, are no longer
-read.
+later schema identity rule. There is no page-only or row-only locator shape. A bare
+`#<fragment>` is only ever a content fragment.
 
 ### 2.1 Links written in Markdown
 
@@ -409,9 +407,9 @@ While a domain is served, with the profile's path as its **prefix**:
   canonical HTTP URL, for every tree whose path is at or below the prefix: the
   domain's origin followed by the path below the prefix. The longest served
   prefix covering a path decides; with none, there is no `url` and the
-  canonical URL is the endpoint's origin and path, as before. `path` and
-  `endpoint` keep naming the tree at the host, which still resolves and
-  serves it there, so a client that does not know `url` keeps working.
+  canonical URL is the endpoint's origin and path. `path` and `endpoint`
+  keep naming the tree at the host, which still resolves and serves it
+  there.
 - **Browsers are sent to it.** An HTML request for a path at or below the
   prefix at the host's own name is redirected (`301`) to the same path at
   the domain.
@@ -430,8 +428,7 @@ GET /.well-known/overstory[/{path}]
 ```
 
 `health` is a cheap readiness check that answers `{"status":"ok"}` while the
-server's own database is consistent; poll it freely. It may add `features`, the
-optional protocol features the host serves; a host that lists none serves none. It states `protocol`, the host protocol level it
+server's own database is consistent; poll it freely. It states `protocol`, the host protocol level it
 implements, a positive integer; a host that states none is level 1. A level rises when a
 host gains something clients may depend on. A client that needs a higher level than a host
 states must refuse that host and say the host needs updating, rather than talk to it and
