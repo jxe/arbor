@@ -253,13 +253,9 @@ In JSON (object bytes shortened):
   "device": { "id": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa", "label": "Alice's Mac", "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" },
   "configuration": {
     "change": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "at": "2026-11-11T09:30:00.000Z",
     "candidate": "sha256:…",
-    "trace": null,
-    "resolves": [],
-    "objects": [
-      { "hash": "sha256:…", "bytes": "…" }
-    ],
-    "deltas": []
+    "objects": ["…"]
   }
 }
 ```
@@ -895,7 +891,7 @@ Each step is an ordinary update of one tree.
 
    ```text
    POST /.overstory/trees/{TreeID};overstory-config/updates
-   { "base": null, "updates": [{ "change": <change-id>, "candidate": <root>, "operations": null, "resolves": [], "objects": [...], "deltas": [] }] }
+   { "base": null, "updates": [{ "change": <change-id>, "at": <time>, "candidate": <root>, "objects": [...] }] }
    ```
 
    The configuration must grant the submitting device's person `admin`, and a
