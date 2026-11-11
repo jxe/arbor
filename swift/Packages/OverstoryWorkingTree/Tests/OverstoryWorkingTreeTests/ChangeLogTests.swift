@@ -26,7 +26,7 @@ struct ChangeLogTests {
             let name: String; let generations: [[Edit]]; let source: String
             let frames: [ProtocolSemanticValue]?; let compacted: [ProtocolSemanticValue]?
         }
-        let tree: String; let sourcePath: String; let source: String; let changes: [Change]
+        let tree: String; let sourcePath: String; let source: String; let at: String; let changes: [Change]
         let requests: [String: ProtocolUpdateRequest]
         let traces: [Trace]
     }
@@ -42,7 +42,7 @@ struct ChangeLogTests {
     }
     func graph(_ source: String) throws -> ProtocolSnapshot {
         let file = Data(source.utf8), fileHash = ProtocolObjectCodec.hash(file)
-        let nested = try ProtocolObjectCodec.encode(.directory([.init(name: "note.md", file: fileHash)])), nestedHash = ProtocolObjectCodec.hash(nested)
+        let nested = try ProtocolObjectCodec.encode(.directory([.init(name: "note.md", file: fileHash, created: 0, modified: 0)])), nestedHash = ProtocolObjectCodec.hash(nested)
         let root = try ProtocolObjectCodec.encode(.directory([.init(name: "nested", directory: nestedHash)]))
         return ProtocolSnapshot(root: ProtocolObjectCodec.hash(root), objects: [file, nested, root].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
     }
@@ -59,7 +59,7 @@ struct ChangeLogTests {
             records.append(try LocalChange(change: change.change, tree: f.tree,
                 basis: parent.map { .authored(change: $0.change) } ?? .accepted(.init(root: graph.root, update: change.basis.update!)),
                 graph: graph, sourcePath: f.sourcePath,
-                intent: .init(basis: basis, patch: patch, source: patch.applying(to: source))))
+                intent: .init(basis: basis, patch: patch, source: patch.applying(to: source)), at: f.at))
             sources[change.change] = try patch.applying(to: source)
         }
         return records
@@ -68,7 +68,7 @@ struct ChangeLogTests {
     /// The fixture stores frames as plain JSON; the wire element decodes them.
     private func frames(_ raw: [ProtocolSemanticValue]?) throws -> [ProtocolTraceFrame]? {
         guard let raw, case let .object(last)? = raw.last, case let .string(after)? = last["after"] else { return nil }
-        let element: ProtocolSemanticValue = .object(["change": .string("trace"), "candidate": .string(after), "trace": .array(raw),
+        let element: ProtocolSemanticValue = .object(["change": .string("trace"), "at": .string("2026-11-11T00:00:00.000Z"), "candidate": .string(after), "trace": .array(raw),
                                                   "resolves": .array([]), "objects": .array([]), "deltas": .array([])])
         return try JSONDecoder().decode(ProtocolCandidateUpdate.self, from: JSONEncoder().encode(element)).trace
     }
@@ -91,8 +91,8 @@ struct ChangeLogTests {
                 patch: .init(baseContentRevision: "r1", edits: [.init(utf8Range: 0..<f.source.utf8.count, replacement: source)]),
                 source: source, generations: chain)
             let accepted: LocalChangeBasis = .accepted(.init(root: graph.root, update: "up_r1"))
-            let plain = try LocalChange(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent, compact: false)
-            let compact = try LocalChange(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent)
+            let plain = try LocalChange(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent, compact: false, at: f.at)
+            let compact = try LocalChange(change: "trace", tree: f.tree, basis: accepted, graph: graph, sourcePath: f.sourcePath, intent: intent, at: f.at)
             let expectedFrames = try frames(value.frames), expectedCompacted = try frames(value.compacted)
             #expect(plain.update.trace == expectedFrames, Comment(rawValue: value.name))
             #expect(compact.update.trace == expectedCompacted, Comment(rawValue: value.name))
@@ -143,7 +143,8 @@ struct ChangeLogTests {
         let undo = try LocalChange(change: "undo", tree: f.tree, basis: .authored(change: first.change), graph: first.candidate,
             sourcePath: f.sourcePath, intent: .init(basis: .init(reference: reference, source: edited, contentRevision: "c1"), patch: undoPatch, source: source))
         #expect(undo.update.trace?.allSatisfy { $0.operations.allSatisfy { $0.kind == "editSource" } } == true)
-        #expect(undo.candidate.root == graph.root)
+        // The content returns to the basis's; the entry keeps the edit's times (data model §6).
+        #expect(try LocalChange.entry(at: f.sourcePath, in: undo.candidate)?.untimed == LocalChange.entry(at: f.sourcePath, in: graph)?.untimed)
         // Records carry no document bytes: only hashes, the wire element, and a capture digest.
         let encoded = String(decoding: try JSONEncoder().encode(undo), as: UTF8.self)
         #expect(!encoded.contains("filler line"))
@@ -185,10 +186,10 @@ struct ChangeLogTests {
         let graph = try graph(f.source), file = Data(f.createdSource.utf8)
         let rootObject = try #require(graph.objects.first { $0.hash == graph.root })
         guard case let .directory(entries, _) = try ProtocolObjectCodec.decode(rootObject.bytes, kind: .directory) else { return }
-        let bytes = try ProtocolObjectCodec.encode(.directory([.init(name: String(f.createdPath.dropFirst()), file: ProtocolObjectCodec.hash(file))] + entries))
+        let bytes = try ProtocolObjectCodec.encode(.directory([.init(name: String(f.createdPath.dropFirst()), file: ProtocolObjectCodec.hash(file), created: 0, modified: 0)] + entries))
         let candidate = ProtocolSnapshot(root: ProtocolObjectCodec.hash(bytes), objects: graph.objects.filter { $0.hash != graph.root } + [file, bytes].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
         let created = try LocalChange(change: "creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
-            creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]))
+            creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]), at: ProtocolEntryTime.string(0))
         // A creation is traced: one addEntry of the new file under the basis root.
         let added = try #require(created.update.trace?.first?.operations.first)
         #expect(created.update.trace?.count == 1 && created.update.trace?.first?.operations.count == 1)
@@ -196,12 +197,12 @@ struct ChangeLogTests {
         #expect(added.fields["value"] == .object(["file": .string(ProtocolObjectCodec.hash(file))]))
         // In a tree that holds pages, the created Markdown is a page entry.
         var pageBytes = Data()
-        let pageEntry = ProtocolDirectoryEntry.markdown(name: String(f.createdPath.dropFirst()), bytes: file, pages: true) { pageBytes = $0; return ProtocolObjectCodec.hash($0) }
+        let pageEntry = ProtocolDirectoryEntry.markdown(name: String(f.createdPath.dropFirst()), bytes: file, pages: true, previous: nil, at: 0) { pageBytes = $0; return ProtocolObjectCodec.hash($0) }
         let pageHash = try #require(pageEntry.page)
         let pageRoot = try ProtocolObjectCodec.encode(.directory([pageEntry] + entries))
         let pageCandidate = ProtocolSnapshot(root: ProtocolObjectCodec.hash(pageRoot), objects: graph.objects.filter { $0.hash != graph.root } + [pageBytes, pageRoot].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
         let createdPage = try LocalChange(change: "page-creation", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: pageCandidate,
-            creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]))
+            creation: .init(document: .init(tree: TreeID(rawValue: f.tree), path: f.document), removals: [f.createdPath]), at: ProtocolEntryTime.string(0))
         #expect(createdPage.update.trace?.first?.operations.first?.fields["value"] == .object(["page": .string(pageHash)]))
         #expect(throws: (any Error).self) {
             try LocalChange(change: "wrong", tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, candidate: candidate,
@@ -225,7 +226,7 @@ struct ChangeLogTests {
             ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../../../../docs/overstory-spec/conformance")
         let f = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: directory.appending(path: "cross-document-copy.json")))
         let origin = Data(f.original.utf8), destination = Data(f.destination.utf8)
-        let root = try ProtocolObjectCodec.encode(.directory([.init(name: "destination.md", file: ProtocolObjectCodec.hash(destination)), .init(name: "source.md", file: ProtocolObjectCodec.hash(origin))]))
+        let root = try ProtocolObjectCodec.encode(.directory([.init(name: "destination.md", file: ProtocolObjectCodec.hash(destination), created: 0, modified: 0), .init(name: "source.md", file: ProtocolObjectCodec.hash(origin), created: 0, modified: 0)]))
         let graph = ProtocolSnapshot(root: ProtocolObjectCodec.hash(root), objects: [root, origin, destination].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
         let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/destination"), source: f.destination, contentRevision: "r1")
         let patch = WorkspaceDocumentPatch(baseContentRevision: "r1", edits: [.init(utf8Range: f.edit.offset..<(f.edit.offset + f.edit.length), replacement: f.edit.replacement,
@@ -269,7 +270,7 @@ struct ChangeLogTests {
             }
             #expect(try patch.applying(to: c.source) == result, "\(c.name)")
             let file = Data(c.source.utf8)
-            let root = try ProtocolObjectCodec.encode(.directory([.init(name: String(f.path.dropFirst()), file: ProtocolObjectCodec.hash(file))]))
+            let root = try ProtocolObjectCodec.encode(.directory([.init(name: String(f.path.dropFirst()), file: ProtocolObjectCodec.hash(file), created: 0, modified: 0)]))
             let graph = ProtocolSnapshot(root: ProtocolObjectCodec.hash(root), objects: [root, file].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
             let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: f.tree), path: "/note"), source: c.source, contentRevision: "r1")
             let record = try LocalChange(tree: f.tree, basis: .accepted(.init(root: graph.root, update: "r1")), graph: graph, sourcePath: f.path,
@@ -374,9 +375,9 @@ struct ChangeLogTests {
         let f = try fixture(), root = try root(); defer { try? FileManager.default.removeItem(at: root) }
         let asset = Data(repeating: 0x5a, count: 1_000_000), assetHash = ProtocolObjectCodec.hash(asset)
         let source = Data(f.source.utf8), sourceHash = ProtocolObjectCodec.hash(source)
-        let nested = try ProtocolObjectCodec.encode(.directory([.init(name: "note.md", file: sourceHash)])), nestedHash = ProtocolObjectCodec.hash(nested)
+        let nested = try ProtocolObjectCodec.encode(.directory([.init(name: "note.md", file: sourceHash, created: 0, modified: 0)])), nestedHash = ProtocolObjectCodec.hash(nested)
         let rootBytes = try ProtocolObjectCodec.encode(.directory([
-            .init(name: "asset.bin", file: assetHash), .init(name: "nested", directory: nestedHash),
+            .init(name: "asset.bin", file: assetHash, created: 0, modified: 0), .init(name: "nested", directory: nestedHash),
         ]))
         let initialGraph = ProtocolSnapshot(root: ProtocolObjectCodec.hash(rootBytes), objects: [asset, source, nested, rootBytes].map {
             .init(hash: ProtocolObjectCodec.hash($0), bytes: $0)
@@ -432,14 +433,14 @@ extension ChangeLogTests {
         for kind in [EntryTransfer.Kind.moveEntry, .copyEntry] {
             let root = try root(); defer { try? FileManager.default.removeItem(at:root) }
             let transfer = EntryTransfer(kind:kind,source:"/nested/note.md",parent:"/",name:"moved.md")
-            let prepared = try transfer.prepare(graph:graph)
-            let record = try LocalChange(tree:"tr_entry",basis:.accepted(.init(root:graph.root,update:"basis")),graph:graph,candidate:prepared.candidate,entryTransfer:transfer)
+            let prepared = try transfer.prepare(graph:graph,at:0)
+            let record = try LocalChange(tree:"tr_entry",basis:.accepted(.init(root:graph.root,update:"basis")),graph:graph,candidate:prepared.candidate,entryTransfer:transfer,at:ProtocolEntryTime.string(0))
             let queue = try await ChangeLog(tree:"tr_entry",stateRoot:root)
             try await queue.retain(record)
             let reopened = try await ChangeLog(tree:"tr_entry",stateRoot:root)
             #expect(try await reopened.retained() == [record])
             #expect(record.update.trace?.first?.operations.first?.kind == kind.rawValue)
-            #expect(throws:(any Error).self) { try EntryTransfer(kind:kind,source:"/nested",parent:"/nested",name:"loop").prepare(graph:graph) }
+            #expect(throws:(any Error).self) { try EntryTransfer(kind:kind,source:"/nested",parent:"/nested",name:"loop").prepare(graph:graph,at:0) }
         }
     }
 }

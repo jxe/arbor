@@ -662,7 +662,33 @@ public actor UpdateCoordinator {
                 updates.append(best.update); index += best.changes.count
             } else { updates.append(try compact(current, change: current.change)); index += 1 }
         }
-        return ProtocolUpdateRequest(base: request.base, updates: updates)
+        return ProtocolUpdateRequest(base: request.base, updates: try restamped(updates, records: byChange))
+    }
+
+    /// A batch of edits made at different times goes under its last edit's
+    /// time (Joe, 2026-11-11): the host replays every frame at the update's
+    /// `at`, so each entry the batch touched is restamped to it, and the
+    /// updates after it continue from that root (`LocalChange.restamped`).
+    /// Once accepted, the tree installs the accepted root as usual.
+    private func restamped(_ updates: [ProtocolCandidateUpdate], records: [String: LocalChange]) throws -> [ProtocolCandidateUpdate] {
+        var held: [String: Data] = [:]
+        for record in records.values { for object in record.graph.objects + record.candidate.objects { held[object.hash] = object.bytes } }
+        var result: [ProtocolCandidateUpdate] = []
+        var moved: (from: String, to: String)?
+        for update in updates {
+            let group = control.publications.first { $0.update.change == update.change }
+            let mixed = group?.changes.contains { records[$0].map { $0.update.at != update.at } ?? false } ?? false
+            let basis = update.trace?.first?.before
+            let rebased = moved != nil && basis == moved?.from
+            guard let basis, mixed || rebased,
+                  let next = try LocalChange.restamped(update, from: rebased ? moved!.to : basis, held: held) else {
+                result.append(update); moved = nil; continue
+            }
+            for (hash, bytes) in next.generated { held[hash] = bytes }
+            result.append(next.update)
+            moved = next.update.candidate == update.candidate ? nil : (update.candidate, next.update.candidate)
+        }
+        return result
     }
 
     private var lastAuthenticationRetry: Date?

@@ -150,7 +150,7 @@ struct UpdateCoordinatorTests {
                 tables: [.init(model: "Game", table: table.hash)]
             )
             let directory = try ProtocolObjectCodec.object(.directory([
-                .init(name: "schema.usl", file: schema.hash),
+                .init(name: "schema.usl", file: schema.hash, created: 0, modified: 0),
             ], collection: reference))
             let snapshot = ProtocolSnapshot(root: directory.hash, objects: [directory, schema, table, rows])
             let replacement = try SnapshotBridge.replacement(
@@ -182,11 +182,11 @@ struct UpdateCoordinatorTests {
         let note = try ProtocolObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n".utf8)))
         let photo = try ProtocolObjectCodec.object(.file(Data([0xff, 0xd8, 0xff, 0xe0])))
         let clip = try ProtocolObjectCodec.object(.file(Data("not really audio".utf8)))
-        let album = try ProtocolObjectCodec.object(.directory([.init(name: "photo.jpg", file: photo.hash)]))
+        let album = try ProtocolObjectCodec.object(.directory([.init(name: "photo.jpg", file: photo.hash, created: 0, modified: 0)]))
         let root = try ProtocolObjectCodec.object(.directory([
             .init(name: "album", directory: album.hash),
-            .init(name: "clip.unknownext", file: clip.hash),
-            .init(name: "note.md", file: note.hash),
+            .init(name: "clip.unknownext", file: clip.hash, created: 0, modified: 0),
+            .init(name: "note.md", file: note.hash, created: 0, modified: 0),
         ]))
         let tree = TreeID(rawValue: "tr_sparsebridge")
         let full = ProtocolSnapshot(root: root.hash, objects: [root, album, note, photo, clip])
@@ -256,7 +256,8 @@ struct UpdateCoordinatorTests {
             #expect(try await workingTree.currentSnapshot().root == original.root)
             await workingTree.close()
 
-            workingTree = try await WorkingTree.open(at: root.appending(path: "replica"), tree: tree)
+            // Dated as the hand-built expected snapshot is.
+            workingTree = try await WorkingTree.open(at: root.appending(path: "replica"), tree: tree, clock: { Date(timeIntervalSince1970: 0) })
             #expect(try await workingTree.currentSnapshot().root == original.root)
             let session = try await WorkingTreeProvider(workingTree: workingTree).openDocument(
                 .init(tree: tree, path: "/March-Out-My-Work", stableKey: markdownStableKey("pg_march"))
@@ -339,8 +340,8 @@ struct UpdateCoordinatorTests {
         let directory = try ProtocolObjectCodec.object(.directory([]))
         let root = try ProtocolObjectCodec.object(.directory([
             .init(name: "x", directory: directory.hash),
-            .init(name: "x.md", file: markdown.hash),
-            .init(name: "x.mdx", file: mdx.hash),
+            .init(name: "x.md", file: markdown.hash, created: 0, modified: 0),
+            .init(name: "x.mdx", file: mdx.hash, created: 0, modified: 0),
         ]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [root, directory, markdown, mdx])
 
@@ -350,8 +351,8 @@ struct UpdateCoordinatorTests {
 
         let plain = try ProtocolObjectCodec.object(.file(Data("plain".utf8)))
         let duplicateRoot = try ProtocolObjectCodec.object(.directory([
-            .init(name: "same", file: plain.hash),
-            .init(name: "same.md", file: markdown.hash),
+            .init(name: "same", file: plain.hash, created: 0, modified: 0),
+            .init(name: "same.md", file: markdown.hash, created: 0, modified: 0),
         ]))
         let duplicate = ProtocolSnapshot(root: duplicateRoot.hash, objects: [duplicateRoot, plain, markdown])
         #expect(throws: ProtocolValidationError.self) {
@@ -1292,8 +1293,8 @@ struct UpdateCoordinatorPhase3Tests {
         let note = try ProtocolObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n\nBase\n".utf8)))
         let photo = try ProtocolObjectCodec.object(.file(Data(repeating: 0xab, count: 4_096)))
         let rootDirectory = try ProtocolObjectCodec.object(.directory([
-            .init(name: "note.md", file: note.hash),
-            .init(name: "photo.bin", file: photo.hash),
+            .init(name: "note.md", file: note.hash, created: 0, modified: 0),
+            .init(name: "photo.bin", file: photo.hash, created: 0, modified: 0),
         ]))
         let complete = ProtocolSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note, photo].sorted { $0.hash < $1.hash })
         let spine = ProtocolSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note].sorted { $0.hash < $1.hash })
@@ -1326,8 +1327,8 @@ struct UpdateCoordinatorPhase3Tests {
         let note = try ProtocolObjectCodec.object(.file(Data("---\nid: pg_note\n---\n\n# Note\n\nBase\n".utf8)))
         let photo = try ProtocolObjectCodec.object(.file(Data(repeating: 0x01, count: 2_048)))
         let rootDirectory = try ProtocolObjectCodec.object(.directory([
-            .init(name: "note.md", file: note.hash),
-            .init(name: "photo.bin", file: photo.hash),
+            .init(name: "note.md", file: note.hash, created: 0, modified: 0),
+            .init(name: "photo.bin", file: photo.hash, created: 0, modified: 0),
         ]))
         let spine = ProtocolSnapshot(root: rootDirectory.hash, objects: [rootDirectory, note].sorted { $0.hash < $1.hash })
         let platform = CountingObjectStore(objects: [photo.hash: photo.bytes])
@@ -1348,8 +1349,8 @@ struct UpdateCoordinatorPhase3Tests {
             // The element carries the new note and root, whole or as deltas; the photo is never sent.
             let localNote = try #require((element.objects.map(\.hash) + element.deltas.map(\.result)).first { $0 != element.candidate })
             let mergedRoot = try ProtocolObjectCodec.object(.directory([
-                .init(name: "note.md", file: localNote),
-                .init(name: "photo.bin", file: photo2.hash),
+                .init(name: "note.md", file: localNote, created: 0, modified: 0),
+                .init(name: "photo.bin", file: photo2.hash, created: 0, modified: 0),
             ]))
             await merged.set(mergedRoot.hash)
             let update = ProtocolAcceptedUpdate(
@@ -1572,7 +1573,7 @@ struct LiveNativePeerTests {
 
 private func snapshot(markdown: String) throws -> ProtocolSnapshot {
     let file = try ProtocolObjectCodec.object(.file(Data(markdown.utf8)))
-    let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+    let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
     return ProtocolSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
 }
 
@@ -1581,14 +1582,14 @@ private func benchmarkSnapshot(markdown: String, siblings: Int) throws -> Protoc
     var objects: [ProtocolObjectEnvelope] = []
     let note = try ProtocolObjectCodec.object(.file(Data(markdown.utf8)))
     objects.append(note)
-    var entries = [ProtocolDirectoryEntry(name: "note.md", file: note.hash)]
+    var entries = [ProtocolDirectoryEntry(name: "note.md", file: note.hash, created: 0, modified: 0)]
     for folder in stride(from: 0, to: siblings, by: 10) {
         var children: [ProtocolDirectoryEntry] = []
         for index in folder..<min(folder + 10, siblings) {
             let body = "# Page \(index)\n\n" + String(repeating: "Some words on page \(index).\n", count: 40)
             let file = try ProtocolObjectCodec.object(.file(Data(body.utf8)))
             objects.append(file)
-            children.append(.init(name: "page-\(index).md", file: file.hash))
+            children.append(.init(name: "page-\(index).md", file: file.hash, created: 0, modified: 0))
         }
         let directory = try ProtocolObjectCodec.object(.directory(children.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))
         objects.append(directory)
@@ -1602,7 +1603,7 @@ private func benchmarkSnapshot(markdown: String, siblings: Int) throws -> Protoc
 /// `note.md` stored as a page object, as in a tree converted to pages.
 private func pageSnapshot(markdown: String) throws -> ProtocolSnapshot {
     let page = try ProtocolObjectCodec.object(.page(try #require(ProtocolPage.parse(Data(markdown.utf8)))))
-    let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", page: page.hash)]))
+    let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", page: page.hash, created: 0, modified: 0)]))
     return ProtocolSnapshot(root: root.hash, objects: [page, root].sorted { $0.hash < $1.hash })
 }
 
@@ -1611,7 +1612,7 @@ private func snapshot(files: [String: String]) throws -> ProtocolSnapshot {
     let entries = try files.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { name in
         let file = try ProtocolObjectCodec.object(.file(Data(files[name, default: ""].utf8)))
         objects.append(file)
-        return ProtocolDirectoryEntry(name: name, file: file.hash)
+        return ProtocolDirectoryEntry(name: name, file: file.hash, created: 0, modified: 0)
     }
     let root = try ProtocolObjectCodec.object(.directory(entries))
     objects.append(root)
@@ -1624,11 +1625,11 @@ private func directoryBodySnapshot(
     indexSource: String? = nil
 ) throws -> ProtocolSnapshot {
     let child = try ProtocolObjectCodec.object(.file(Data("# Child\n".utf8)))
-    var directoryEntries = [ProtocolDirectoryEntry(name: "child.md", file: child.hash)]
+    var directoryEntries = [ProtocolDirectoryEntry(name: "child.md", file: child.hash, created: 0, modified: 0)]
     var objects = [child]
     if let indexSource {
         let index = try ProtocolObjectCodec.object(.file(Data(indexSource.utf8)))
-        directoryEntries.append(.init(name: "_index.md", file: index.hash))
+        directoryEntries.append(.init(name: "_index.md", file: index.hash, created: 0, modified: 0))
         objects.append(index)
     }
     directoryEntries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
@@ -1636,7 +1637,7 @@ private func directoryBodySnapshot(
     let sibling = try ProtocolObjectCodec.object(.file(Data(siblingSource.utf8)))
     let root = try ProtocolObjectCodec.object(.directory([
         .init(name: stem, directory: directory.hash),
-        .init(name: stem + ".md", file: sibling.hash),
+        .init(name: stem + ".md", file: sibling.hash, created: 0, modified: 0),
     ]))
     objects.append(contentsOf: [directory, sibling, root])
     return ProtocolSnapshot(root: root.hash, objects: objects.sorted { $0.hash < $1.hash })
@@ -2214,7 +2215,7 @@ extension SourceSessionPublicationTests {
             let first = try #require(try await queue.retained().first)
             // A sibling of `first` on the same accepted basis.
             let sibling = try LocalChange(change: "sibling", tree: treeID.rawValue, basis: first.basis, graph: first.graph, candidate: first.candidate,
-                update: .init(candidate: first.candidate.root, change: "sibling", trace: nil, objects: first.update.objects), sourcePath: nil, document: nil,
+                update: .init(candidate: first.candidate.root, change: "sibling", at: ProtocolEntryTime.now(), trace: nil, objects: first.update.objects), sourcePath: nil, document: nil,
                 entryTransfer: nil, entryActions: nil, creation: nil, localTrash: nil)
             await #expect(throws: ProtocolValidationError.self) { try await queue.retain(sibling, settled: []) }
             #expect(try await queue.retained().count == 1)
@@ -2358,7 +2359,7 @@ extension SourceSessionPublicationTests {
                 #expect(material["kind"] == .string("operation"))
                 #expect(material["operation"] == .string("promote-parent"))
             }
-            let replay = try #require(record.entryActions).prepare(graph: record.graph, candidate: record.candidate, changeID: record.change)
+            let replay = try #require(record.entryActions).prepare(graph: record.graph, candidate: record.candidate, changeID: record.change, at: ProtocolEntryTime.milliseconds(record.update.at)!)
             #expect(replay.candidate.root == record.candidate.root)
             await coordinator.close(); await tree.close()
             let reopenedTree = try await makeTree(initial, update: "up_initial")

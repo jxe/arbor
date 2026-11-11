@@ -198,7 +198,8 @@ extension UpdateCoordinator {
                     await workingTree.invalidateDocumentViews()
                     return
                 }
-                let element = try ProtocolDerivedUpdate(change: "rows-\(UUID().uuidString)", frames: [operations])
+                // Sent now: no earlier than any edit's own `at`, which each operation keeps.
+                let element = try ProtocolDerivedUpdate(change: "rows-\(UUID().uuidString)", at: ProtocolEntryTime.now(), frames: [operations])
                 let tree = await workingTree.treeID().rawValue
                 let encoding = ProtocolWireEncoding.cbor
                 let batches = state.pending.map(\.id)

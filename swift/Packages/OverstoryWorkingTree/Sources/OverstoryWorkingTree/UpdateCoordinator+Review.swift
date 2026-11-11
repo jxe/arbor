@@ -195,7 +195,9 @@ extension UpdateCoordinator {
         if try await workingTree.heads().acceptedRoot != fresh.root { _ = try await syncOnce() }
         let accepted = try await workingTree.captureAcceptedGraph()
         guard accepted.graph.root == fresh.root, accepted.base.update == fresh.state else { throw ConflictReviewError.changed }
-        let (base, preview) = try await prepareReviewPreview(draft, current: fresh)
+        // The resolution's time: it stamps the entries it chooses.
+        let at = ProtocolEntryTime.now()
+        let (base, preview) = try await prepareReviewPreview(draft, current: fresh, at: ProtocolEntryTime.milliseconds(at)!)
         // New editor changes can arrive while material loads.
         guard !(try await hasLocalChanges()), control.attempt == nil else { throw ConflictReviewError.publicationPending }
         let known = Set(base.objects.map(\.hash))
@@ -203,7 +205,7 @@ extension UpdateCoordinator {
         let basis = Set(accepted.graph.objects.map(\.hash))
         let change = UUID().uuidString
         let chosen = preview.operations ?? []
-        let update = ProtocolCandidateUpdate(candidate: candidate.root, change: change,
+        let update = ProtocolCandidateUpdate(candidate: candidate.root, change: change, at: at,
             trace: chosen.isEmpty ? nil : [ProtocolTraceFrame(before: fresh.root, after: candidate.root, operations: chosen)],
             resolves: draft.decisions.map { .init(state: draft.snapshot.state, conflict: $0.id, alternatives: $0.alternatives.map(\.id)) },
             ifCurrent: draft.keepCurrent == true ? draft.snapshot.state : nil,
@@ -228,14 +230,14 @@ extension UpdateCoordinator {
         try requireOpen()
         let current = try await inspectChoices()
         guard draft.isCurrent(in: current) else { throw ConflictReviewError.changed }
-        return try await prepareReviewPreview(draft, current: current).preview
+        return try await prepareReviewPreview(draft, current: current, at: ProtocolEntryTime.milliseconds(Date())).preview
     }
 
-    private func prepareReviewPreview(_ draft: ConflictReviewDraft, current: ConflictReviewSnapshot) async throws -> (base: ProtocolSnapshot, preview: ConflictReviewPreview) {
+    private func prepareReviewPreview(_ draft: ConflictReviewDraft, current: ConflictReviewSnapshot, at: Int) async throws -> (base: ProtocolSnapshot, preview: ConflictReviewPreview) {
         let base = try await transport.snapshot(tree: current.tree, root: current.root)
         // Keeping current contents installs no version, so no version material loads.
         if draft.keepCurrent == true {
-            return (base, try ConflictReviewCompiler.compile(draft, base: base, material: [:], allDecisions: current.decisions))
+            return (base, try ConflictReviewCompiler.compile(draft, base: base, material: [:], allDecisions: current.decisions, at: at))
         }
         guard draft.obligations.isEmpty else { throw ConflictReviewProposalError(draft.obligations.joined(separator: "\n")) }
         var material: [String: Data] = [:]
@@ -261,7 +263,7 @@ extension UpdateCoordinator {
                 pending += try ProtocolObjectCodec.references(bytes, kind: kind)
             }
         }
-        return (base, try ConflictReviewCompiler.compile(draft, base: base, material: material, allDecisions: current.decisions))
+        return (base, try ConflictReviewCompiler.compile(draft, base: base, material: material, allDecisions: current.decisions, at: at))
     }
 
     /// The directories and Markdown of `snapshot`, plus the `keeping` objects

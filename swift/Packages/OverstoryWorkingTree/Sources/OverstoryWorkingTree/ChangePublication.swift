@@ -33,7 +33,8 @@ extension LocalChange {
         let changes = records.map(\.change)
         let identity = "moves-" + ProtocolObjectCodec.hash(try sortedKeysJSON(changes)).replacingOccurrences(of: "sha256:", with: "")
         let known = Set(first.graph.objects.map(\.hash))
-        let update = ProtocolCandidateUpdate(candidate: frame.after, change: identity, trace: [frame],
+        // A batch goes under its last edit's time (`restamped`).
+        let update = ProtocolCandidateUpdate(candidate: frame.after, change: identity, at: last.update.at, trace: [frame],
             objects: last.candidate.objects.filter { !known.contains($0.hash) })
         let names = Dictionary(uniqueKeysWithValues: records.map { record in
             (record.change, Dictionary(uniqueKeysWithValues: (record.update.trace ?? []).flatMap(\.operations).map { ($0.key, "move") }))
@@ -170,6 +171,12 @@ extension LocalChange {
         guard let first = records.first, let last = records.last,
               records.allSatisfy({ $0.tree == first.tree && $0.update.trace != nil && (records.count == 1 || ($0.update.resolves.isEmpty && $0.update.ifCurrent == nil)) }),
               zip(records, records.dropFirst()).allSatisfy({ $1.basis == .authored(change: $0.change) && $0.candidate.root == $1.graph.root }) else { return nil }
+        // Edits made at different times go as one update under the last one's
+        // time, restamped as the host replays them (`restamped`); a relocation
+        // among them can't be restamped without replaying it, so those
+        // records go as separate elements, each under its own time.
+        if Set(records.map(\.update.at)).count > 1,
+           records.contains(where: { ($0.update.trace ?? []).contains { $0.operations.contains { relocations.contains($0.kind) } } }) { return nil }
         if first.update.resolves.isEmpty, first.update.ifCurrent == nil, let moves = try movePublication(records) { return moves }
         guard records.contains(where: { !($0.update.trace ?? []).isEmpty }) else { return nil }
         let changes = records.map(\.change)
@@ -222,7 +229,7 @@ extension LocalChange {
             objects[object.hash] = object
         }
         let known = Set(first.graph.objects.map(\.hash))
-        return ChangePublication(changes: changes, update: ProtocolCandidateUpdate(candidate: last.candidate.root, change: identity,
+        return ChangePublication(changes: changes, update: ProtocolCandidateUpdate(candidate: last.candidate.root, change: identity, at: last.update.at,
             trace: frames, resolves: first.update.resolves, ifCurrent: first.update.ifCurrent,
             objects: objects.values.filter { !known.contains($0.hash) }.sorted { $0.hash < $1.hash }, deltas: deltas), operations: names)
     }
@@ -307,12 +314,17 @@ extension LocalChange {
             guard let produced = applyPlain(page?.body ?? stored, edits) else { return nil }
             var next = try page.map { try ProtocolObjectCodec.object(.page(ProtocolPage(id: $0.id, properties: $0.properties, body: produced))).hash }
                 ?? ProtocolObjectCodec.hash(produced)
+            // The edited entry carries the times the run's last tree gave it.
+            let finished = try? LocalChange.entry(at: path, in: snapshots[after]!)
             for level in stride(from: parts.count - 1, through: 0, by: -1) {
                 let (levelEntries, collection) = directories[level]
                 let entries = levelEntries.map { item -> ProtocolDirectoryEntry in
                     guard item.name == parts[level] else { return item }
                     var replaced = item
-                    if level == parts.count - 1 { if page != nil { replaced.page = next } else { replaced.file = next } }
+                    if level == parts.count - 1 {
+                        if page != nil { replaced.page = next } else { replaced.file = next }
+                        if let finished, finished.hash == next { replaced.created = finished.created; replaced.modified = finished.modified }
+                    }
                     else { replaced.directory = next }
                     return replaced
                 }
@@ -436,9 +448,101 @@ extension LocalChange {
             let identity = "continuation-" + ProtocolObjectCodec.hash(try sortedKeysJSON([group.update.change, record.change])).replacingOccurrences(of: "sha256:", with: "")
             let names = Dictionary(uniqueKeysWithValues: trace.flatMap(\.operations).map { ($0.key, $0.key) })
             result.append(ChangePublication(changes: [record.change], update: ProtocolCandidateUpdate(candidate: trace.last!.after, change: identity,
-                trace: trace, objects: supplied.values.sorted { $0.hash < $1.hash }), operations: [record.change: names]))
+                at: record.update.at, trace: trace, objects: supplied.values.sorted { $0.hash < $1.hash }), operations: [record.change: names]))
         }
         guard result.first?.update.trace?.first?.before == group.update.candidate else { return nil }
         return result
+    }
+}
+
+extension LocalChange {
+    /// Operations that relocate entries, whose times a move keeps and a copy
+    /// makes new: a batch that holds one is not restamped without a replayer.
+    /// Moving or copying text (`moveSource`, `copySource`) changes only the
+    /// files it touches, which restamp like any edit.
+    static let relocations: Set<String> = ["moveEntry", "copyEntry"]
+
+    /// `update` with its frames' roots rewritten as the host replays them from
+    /// `start` at the update's own `at` (data model §6), or nil when this can't
+    /// be done here (a directory it needs is not held). Each frame is replayed
+    /// on the restamped root before it: an entry the frame left as it was keeps
+    /// that root's times; one it changed or added is stamped against that
+    /// root's entry at its path, modified `at`; a directory it added keeps the
+    /// times its author gave its entries. So a batch of edits made at
+    /// different times carries its last edit's time throughout, and an update
+    /// after a restamped one continues from that root. The new directories
+    /// travel whole; deltas and objects the new candidate no longer reaches
+    /// are dropped. Relocations are not restamped (`publication` keeps them apart).
+    static func restamped(_ update: ProtocolCandidateUpdate, from start: String, held: [String: Data]) throws -> (update: ProtocolCandidateUpdate, generated: [String: Data])? {
+        guard let trace = update.trace, !trace.isEmpty, let at = ProtocolEntryTime.milliseconds(update.at),
+              !trace.contains(where: { $0.operations.contains { relocations.contains($0.kind) } }) else { return nil }
+        var objects = held
+        for object in update.objects { objects[object.hash] = object.bytes }
+        var generated: [String: Data] = [:]
+        struct Missing: Error {}
+        func directory(_ hash: String) throws -> ([ProtocolDirectoryEntry], ProtocolCollectionReference?) {
+            guard let bytes = objects[hash], case let .directory(entries, collection) = try ProtocolObjectCodec.decode(bytes, kind: .directory) else { throw Missing() }
+            return (entries, collection)
+        }
+        /// The directory `after` (which a frame made from `before`) rebuilt on `restamped`, the restamped `before`.
+        func replay(before: String, after: String, restamped: String) throws -> String {
+            if before == after { return restamped }
+            let (original, _) = try directory(before)
+            let (next, collection) = try directory(after)
+            let (current, _) = try directory(restamped)
+            let originalByName = Dictionary(original.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+            let currentByName = Dictionary(current.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+            let entries = try next.map { entry -> ProtocolDirectoryEntry in
+                let was = originalByName[entry.name], now = currentByName[entry.name]
+                if let child = entry.directory {
+                    guard let wasDirectory = was?.directory, let nowDirectory = now?.directory else { return entry }
+                    return ProtocolDirectoryEntry(name: entry.name, directory: try replay(before: wasDirectory, after: child, restamped: nowDirectory))
+                }
+                guard entry.isContent, let kind = entry.kind, let object = entry.hash else { return entry }
+                if let was, was == entry, let now, now.untimed == entry.untimed { return now }
+                return .stamped(kind, name: entry.name, object: object, previous: now, at: at)
+            }
+            let bytes = try ProtocolObjectCodec.encode(.directory(entries, collection: collection))
+            let hash = ProtocolObjectCodec.hash(bytes)
+            objects[hash] = bytes
+            if held[hash] == nil { generated[hash] = bytes }
+            return hash
+        }
+        var frames: [ProtocolTraceFrame] = []
+        var root = start
+        do {
+            for frame in trace {
+                let after = try replay(before: frame.before, after: frame.after, restamped: root)
+                frames.append(ProtocolTraceFrame(before: root, after: after, operations: frame.operations))
+                root = after
+            }
+        } catch is Missing { return nil }
+        if root == update.candidate, start == trace[0].before { return (update, [:]) }
+        // What the update carries and the new root reaches stays; the new
+        // directories go whole. Only new or carried objects are walked: the
+        // host holds the rest, with all it reaches.
+        let carried = Dictionary(update.objects.map { ($0.hash, $0) }, uniquingKeysWith: { first, _ in first })
+        let deltas = Dictionary(update.deltas.map { ($0.result, $0) }, uniquingKeysWith: { first, _ in first })
+        var kept: [String: ProtocolObjectEnvelope] = [:], keptDeltas = Set<String>(), seen = Set<String>()
+        var pending: [(hash: String, kind: ProtocolObjectKind)] = [(root, .directory)]
+        while let (hash, kind) = pending.popLast() {
+            guard seen.insert(hash).inserted else { continue }
+            var bytes: Data?
+            if let envelope = carried[hash] { kept[hash] = envelope; bytes = envelope.bytes }
+            else if deltas[hash] != nil { keptDeltas.insert(hash); bytes = objects[hash] }
+            else if let made = generated[hash] { kept[hash] = ProtocolObjectEnvelope(hash: hash, bytes: made); bytes = made }
+            if let bytes { pending += try ProtocolObjectCodec.references(bytes, kind: kind) }
+        }
+        // An added entry's value is read, not produced, by execution.
+        for operation in frames.flatMap(\.operations) where ["addEntry", "replaceEntry"].contains(operation.kind) {
+            guard case let .object(value)? = operation.fields["value"] else { continue }
+            for case let .string(hash)? in [value["file"], value["page"], value["directory"]] { if let envelope = carried[hash] { kept[hash] = envelope } }
+        }
+        var result = update
+        result.candidate = root
+        result.trace = frames
+        result.objects = kept.values.sorted { $0.hash < $1.hash }
+        result.deltas = update.deltas.filter { keptDeltas.contains($0.result) }
+        return (result, generated)
     }
 }

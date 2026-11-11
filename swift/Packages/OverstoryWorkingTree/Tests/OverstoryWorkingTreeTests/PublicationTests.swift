@@ -24,7 +24,7 @@ struct PublicationTests {
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
         for value in fixture.cases {
             let file = try ProtocolObjectCodec.object(.file(Data(value.source.utf8)))
-            let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+            let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
             var graph = ProtocolSnapshot(root: root.hash, objects: [file, root])
             var source = value.source, records: [LocalChange] = []
             for (index, step) in value.steps.enumerated() {
@@ -78,7 +78,7 @@ struct PublicationTests {
         let parameters = try JSONDecoder().decode(Parameters.self, from: Data(contentsOf: url))
         var source = parameters.selected + String(repeating: parameters.neighbor, count: parameters.moves) + String(repeating: "x", count: parameters.tailBytes)
         let file = try ProtocolObjectCodec.object(.file(Data(source.utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let base = ProtocolSnapshot(root: root.hash, objects: [file, root])
         var graph = base, records: [LocalChange] = []
         for index in 0..<parameters.moves {
@@ -109,7 +109,7 @@ struct PublicationTests {
     func editBatchPayload() throws {
         var source = String(repeating: "a", count: 70_000) + "\r\n"
         let file = try ProtocolObjectCodec.object(.file(Data(source.utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let base = ProtocolSnapshot(root: root.hash, objects: [file, root])
         var graph = base, records: [LocalChange] = []
         // Typing "hello" one character at a time, each its own record.
@@ -139,7 +139,7 @@ struct PublicationTests {
 
     static func branchFixture(tree: String = "tr_publication") throws -> [LocalChange] {
         let files = try ["A", "B", "C"].map { try ProtocolObjectCodec.object(.file(Data($0.utf8))) }
-        let root = try ProtocolObjectCodec.object(.directory(zip(["a.md", "b.md", "c.md"], files).map { .init(name: $0, file: $1.hash) }))
+        let root = try ProtocolObjectCodec.object(.directory(zip(["a.md", "b.md", "c.md"], files).map { .init(name: $0, file: $1.hash, created: 0, modified: 0) }))
         let graph = ProtocolSnapshot(root: root.hash, objects: files + [root])
         func edit(_ change: String, _ parent: LocalChange?, _ path: String, _ source: String, _ next: String) throws -> LocalChange {
             let basis = WorkspaceDocumentSnapshot(reference: .init(tree: TreeID(rawValue: tree), path: path), source: source, contentRevision: change)

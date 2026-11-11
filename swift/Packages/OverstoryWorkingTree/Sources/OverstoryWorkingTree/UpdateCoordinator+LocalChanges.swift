@@ -50,6 +50,10 @@ extension UpdateCoordinator {
                 graph = captured.graph; basis = .accepted(captured.base)
             }
             let staging = try await projectedTree(graph, from: currentLocalView(changeLog().retained()) ?? workingTree)
+            // One time for the action: the staging tree stamps the entries it
+            // adds or changes with it, and the record states it as `at`.
+            let at = ProtocolEntryTime.now()
+            await staging.dateChanges(Date(timeIntervalSince1970: (Double(ProtocolEntryTime.milliseconds(at)!) + 0.5) / 1000))
             let provider = WorkingTreeProvider(workingTree: staging)
             do {
                 var transferred: WorkingTreeNode?
@@ -106,7 +110,7 @@ extension UpdateCoordinator {
                         let transfers = try paths.map { source, destination in
                             let parts = destination.split(separator:"/").map(String.init)
                             let transfer = EntryTransfer(kind:transferKind,source:source,parent:parts.count == 1 ? "/" : "/"+parts.dropLast().joined(separator:"/"),name:parts.last!)
-                            return try transferKind == .copyEntry ? transfer.capturingRewrites(graph:transferGraph,candidate:candidate) : transfer
+                            return try transferKind == .copyEntry ? transfer.capturingRewrites(graph:transferGraph,candidate:candidate, at: ProtocolEntryTime.milliseconds(at)!) : transfer
                         }
                         actions = EntryActions(transfers:transfers, promotedParent: promotedParent)
                     }
@@ -142,10 +146,10 @@ extension UpdateCoordinator {
                 let tree = try await workingTree.treeID().rawValue
                 var record: LocalChange
                 do {
-                    record = try LocalChange(tree: tree, basis: basis, graph: graph, candidate:candidate, entryActions:actions, creation:creation)
+                    record = try LocalChange(tree: tree, basis: basis, graph: graph, candidate:candidate, entryActions:actions, creation:creation, at: at)
                 } catch where sidebarCreation {
                     // A sidebar creation that changed more than its new branch publishes as a snapshot.
-                    record = try LocalChange(tree: tree, basis: basis, graph: graph, candidate:candidate, entryActions:actions)
+                    record = try LocalChange(tree: tree, basis: basis, graph: graph, candidate:candidate, entryActions:actions, at: at)
                 }
                 record.localTrash = try await staging.captureLocalTrash()
                 prepared = (record, node)

@@ -50,8 +50,9 @@ struct WorkingTreeObjectTests {
             #expect(sparse.inlineObjects.count == full.inlineObjects.count - 1)
 
             // A working tree that imports the file lands on the same root and
-            // then holds the file by hash.
-            let workingTree = try await openWorkingTree(kind, at: root, tree: tree)
+            // then holds the file by hash. Its clock dates its entries as the
+            // hand-built state does.
+            let workingTree = try await openWorkingTree(kind, at: root, tree: tree, clock: { Date(timeIntervalSince1970: 0) })
             _ = try await workingTree.createMarkdown(parent: .init(tree: tree, path: "/"), name: "note", source: "---\nid: pg_note\n---\n\n# Note\n")
             let imported = try await workingTree.importFile(name: "blob.bin", bytes: payload, mediaType: "application/octet-stream", parent: .init(tree: tree, path: "/"))
             #expect(imported.ref == .inline(payload))

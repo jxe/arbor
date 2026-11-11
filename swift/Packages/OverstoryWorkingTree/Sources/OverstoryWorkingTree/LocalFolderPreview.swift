@@ -39,6 +39,14 @@ public enum LocalFolderPreview {
         let manager = FileManager.default
         let policy = IgnorePolicy(root: folder)
         var nodes: [WorkingTreeSystemNode] = []
+        // A scan dates each entry by its file's modification time, never later
+        // than now (data model §6); with no tree before it, every entry is new.
+        let now = ProtocolEntryTime.milliseconds(Date())
+        func times(_ content: String, _ date: Date?) -> WorkingTreeEntryTimes {
+            let stamp = min(date.map(ProtocolEntryTime.milliseconds) ?? now, now)
+            return WorkingTreeEntryTimes(content: content, created: stamp, modified: stamp)
+        }
+        func modified(_ url: URL?) -> Date? { url.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate } }
 
         func childPath(_ name: String, parent: String) -> String {
             parent == "/" ? "/\(name)" : "\(parent)/\(name)"
@@ -77,13 +85,16 @@ public enum LocalFolderPreview {
             let bodyURL = index != nil ? indexURL : siblingMarkdownSource != nil
                 ? directory.deletingLastPathComponent().appending(path: directory.lastPathComponent + ".md")
                 : nil
-            let bodyModified = bodyURL.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+            let bodyModified = modified(bodyURL)
+            let siblingURL = directory.deletingLastPathComponent().appending(path: directory.lastPathComponent + ".md")
             nodes.append(WorkingTreeSystemNode(
                 path: path,
                 metadata: EntryMetadata(modifiedAt: bodyModified),
                 content: .directory(source: source),
                 directoryBodyPlacement: index == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
-                shadowedSiblingMarkdownSource: index != nil ? siblingMarkdownSource : nil
+                shadowedSiblingMarkdownSource: index != nil ? siblingMarkdownSource : nil,
+                times: source.map { times(WorkingTreeEntryTimes.content(of: $0), bodyModified) },
+                shadowedTimes: index != nil ? siblingMarkdownSource.map { times(WorkingTreeEntryTimes.content(of: $0), modified(siblingURL)) } : nil
             ))
             for url in files where url.lastPathComponent != "_index.md" {
                 let name = url.lastPathComponent
@@ -95,16 +106,19 @@ public enum LocalFolderPreview {
                     nodes.append(WorkingTreeSystemNode(
                         path: childPath(logicalName, parent: path),
                         metadata: EntryMetadata(modifiedAt: values?.contentModificationDate),
-                        content: .markdown(source: source)
+                        content: .markdown(source: source),
+                        times: times(WorkingTreeEntryTimes.content(of: source), values?.contentModificationDate)
                     ))
                 } else {
+                    let standIn = standInHash(for: url, size: values?.fileSize, modified: values?.contentModificationDate)
                     nodes.append(WorkingTreeSystemNode(
                         path: childPath(name, parent: path),
                         content: .file(ref: .hash(
-                            standInHash(for: url, size: values?.fileSize, modified: values?.contentModificationDate),
+                            standIn,
                             size: values?.fileSize,
                             mediaType: SnapshotBridge.inferredMediaType(for: name)
-                        ))
+                        )),
+                        times: times(standIn, values?.contentModificationDate)
                     ))
                 }
             }

@@ -15,7 +15,7 @@ public actor WorkingTree {
     private let overlay: any ObjectOverlay
     private let platform: any ObjectStore
     private let faultInjector: any WorkingTreeFaultInjector
-    private let clock: Clock
+    private var clock: Clock
     private var state: WorkingTreeState { didSet { snapshotMemo = nil } }
     /// `WorkingTreeProtocolCodec.snapshot(for: state)`, kept until `state`
     /// changes: a save reads it several times, and building it hashes every page.
@@ -205,6 +205,13 @@ public actor WorkingTree {
         let snapshot = try WorkingTreeProtocolCodec.snapshot(for: state, memo: codecMemo)
         snapshotMemo = snapshot
         return snapshot
+    }
+
+    /// From now on, every change this tree makes is dated `date`: a staging
+    /// fork that builds one action's candidate stamps its entries with that
+    /// action's `at` (data model §6), as the host will when it replays it.
+    func dateChanges(_ date: Date) {
+        clock = { date }
     }
 
     /// Local source views changed without changing the accepted projection.
@@ -424,17 +431,21 @@ public actor WorkingTree {
                     directoryBodyPlacement: node.directoryBodyPlacement,
                     shadowedSiblingMarkdownSource: node.shadowedSiblingMarkdownSource,
                     metadata: node.metadata,
-                    subtree: node.unloadedDirectory
+                    subtree: node.unloadedDirectory,
+                    times: node.times,
+                    shadowedTimes: node.shadowedTimes
                 )
             case let .markdown(source):
-                return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source, metadata: node.metadata)
+                return WorkingTreeNode(path: node.path, pageID: node.pageID ?? WorkingTreeSemantics.pageID(in: source), kind: .markdown, source: source, metadata: node.metadata,
+                                       times: node.times)
             case let .file(ref, mediaType):
                 var reference = ref
                 if case let .hash(hash, size, type) = ref, size == nil,
                    let previous = priorRef(node.path), previous.objectHash == hash {
                     reference = .hash(hash, size: previous.size, mediaType: type ?? previous.mediaType)
                 }
-                return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: reference, mediaType: mediaType ?? reference.mediaType, metadata: node.metadata)
+                return WorkingTreeNode(path: node.path, pageID: node.pageID, kind: .file, ref: reference, mediaType: mediaType ?? reference.mediaType, metadata: node.metadata,
+                                       times: node.times)
             case let .boundary(tree):
                 return WorkingTreeNode(path: node.path, kind: .boundary, boundaryTree: tree.rawValue)
             }
@@ -463,6 +474,9 @@ public actor WorkingTree {
                bytes != oldBytes, let page = ProtocolPage.parse(bytes), page.isHeld(by: oldBytes) {
                 node.ref = old.ref
             }
+            // The times date the spelling kept, which reads as the same page.
+            if let content = node.contentHash { node.times?.content = content }
+            if let shadowed = node.shadowedSiblingMarkdownSource { node.shadowedTimes?.content = WorkingTreeEntryTimes.content(of: shadowed) }
             return node
         }
     }
@@ -767,9 +781,12 @@ public actor WorkingTree {
         directory.collectionObjects = body.collectionObjects.isEmpty ? nil : body.collectionObjects.keys.sorted()
         if case let .directory(source?) = body.content {
             // `_index.md` holds the body; a sibling `<name>.md` is then shadowed.
-            directory.shadowedSiblingMarkdownSource = current.directoryBodyPlacement == .siblingMarkdown ? current.source : nil
+            let sibling = current.directoryBodyPlacement == .siblingMarkdown
+            directory.shadowedSiblingMarkdownSource = sibling ? current.source : nil
+            directory.shadowedTimes = sibling ? current.times : nil
             directory.directoryBodyPlacement = nil
             directory.source = source
+            directory.times = body.times
             directory.pageID = WorkingTreeSemantics.pageID(in: source)
         }
         let children = try state(from: WorkingTreeSystemReplacement(root: hash, update: replacement.update, nodes: nodes, pages: replacement.pages)).nodes
@@ -942,8 +959,8 @@ public actor WorkingTree {
         USLLogicalRow(
             key: row.key.map { USLKeyPart(name: $0.field, value: jsonValue($0.value)) },
             fields: row.fields.mapValues(jsonValue),
-            created: row.created,
-            modified: row.modified
+            created: ProtocolEntryTime.string(row.created),
+            modified: ProtocolEntryTime.string(row.modified)
         )
     }
 
@@ -1023,7 +1040,7 @@ public actor WorkingTree {
             created = WorkingTreeNode(path: path, pageID: pageID, kind: .markdown, source: acceptedSource)
             next.nodes.append(created)
         }
-        return created
+        return committed(created)
     }
 
     @discardableResult
@@ -1039,7 +1056,7 @@ public actor WorkingTree {
             created = WorkingTreeNode(path: path, kind: .directory)
             next.nodes.append(created)
         }
-        return created
+        return committed(created)
     }
 
     @discardableResult
@@ -1056,7 +1073,7 @@ public actor WorkingTree {
             created = WorkingTreeNode(path: path, kind: .file, ref: .inline(bytes), mediaType: mediaType)
             next.nodes.append(created)
         }
-        return created
+        return committed(created)
     }
 
     @discardableResult
@@ -1146,6 +1163,9 @@ public actor WorkingTree {
             for var source in sourceNodes.sorted(by: { $0.path.count < $1.path.count }) {
                 source.path = WorkingTreeSemantics.replacingPrefix(source.path, from: node.path, to: target)
                 source.trashedFrom = nil
+                // A copy is a new entry (data model §6).
+                source.times = nil
+                source.shadowedTimes = nil
                 if let oldID = source.pageID {
                     let newID = "pg_\(UUID().uuidString.lowercased())"
                     source.pageID = newID
@@ -1155,7 +1175,7 @@ public actor WorkingTree {
                 next.nodes.append(source)
             }
         }
-        return copied
+        return committed(copied)
     }
 
     @discardableResult
@@ -1184,7 +1204,7 @@ public actor WorkingTree {
                 if original == node.path { result = next.nodes[index] }
             }
         }
-        return result
+        return committed(result)
     }
 
     @discardableResult
@@ -1206,11 +1226,13 @@ public actor WorkingTree {
                 let fallback = WorkingTreeSemantics.replacingPrefix(current, from: node.path, to: destination)
                 next.nodes[index].path = next.nodes[index].trashedFrom ?? fallback
                 next.nodes[index].trashedFrom = nil
+                // A restore undoes the trash: the entry comes back with the
+                // times it had, as a source time a snapshot update may carry.
                 if current == node.path { result = next.nodes[index] }
             }
             pruneEmptyTrashDirectories(&next)
         }
-        return result
+        return committed(result)
     }
 
     /// Capture source, tree graph and accepted identity atomically. This does not
@@ -1341,6 +1363,16 @@ public actor WorkingTree {
 
     public func treeID() -> TreeID { TreeID(rawValue: state.tree) }
 
+    /// `node`, captured while a change was made, as the change left it:
+    /// with the entry times stamped after the change.
+    private func committed(_ node: WorkingTreeNode) -> WorkingTreeNode {
+        guard let stamped = state.nodes.first(where: { $0.path == node.path }) else { return node }
+        var node = node
+        node.times = stamped.times
+        node.shadowedTimes = stamped.shadowedTimes
+        return node
+    }
+
     private func relocate(_ node: WorkingTreeNode, to destination: String, mutation: String, parent: WorkingTreeNode? = nil) throws -> WorkingTreeNode {
         var moved: WorkingTreeNode!
         try transact(mutation: mutation, pageKey: node.pageID ?? "_tree") { next in
@@ -1352,7 +1384,7 @@ public actor WorkingTree {
                 if old == node.path { moved = next.nodes[index] }
             }
         }
-        return moved
+        return committed(moved)
     }
 
     private func transact(
@@ -1369,6 +1401,9 @@ public actor WorkingTree {
         var next = state
         try change(&next)
         let changedAt = changedAt ?? clock()
+        // An accepted state brings its entries' times; a local change stamps
+        // the entries it creates or changes when it was made.
+        if accepted == nil { Self.stampEntryTimes(from: state, to: &next, at: ProtocolEntryTime.milliseconds(changedAt)) }
         if recordsModificationDates {
             applyModificationDates(from: state, to: &next, changedAt: changedAt, incoming: accepted != nil)
         }
@@ -1394,6 +1429,28 @@ public actor WorkingTree {
         } catch {
             terminal = true
             throw error
+        }
+    }
+
+    /// Stamp every content entry of `next` whose content differs from what its
+    /// times date (data model §6): changed content keeps its `created` and is
+    /// modified `at`; new content is created and modified `at`. A node keeps
+    /// its times wherever it moves; one at an unchanged path with unchanged
+    /// content is not hashed again.
+    static func stampEntryTimes(from previous: WorkingTreeState, to next: inout WorkingTreeState, at: Int) {
+        let previousByPath = Dictionary(previous.nodes.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        for index in next.nodes.indices {
+            let node = next.nodes[index]
+            guard node.subtree == nil || node.source != nil else { continue }
+            if let old = previousByPath[node.path], old.kind == node.kind, old.source == node.source, old.ref == node.ref,
+               old.shadowedSiblingMarkdownSource == node.shadowedSiblingMarkdownSource,
+               old.times == node.times, old.shadowedTimes == node.shadowedTimes,
+               node.contentHash == nil || node.times != nil,
+               node.shadowedSiblingMarkdownSource == nil || node.shadowedTimes != nil { continue }
+            next.nodes[index].times = node.contentHash.map { WorkingTreeEntryTimes.stamped(node.times, content: $0, at: at) }
+            next.nodes[index].shadowedTimes = node.shadowedSiblingMarkdownSource.map {
+                WorkingTreeEntryTimes.stamped(node.shadowedTimes, content: WorkingTreeEntryTimes.content(of: $0), at: at)
+            }
         }
     }
 

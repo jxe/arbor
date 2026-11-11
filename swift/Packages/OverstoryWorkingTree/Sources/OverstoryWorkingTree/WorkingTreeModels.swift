@@ -199,6 +199,31 @@ public struct EntryMetadata: Codable, Equatable, Sendable {
     public init(modifiedAt: Date? = nil) { self.modifiedAt = modifiedAt }
 }
 
+/// A file or page entry's times (data model §6), Unix milliseconds, and the
+/// content they date: the file-object hash of the entry's bytes (a Markdown
+/// source as bytes, whether the tree writes it as a page or a file), so a
+/// file↔page conversion keeps them and a change of content is seen.
+public struct WorkingTreeEntryTimes: Codable, Equatable, Sendable {
+    public var content: String
+    public var created: Int
+    public var modified: Int
+    public init(content: String, created: Int, modified: Int) {
+        self.content = content; self.created = created; self.modified = modified
+    }
+    /// The times of `entry`, a file or page entry, for `content`.
+    init?(_ entry: ProtocolDirectoryEntry?, content: String) {
+        guard let entry, let created = entry.created, let modified = entry.modified else { return nil }
+        self.init(content: content, created: created, modified: modified)
+    }
+    /// These times for `content` changed at `at`, or new at `at`.
+    static func stamped(_ previous: WorkingTreeEntryTimes?, content: String, at: Int) -> WorkingTreeEntryTimes {
+        if let previous, previous.content == content { return previous }
+        return WorkingTreeEntryTimes(content: content, created: previous.map { min($0.created, at) } ?? at, modified: at)
+    }
+    /// The file-object hash of Markdown `source`.
+    static func content(of source: String) -> String { ProtocolObjectCodec.hash(Data(source.utf8)) }
+}
+
 public struct WorkingTreeSystemNode: Sendable, Equatable {
     /// Excluded from the protocol snapshot.
     public var metadata: EntryMetadata
@@ -214,6 +239,10 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
     /// For a directory the graph did not carry (`.lazyDirectories`): its
     /// object hash. Its entries load on first use (`WorkingTree.ensureLoaded`).
     public var unloadedDirectory: String?
+    /// The times of the node's content entry (its `.md`, `_index.md`,
+    /// sibling body or file), and of a shadowed sibling body.
+    public var times: WorkingTreeEntryTimes?
+    public var shadowedTimes: WorkingTreeEntryTimes?
 
     public init(
         path: String,
@@ -224,9 +253,13 @@ public struct WorkingTreeSystemNode: Sendable, Equatable {
         collectionObjects: [String: Data] = [:],
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil,
-        unloadedDirectory: String? = nil
+        unloadedDirectory: String? = nil,
+        times: WorkingTreeEntryTimes? = nil,
+        shadowedTimes: WorkingTreeEntryTimes? = nil
     ) {
         self.unloadedDirectory = unloadedDirectory
+        self.times = times
+        self.shadowedTimes = shadowedTimes
         self.metadata = metadata
         self.path = path
         self.pageID = pageID
@@ -324,6 +357,22 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
     /// elsewhere is computed against the accepted root. A sibling `<name>.md`
     /// body belongs to the parent and is loaded with it.
     var subtree: String?
+    /// The times of the node's content entry (data model §6): its `.md`,
+    /// `_index.md`, sibling body or file. Nil for a node with no content
+    /// entry, or one a local change has not stamped yet.
+    var times: WorkingTreeEntryTimes?
+    /// The times of a shadowed sibling body.
+    var shadowedTimes: WorkingTreeEntryTimes?
+
+    /// The file-object hash of the node's content entry, or nil when it has none.
+    var contentHash: String? {
+        switch kind {
+        case .markdown: WorkingTreeEntryTimes.content(of: source ?? "")
+        case .directory: source.map(WorkingTreeEntryTimes.content(of:))
+        case .file: ref?.objectHash ?? ProtocolObjectCodec.hash(Data())
+        case .boundary: nil
+        }
+    }
 
     var modifiedAt: Date? {
         get { metadata?.modifiedAt }
@@ -352,7 +401,7 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case path, pageID, kind, source, ref, mediaType, trashedFrom, boundaryTree, collection, collectionObjects
-        case directoryBodyPlacement, shadowedSiblingMarkdownSource, metadata, subtree
+        case directoryBodyPlacement, shadowedSiblingMarkdownSource, metadata, subtree, times, shadowedTimes
     }
 
     init(
@@ -369,9 +418,13 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
         directoryBodyPlacement: WorkingTreeDirectoryBodyPlacement? = nil,
         shadowedSiblingMarkdownSource: String? = nil,
         metadata: EntryMetadata? = nil,
-        subtree: String? = nil
+        subtree: String? = nil,
+        times: WorkingTreeEntryTimes? = nil,
+        shadowedTimes: WorkingTreeEntryTimes? = nil
     ) {
         self.subtree = subtree
+        self.times = times
+        self.shadowedTimes = shadowedTimes
         self.path = path
         self.pageID = pageID
         self.kind = kind
@@ -389,7 +442,8 @@ struct WorkingTreeNode: Codable, Equatable, Sendable {
 }
 
 struct WorkingTreeState: Codable, Equatable, Sendable {
-    static let currentSchema = 2
+    /// 3: nodes carry their entries' times (Protocol 003).
+    static let currentSchema = 3
     var schema = WorkingTreeState.currentSchema
     var tree: String
     var nodes: [WorkingTreeNode]

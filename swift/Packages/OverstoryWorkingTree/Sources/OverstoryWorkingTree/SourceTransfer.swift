@@ -13,8 +13,10 @@ extension LocalChange {
     /// operations followed by the ordinary edits the move needs. `graph` must
     /// hold both documents exactly as the transfer read them.
     public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis, graph: ProtocolSnapshot,
-                originPath: String, destinationPath: String, transfer: WorkspaceDocumentTransfer) throws {
+                originPath: String, destinationPath: String, transfer: WorkspaceDocumentTransfer,
+                at: String = ProtocolEntryTime.now()) throws {
         try transfer.validate()
+        let stamp = try Self.entryTime(at)
         guard transfer.origin.reference.tree.rawValue == tree else { throw ProtocolValidationError.invalidValue("Wrong tree") }
         guard originPath != destinationPath else { throw ProtocolValidationError.invalidValue("A transfer names two documents") }
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count else { throw ProtocolValidationError.invalidValue("Duplicate basis object") }
@@ -52,11 +54,11 @@ extension LocalChange {
                     }
                     file = current
                 }
-                let name = entries[index].name
+                let name = entries[index].name, previous = entries[index]
                 if pages, ProtocolPage.isPageName(name), let page = ProtocolPage.parse(Data(source.utf8)) {
-                    entries[index] = ProtocolDirectoryEntry(name: name, page: try store(.page(page)))
+                    entries[index] = .stamped(.page, name: name, object: try store(.page(page)), previous: previous, at: stamp)
                 } else {
-                    entries[index] = ProtocolDirectoryEntry(name: name, file: try store(.file(Data(source.utf8))))
+                    entries[index] = .stamped(.file, name: name, object: try store(.file(Data(source.utf8))), previous: previous, at: stamp)
                 }
             } else {
                 guard let directory = entries[index].directory else { throw ProtocolValidationError.invalidValue("Source path crosses a file or tree boundary") }
@@ -89,7 +91,7 @@ extension LocalChange {
         let candidate = try ProtocolGraph.reachable(from: root, in: bytes)
         _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         let known = Set(graph.objects.map(\.hash))
-        let update = ProtocolCandidateUpdate(candidate: root, change: change,
+        let update = ProtocolCandidateUpdate(candidate: root, change: change, at: at,
             trace: touchesPage ? nil : [ProtocolTraceFrame(before: graph.root, after: root, operations: operations)],
             objects: candidate.objects.filter { !known.contains($0.hash) }.sorted { $0.hash < $1.hash })
         _ = try JSONEncoder().encode(update)

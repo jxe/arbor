@@ -138,7 +138,7 @@ struct RunnerVectorTests {
 
     static func snapshot(markdown: String) throws -> ProtocolSnapshot {
         let file = try ProtocolObjectCodec.object(.file(Data(markdown.utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         return ProtocolSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
     }
 }
