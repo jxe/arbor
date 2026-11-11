@@ -22,7 +22,8 @@ discussion. Where it says *query* or *endpoint*, read *view*
   - A SwiftUI renderer draws the `{type, props, children, key}` tree.
   - There's no web view per widget and no React. ScriptWidget (MIT) is a reference for the
     SwiftUI mapping.
-- **Embedding is a lone link** to a `.view` file on its own line in a page.
+- **A page draws a widget only from a `view` block** that uses the `.view` file and draws
+  its view as an element (Joe, 2026-11-11: no lone-link embedding).
 - **State has an owner, and every kind is ordinary collection data:**
 
   | Owner | Kind of state |
@@ -37,8 +38,8 @@ discussion. Where it says *query* or *endpoint*, read *view*
 
   An app reads and writes only its own personal models, with no prompt, written locally
   first.
-- **A placement is identified by** the page's TreeID and frontmatter `id`, plus an embed
-  key made of the target, its props and which occurrence it is. An explicit key is needed
+- **A placement is identified by** the page's TreeID and frontmatter `id`, plus a block
+  key made of the view block's element, its attributes and which occurrence it is. An explicit key is needed
   only when those aren't enough.
 - **Transient state is `state x = …`**, bound to a control with `value={x}`. `keep x = …`
   persists it as personal data, keyed by placement and name.
@@ -92,9 +93,9 @@ discussion. Where it says *query* or *endpoint*, read *view*
 - Lists of a model offer its row actions.
 - Snapshot-test the conformance fixtures on both platforms.
 
-## 4. Embedding, placement and state
+## 4. View blocks, placement and state
 
-- A lone `.view` link on a page draws the widget in place, with a menu for its settings.
+- A `view` block on a page draws the widget in place, with a menu for its settings.
 - Placement identity, page and personal models, `state` and `keep`, as decided above.
 - Decide where kept page and personal rows are stored and how they reach the reader's other
   devices, then write it into
@@ -131,9 +132,9 @@ now `views/list.view`, the view at `views/list` (a `.view` file is a node's body
   `path-read.ts` (`x.mdx`, `_index.mdx`), Swift `ProtocolPage.swift` and `ProtocolPathRead.swift`,
   and the `pages.json` conformance vectors. A tree holding a `.mdx` page changes it at the
   Protocol 003 flag day.
-- Supplies: `Home.mdx` becomes `Home.md` with embeds; the old React `List.tsx`, `Practice.tsx`,
+- Supplies: `Home.mdx` becomes `Home.md` with view blocks; the old React `List.tsx`, `Practice.tsx`,
   `Profile.tsx`, `MyLists.tsx` give way to `views/*.view` (Apps 015 step 4).
-- A view embedded with no query string receives its page's query string.
+- A view block's unnamed view receives its page's query string.
 
 ## Verify
 

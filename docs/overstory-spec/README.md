@@ -54,7 +54,7 @@ Four ideas organize the system:
 3. A **canonical URL** is found by DNS, then by the host's longest readable
    mount boundary ([locators §5](1.6-locators.md#5-finding-trees)). It can be
    renamed; `overstory://<TreeID>/` cannot.
-4. An **app** is ordinary files in a tree: views and mutations written in a
+4. An **app** is ordinary files in a tree: views and mutations written in UVL, a
    declarative language, so every read is a plan a host can see. They run as
    their caller, bounded by [access control](3.2-access-control.md), and mean
    the same whichever placement or host runs them.
@@ -133,7 +133,7 @@ Authentication headers apply to every route ([access control §2](3.2-access-con
 - An **Overstory client** finds trees, transfers objects, keeps a working tree
   in sync through the update machine ([working trees](2.1-working-trees.md)),
   and never discloses credentials or link secrets.
-- An **app runtime** serves a view at its file's own address, passes it the
+- An **app runtime** serves a view at its node's own address, passes it the
   caller's user context, runs its mutations, and streams validated results
   without exposing the data behind them ([apps and views](4.1-apps-and-views.md)).
 
@@ -152,7 +152,7 @@ inline mention links here; accepted implementation work is indexed under
 3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([apps and views](4.1-apps-and-views.md#5-mutations)).
 4. **Hosted agents**: apps whose body is a prompt, with their tools, confinement and transcripts ([apps and views](4.1-apps-and-views.md#13-agents)).
 5. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
-6. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([apps and views](4.1-apps-and-views.md#46-plans-and-live-dependencies)).
+6. **Grouping beyond expansion, aggregates beyond `count`, `sum`, `min` and `max`, pagination, and unbounded traversal** in views; today they are capability extensions ([apps and views](4.1-apps-and-views.md#46-plans-and-live-dependencies)).
 7. **A capability field that may reference a `system:` address** without making it a content locator ([locators](1.6-locators.md#1-forms)).
 8. **Additional fine-grained operation families** beyond the resource operations defined in access control. Exact-state preconditions are concurrency guards, not permissions ([updates and merging §3.1](1.3-updates-and-merging.md#31-exact-state-preconditions), [access control §3.2](3.2-access-control.md#32-updates-and-guards)).
 9. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.

@@ -46,7 +46,7 @@ updates on the same row changes.
 
 - A page that presents a collection (the
   [pages that present other collections](../spec-extensions/pages-that-present-other-collections.md)
-  extension, once settled) and a `.view` widget embed share placement identity and menus.
+  extension, once settled) and a `.view` widget drawn from a view block share placement identity and menus.
 - An authored view can draw a declared view as an element, for example an app's own
   page that shows its collection "By status".
 - Row actions in the built-in list come from the app's row-action mutations

@@ -113,8 +113,7 @@ Each row has an ordinary public address such as
 ## 7. Show it on a page
 
 Joe writes a view in `views/practices.view`, which is the node `views/practices`
-the way a `.md` file is a page, and embeds it in his page with a link to
-`views/practices.view` on a line of its own:
+the way a `.md` file is a page:
 
 ```
 use "../practices/schema.usl"
@@ -124,6 +123,15 @@ view():
     <Link to="practices/{p.id}" for={p in Practice} where={p.published}>{p.title}</Link>
   </Column>
 ```
+
+and draws it in his page with a view block ([view blocks](4.1-apps-and-views.md#157-view-blocks-in-pages)):
+
+````md
+```view
+use "views/practices.view" as Practices
+<Practices />
+```
+````
 
 The server has enabled hosting for the tree, so it checks the file and binds
 `Practice` to `(tr_…, /practices, model fingerprint)` ([files and handles](4.1-apps-and-views.md#3-files-and-named-handles)).

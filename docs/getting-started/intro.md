@@ -223,18 +223,22 @@ view(status):
   </Column>
 ```
 
-To use it, put a link to it on a line by itself in any page:
+To use it, draw it from a `view` block in any page:
 
-```md
-[](views/reading-room.view?status=draft)
+````md
+```view
+use "views/reading-room.view" as ReadingRoom
+<ReadingRoom status="draft" />
 ```
+````
 
-and it draws right there, live. The query string is its input. There's no
-route table and no app manifest: like a page, the view is a node, so it
-answers at `views/reading-room?status=draft` on its own, and its path is the
-address you embed, link to, or fetch. For a one-off, you don't even need the
-file: a fenced `view` block inside any page draws in place, and can read the
-page it sits in, such as its frontmatter and its child pages.
+and it draws right there, live. Its attributes are its input. There's no
+route table and no app manifest: like a page, the view is a node, so it also
+answers at `views/reading-room?status=draft` on its own, where the query
+string is its input, and its path is the address you use, link to, or fetch.
+For a one-off, you don't even need the file: a `view` block can hold the
+whole view, and can read the page it sits in, such as its frontmatter and its
+child pages.
 
 It looks like JSX, but it isn't JavaScript, and there's no web view. The
 `Row` repeats once per essay that matches its `for` and `where`, and that's
