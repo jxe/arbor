@@ -7,9 +7,10 @@ rows objects around. Later, after the sidecar.
 
 ## Status
 
-**PLANNED · not started.** A direction, not a design. Read `status.md`, the
-[execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md) and
-`packages/overstoryd/src/collections.ts` before relying on it.
+**PLANNED · not started.** A direction, not a design. Read `status.md` and
+[the Beetle host](../../docs/architecture/overstoryd/beetle-host.md) before relying on it.
+The host's SQLite materializations went with the execution sidecar (Apps 015); Beetle reads
+a collection's accepted rows in memory.
 
 ## The idea
 

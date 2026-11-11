@@ -33,12 +33,14 @@ import {
   type HandleRef,
   type LogicalRow,
   type MutationCallRequest,
+  type MutationCallRuntime,
   type MutationResultReceipt,
   type ObjectHash,
   type ProtocolDirectory,
   type RowOperation,
   type ViewEvent,
   type ViewsRequest,
+  type ViewsRuntime,
 } from "@ovst/protocol";
 import { loadDirectoryCollection, rowOperationsBetween } from "@ovst/collection-schema";
 import { logicalFromRows, rowsFromLogical, type LogicalTables, type RowsByTable } from "@ovst/usl";
@@ -312,7 +314,7 @@ export class BeetleHost implements AsyncDisposable {
     });
   }
 
-  /** Refuse a stream's handles that aren't active before it opens, as the sidecar's routes do. */
+  /** Refuse a stream's handles that aren't active before it opens. */
   async verify(request: ViewsRequest): Promise<void> {
     for (const mount of request.views) {
       const head = this.daemon.currentUpdate(mount.handle.tree);
@@ -415,6 +417,37 @@ export class BeetleHost implements AsyncDisposable {
     this.receipts.query("insert or ignore into receipts (tree, subject, mutation_id, request_digest, request_json, receipt_json) values (?, ?, ?, ?, null, ?)")
       .run(tree, subject, mutationID, requestDigest, JSON.stringify(receipt));
     return receipt;
+  }
+
+  /** The runtime the host's `/views` route serves. */
+  viewsRuntime(): ViewsRuntime {
+    return {
+      stream: async (request, context) => {
+        if (!Array.isArray(request.views) || request.views.length === 0) throw new Error("views must be a nonempty array");
+        const ids = new Set(request.views.map((mount) => mount?.id));
+        if (ids.size !== request.views.length || [...ids].some((id) => typeof id !== "string" || !id)) throw new Error("Mounted view ids must be non-empty and unique");
+        // The route checked that every handle names its source tree.
+        const tree = request.views[0]!.handle.tree;
+        for (const mount of request.views) {
+          if (!mount.handle || typeof mount.handle.path !== "string") throw new Error("A mounted view names a handle");
+          if (!await this.names(tree, mount.handle)) throw new BeetleRefusal("not-found", `${mount.handle.path} is not a Beetle file this host runs`, 404);
+        }
+        await this.verify(request);
+        return this.stream(request, context as { signal: AbortSignal; user: { profile: string } | null; caller?: UpdateCaller });
+      },
+    };
+  }
+
+  /** The runtime the host's `/mutate` route serves. */
+  mutationRuntime(): MutationCallRuntime {
+    return {
+      call: async (request, context) => {
+        if (!request.handle || !await this.names(request.handle.tree, request.handle)) {
+          throw new BeetleRefusal("not-found", "The mutation handle or version is not active", 404);
+        }
+        return this.mutate(request, context as { user: { profile: string } | null; caller?: UpdateCaller });
+      },
+    };
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

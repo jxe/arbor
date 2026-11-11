@@ -30,7 +30,7 @@ their reader, as Apps 011 says.
   - Unactivated handles are refused.
   - Sharing a module's source never enables execution.
 - **Each question runs under its own host-issued execution token**
-  ([execution tokens](../../docs/architecture/overstoryd/execution-sidecar.md#execution-tokens)).
+  ([execution tokens](../../docs/architecture/overstoryd/execution-tokens.md)).
   - The token carries the actual caller, the source tree and path, the pinned code version,
     the lent grants with their lenders, and the activation.
   - The issuer chooses lenders in a fixed order: the caller's own access first, then by

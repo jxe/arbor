@@ -6,14 +6,8 @@
   "type": "module",
   "packageManager": "bun@1.4.2",
   "workspaces": [
-    "packages/*",
-    "examples/*"
+    "packages/*"
   ],
-  "exports": {
-    "./data": "./packages/apps-runtime/src/index.ts",
-    "./ui/jsx-runtime": "./packages/apps-runtime/src/ui/jsx-runtime.ts",
-    "./ui/jsx-dev-runtime": "./packages/apps-runtime/src/ui/jsx-dev-runtime.ts"
-  },
   "bin": {
     "story": "./packages/cli/src/index.ts",
     "story-sync": "./packages/story-sync/src/cli.ts",
@@ -37,7 +31,7 @@
     "test:sync-merge": "bun test tests/unit/protocol-updates/update-intent.test.ts tests/unit/overstoryd/update-decision.test.ts tests/unit/overstoryd/update-store.test.ts tests/unit/tree-merge/update-merge.test.ts tests/integration/overstoryd/update-host.test.ts tests/integration/self-sync.test.ts",
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/object-index.bench.ts",
-    "seed:supplies": "bun examples/supplies/scripts/seed-fixture.ts",
+    "seed:supplies": "bun packages/beetle/examples/supplies/scripts/seed-fixture.ts",
     "check:links": "bun tests/check-links.ts",
     "lab:hcloud": "bun packages/overstoryd/deploy/hcloud-sync-lab/run.ts",
     "build:cli:package": "bun tools/build-cli-package.ts",
@@ -53,8 +47,6 @@
     "@ovst/overstoryd": "workspace:*",
     "@ovst/overstoryd-merge": "workspace:*",
     "@ovst/merge-protocol": "workspace:*",
-    "@ovst/exec-protocol": "workspace:*",
-    "@ovst/overstoryd-exec": "workspace:*",
     "@ovst/tree-merge": "workspace:*",
     "@ovst/apps-runtime": "workspace:*",
     "@ovst/collection-schema": "workspace:*",

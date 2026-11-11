@@ -10,13 +10,11 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 | | [`object-store`](object-store/README.md) | Content-addressed on-disk store for protocol objects |
 | Host | [`overstoryd`](overstoryd/README.md) | The reference host and the `overstoryd` command |
 | | [`overstoryd-merge`](overstoryd-merge/README.md) | The merge sidecar and the `overstoryd-merge` command |
-| | [`overstoryd-exec`](overstoryd-exec/README.md) | The execution sidecar: named queries and mutations, run for overstoryd |
-| | [`exec-protocol`](exec-protocol/README.md) | The contract between overstoryd and its execution sidecar |
 | | [`tree-merge`](tree-merge/README.md) | The three-way snapshot tree merge, shared by the merge sidecar and Story Sync tree recovery |
 | | [`collection-schema`](collection-schema/README.md) | Collection schemas (`schema.usl`) and the collection-file codec |
 | | [`usl`](usl/README.md) | Ultimate Schema Language (`.usl`): checker, layout, relationships, setup SQL, and store checks |
-| | [`beetle`](beetle/README.md) | Beetle (`.beetle` files, view blocks): parser, formatter, checker and view plans |
-| | [`apps-runtime`](apps-runtime/README.md) | The executable-document runtime |
+| | [`beetle`](beetle/README.md) | Beetle (`.beetle` files, view blocks): parser, formatter, checker, plans, and the evaluator that runs views and mutations |
+| | [`apps-runtime`](apps-runtime/README.md) | Story Sync's projection-provider contract and SQLite store introspection |
 | Client stack | [`client`](client/README.md) | Synchronizing a working tree against a host |
 | | [`fs`](fs/README.md) | Materializing trees on a filesystem |
 | Story Sync and CLI | [`story-sync`](story-sync/README.md) | The Story Sync daemon and the `story-sync` command |
@@ -26,12 +24,12 @@ here. The Swift twins are under [`swift/`](../swift/README.md).
 Layering rules, checked by reading each `package.json`:
 
 - `protocol` and `usl` depend on nothing in the workspace; `uvl` only on `usl`.
-- `apps-runtime` and `collection-schema` depend only on `protocol` and `usl`;
+- `apps-runtime` and `collection-schema` depend only on `protocol`, `usl` and `beetle`;
   `tree-merge` only on `protocol` and `collection-schema`.
 - `object-store`, `fs`, `client`, `overstoryd`, and `overstoryd-merge` never depend
   on `story-sync` or `cli`.
-- `overstoryd` never depends on `apps-runtime` or `overstoryd-exec`: it runs no
-  authored code (`tests/unit/execution-sidecar-boundary.test.ts`).
+- `overstoryd` never depends on `apps-runtime`: it runs no authored JavaScript, only
+  Beetle, which it interprets (`tests/unit/overstoryd-code-boundary.test.ts`).
 - `cli` and `story-web` may depend on anything.
 
 The root `package.json` lists every member as a dependency so that files

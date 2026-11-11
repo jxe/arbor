@@ -22,7 +22,7 @@ filesystem synchronizer, with a separate loopback API for local clients.
 - [Story Sync REST API](story-sync-api.md): loopback status, trees, the standard reads, accounts, held changes, and observation; includes reference fixture pointers.
 - [Story Sync architecture](../architecture/story-sync/README.md): placed-folder ownership, daemon services, and private state.
 - [Client stack](../architecture/client-stack/README.md): retained requests and conflict recovery.
-- [overstoryd architecture](../architecture/overstoryd/README.md): authoritative acceptance, merge and execution sidecars, and durability.
+- [overstoryd architecture](../architecture/overstoryd/README.md): authoritative acceptance, the merge sidecar, Beetle views and mutations, and durability.
 - [Deploying overstoryd](../../packages/overstoryd/deploy/README.md) and [migrations](../../packages/overstoryd/migrations/README.md): operating the reference host.
 
 Use [status](../../status.md) for implementation coverage. Portable requirements

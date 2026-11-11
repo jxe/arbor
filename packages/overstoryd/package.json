@@ -7,7 +7,6 @@
   "dependencies": {
     "@ovst/beetle": "workspace:*",
     "@ovst/collection-schema": "workspace:*",
-    "@ovst/exec-protocol": "workspace:*",
     "@ovst/merge-protocol": "workspace:*",
     "@ovst/object-store": "workspace:*",
     "@ovst/protocol": "workspace:*",

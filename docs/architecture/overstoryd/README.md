@@ -354,6 +354,6 @@ host validity callback are checked every time.
 ## Sidecars
 
 - [Merge sidecar](merge-tool.md) and [writing a sidecar](writing-a-sidecar.md)
-- [Execution sidecar](execution-sidecar.md)
+- [The Beetle host](beetle-host.md), which runs views and mutations in process, and [execution tokens](execution-tokens.md)
 - [Deployment](../../../packages/overstoryd/deploy/README.md)
 - [Migrations](../../../packages/overstoryd/migrations/README.md)

@@ -1,19 +1,12 @@
 // The `/views` and `/mutate` routes' HTTP side: a view stream as SSE, a
-// mutation's receipt as JSON, and refusals and an unavailable sidecar as the
-// errors a client can act on.
+// mutation's receipt as JSON, and refusals as the errors a client can act on.
 
 import { encodeSSEFrame, type MutationCallRequest, type MutationCallRuntime, type ViewEvent, type ViewsRequest, type ViewsRuntime } from "@ovst/protocol";
-import { ExecRefusal } from "./collections.ts";
-import { ExecUnavailableError } from "./exec-process.ts";
 import { BeetleRefusal } from "./beetle-host.ts";
 
 function failed(error: unknown, fallback: string, tree: string): Response {
   const headers = { "cache-control": "no-store" };
-  if (error instanceof ExecUnavailableError) {
-    return Response.json({ error: "internal-error", message: "Views and mutations are unavailable for now", retryable: true, tree }, { status: 503, headers });
-  }
   if (error instanceof BeetleRefusal) return Response.json({ error: error.code, message: error.message, retryable: error.retryable, tree }, { status: error.status, headers });
-  if (error instanceof ExecRefusal) return Response.json({ error: error.value.code, message: error.value.message, retryable: error.value.retryable, tree }, { status: 400, headers });
   return Response.json({ error: "invalid-request", message: error instanceof Error ? error.message : fallback, retryable: false, tree }, { status: 400, headers });
 }
 

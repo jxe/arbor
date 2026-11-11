@@ -30,10 +30,9 @@ constraints worth keeping are below.
   are each placement's projection of them (§2.4). Changing a placement's projection changes
   nothing in the tree: address, rows, logical hash and handles stay (§7). This was most of
   the old Postgres 005.
-- **The host's SQLite.** overstoryd keeps a disposable SQLite projection per collection for
-  queries and mutations (`HostCollections`, run in the
-  [execution sidecar](../../docs/architecture/overstoryd/execution-sidecar.md)); a mutation
-  submits row operations as an ordinary update.
+- **The host's rows.** overstoryd runs Beetle views and mutations over a collection's
+  accepted rows in memory ([the Beetle host](../../docs/architecture/overstoryd/beetle-host.md));
+  a mutation submits row operations as an ordinary update.
 - **The Postgres descriptor is specified,** not built: `_store.yaml` (`driver: postgres`, a
   `system:connections/…` reference, a schema) in spec 06 §4, with secrets in the credential
   facility. A tree holding both `_store.yaml` and the legacy `_store.postgres` activates

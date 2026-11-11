@@ -1,13 +1,11 @@
 {
   "name": "@ovst/apps-runtime",
   "version": "0.1.0",
-  "description": "Executable-document runtime: query lowering and execution, live result streams, transactional mutations, the overstory/data authoring API, and the projection-provider contract types.",
+  "description": "Story Sync's projection-provider contract types and SQLite store introspection, checked against a collection's schema.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./collections": "./src/collections/index.ts",
-    "./ui/jsx-runtime": "./src/ui/jsx-runtime.ts",
-    "./ui/jsx-dev-runtime": "./src/ui/jsx-dev-runtime.ts"
+    "./collections": "./src/collections/index.ts"
   },
   "dependencies": {
     "@ovst/protocol": "workspace:*",

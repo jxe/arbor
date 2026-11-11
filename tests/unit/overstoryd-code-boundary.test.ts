@@ -1,6 +1,6 @@
-// Apps 005 step 4: overstoryd runs no authored code. Its closure has no query
-// evaluator, compiler, React or QuickJS; those live in the execution sidecar,
-// which overstoryd only starts as a separate process.
+// Apps 015: overstoryd runs views and mutations by interpreting Beetle in process, and
+// runs no authored JavaScript. Its closure has no compiler, React or QuickJS, and no
+// TypeScript authoring runtime.
 
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile, rm, writeFile, mkdtemp } from "node:fs/promises";
@@ -27,22 +27,20 @@ async function closure(entrypoint: string): Promise<string[]> {
   }
 }
 
-const EXECUTION = /packages\/(?:apps-runtime|overstoryd-exec)\/|node_modules\/(?:react|react-dom|typescript|esbuild|@babel|quickjs[^/]*|vite|sucrase)\//i;
+const EXECUTION = /packages\/apps-runtime\/|node_modules\/(?:react|react-dom|typescript|esbuild|@babel|quickjs[^/]*|vite|sucrase)\//i;
 
-describe("execution sidecar boundary", () => {
-  test("overstoryd's closure, from its command and its library, has no evaluator, compiler, React or QuickJS", async () => {
+describe("overstoryd runs no authored JavaScript", () => {
+  test("its closure, from its command and its library, has Beetle's interpreter and no compiler, React or QuickJS", async () => {
     for (const entrypoint of ["packages/overstoryd/src/cli.ts", "packages/overstoryd/src/index.ts"]) {
       const modules = await closure(entrypoint);
-      expect(modules.some((path) => path.startsWith("packages/overstoryd/src/collections.ts"))).toBe(true);
+      expect(modules.some((path) => path.startsWith("packages/beetle/src/eval.ts"))).toBe(true);
       expect(modules.filter((path) => EXECUTION.test(path)), entrypoint).toEqual([]);
     }
   }, 60_000);
 
-  test("overstoryd depends on the contract, not the sidecar, and names no module it can't see", async () => {
+  test("it names no module it can't see", async () => {
     const manifest = JSON.parse(await readFile(join(root, "packages/overstoryd/package.json"), "utf8")) as { dependencies: Record<string, string> };
-    expect(Object.keys(manifest.dependencies)).toContain("@ovst/exec-protocol");
     expect(Object.keys(manifest.dependencies)).not.toContain("@ovst/apps-runtime");
-    expect(Object.keys(manifest.dependencies)).not.toContain("@ovst/overstoryd-exec");
     // A computed dynamic import would hide from the closure above.
     for (const name of await readdir(join(root, "packages/overstoryd/src"), { recursive: true })) {
       if (!String(name).endsWith(".ts")) continue;
@@ -50,14 +48,4 @@ describe("execution sidecar boundary", () => {
       expect(source.match(/\bimport\(\s*[^"'\s]/g) ?? [], String(name)).toEqual([]);
     }
   });
-
-  test("the sidecar is where the evaluator is, so the check above can see one", async () => {
-    const modules = await closure("packages/overstoryd-exec/src/cli.ts");
-    expect(modules.some((path) => path.startsWith("packages/apps-runtime/src/sqlite.ts"))).toBe(true);
-  }, 60_000);
-
-  test("the contract package holds no evaluator", async () => {
-    const modules = await closure("packages/exec-protocol/src/index.ts");
-    expect(modules.filter((path) => EXECUTION.test(path))).toEqual([]);
-  }, 60_000);
 });

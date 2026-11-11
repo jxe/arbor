@@ -5,8 +5,8 @@ import { resolve } from "node:path";
 import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, DOMAIN_PROFILE_PATH, validateAccountChallenge } from "@ovst/protocol";
 import { isCollectionSchemaName, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
-import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
-import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
+import { treeMutationResponse, treeViewsResponse } from "./view-routes.ts";
+import { BeetleHost, type BeetleHostOptions } from "./beetle-host.ts";
 import {
   HostDaemon,
   type HostAccount,
@@ -390,8 +390,8 @@ export async function serveHost(options: {
   hostname?: string;
   viewsRuntime?: ViewsRuntime;
   mutationRuntime?: MutationCallRuntime;
-  /** Serve named views and mutations through the execution sidecar, from the host's collection materializations, unless a runtime above is given. */
-  collections?: HostCollectionsOptions;
+  /** Run the Beetle views and mutations of these trees in process (Apps 015), unless a runtime above is given. */
+  beetle?: BeetleHostOptions;
   /** Session and placement device-key lifetimes; tests shorten them. */
   lifetimes?: Omit<HostDaemonOptions, "servedOverHTTP" | "pages" | "provenanceFill">;
   /**
@@ -429,10 +429,10 @@ export async function serveHost(options: {
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   }, options.mergeTool, { ...options.lifetimes, servedOverHTTP: new URL(publicOrigin).protocol === "http:", pages: options.pages ?? false, provenanceFill: options.provenanceFill ?? false });
   if (!dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host);
-  // Named views and mutations over the host's collection materializations.
-  const collections = options.collections ? overstoryd.disposeWith(new HostCollections(overstoryd, resolve(options.dataRoot), options.collections)) : null;
-  const viewsRuntime = options.viewsRuntime ?? collections?.viewsRuntime();
-  const mutationRuntime = options.mutationRuntime ?? collections?.mutationRuntime();
+  // Beetle views and mutations, over the accepted rows.
+  const beetle = options.beetle ? overstoryd.disposeWith(new BeetleHost(overstoryd, resolve(options.dataRoot), options.beetle)) : null;
+  const viewsRuntime = options.viewsRuntime ?? beetle?.viewsRuntime();
+  const mutationRuntime = options.mutationRuntime ?? beetle?.mutationRuntime();
   const onAuthorizationTick = authorizationTicker(overstoryd);
   const presence = new PresenceHub();
   const pairingClaims = options.rateLimits ? new AttemptLimiter(10, 10 * 60 * 1000) : null;
@@ -1306,7 +1306,5 @@ export async function serveHost(options: {
   if (dynamicLoopbackOrigin) overstoryd.setCommunityHost(new URL(publicOrigin).host, true);
   // Served domains are checked once the listener answers, then on the pin schedule.
   void overstoryd.customDomains.refresh().catch((error) => console.error("overstoryd custom domain check failed", error));
-  // The execution sidecar calls the standard API here, on loopback.
-  collections?.listen(`http://127.0.0.1:${server.port}`);
-  return { overstoryd, server, url: publicOrigin, collections };
+  return { overstoryd, server, url: publicOrigin, beetle };
 }

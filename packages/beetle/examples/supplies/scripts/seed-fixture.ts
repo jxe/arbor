@@ -2,12 +2,13 @@ import { mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { compileUsl, formatDiagnostic, layoutOf, setupSql } from "../../../packages/usl/src/index.ts";
+import { compileSchema, formatDiagnostic } from "@ovst/beetle";
+import { layoutOf, setupSql } from "@ovst/usl";
 
 const dataDirectory = join(import.meta.dir, "..", "data");
 const destination = join(dataDirectory, "_store.sqlite3");
-const schema = compileUsl(await readFile(join(dataDirectory, "schema.usl"), "utf8"));
-if (schema.diagnostics.length > 0) throw new Error(formatDiagnostic("schema.usl", schema.diagnostics[0]!));
+const schema = compileSchema(await readFile(join(dataDirectory, "schema.beetle"), "utf8"));
+if (schema.diagnostics.length > 0) throw new Error(formatDiagnostic("schema.beetle", schema.diagnostics[0]!));
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "story-supplies-fixture-"));
 const temporaryDatabase = join(temporaryDirectory, "_store.sqlite3");
 const database = new Database(temporaryDatabase, { create: true, strict: true });

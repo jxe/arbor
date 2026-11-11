@@ -62,8 +62,8 @@ expanded, state-reading conditions split off for the client, `expandsBy`), and m
 report writes, `let` names and public errors. Vectors:
 `docs/overstory-spec/conformance/beetle.json`.
 
-**Left in this step:** lowering an `ElementPlan` to the SQLite engine's `QueryPlan`, and
-comparing those plans with what tracing produces for the TSX pages. Then Overstory's own
+**Left in this step:** (lowering an `ElementPlan` to the SQLite engine's `QueryPlan` was
+dropped with that engine in step 4.) Then Overstory's own
 readers of `schema.usl` (apps-runtime, collection-schema, overstoryd, overstoryd-exec,
 story-sync, the Swift readers) switch to `schema.beetle`; external users (cranberries,
 excellences, supplies-remake) stay on npm `@ovst/usl` (Joe, 2026-11-11). Existing trees'
@@ -99,10 +99,8 @@ and a rerun when the head moved. Public errors answer 401/403/404/422/409. Tests
 
 **Left in this step:** the `rows` answer form (refused for now with
 `unsupported-operation`), HTML for a browser `GET`, finer live dependencies than "the
-tree changed", porting `host-collections.test.ts` once Supplies is ported (step 4),
-collections in another tree than the view's, and a row created and edited in the same
-millisecond (its `modified` can't move, so the diff refuses it; the sidecar has the same
-limit).
+tree changed", collections in another tree than the view's, and a row created and
+edited in the same millisecond (its `modified` can't move, so the diff refuses it).
 
 ## 3. Evaluator, in Story
 
@@ -115,15 +113,22 @@ limit).
 
 ## 4. Port Supplies and remove the TypeScript path
 
-- Supplies' views and mutations become `.view` files.
-- Delete TypeScript authoring: `view`, facts, `mutation` and the JSX runtime in
-  `packages/apps-runtime`, tracing and widening, and the execution sidecar if nothing else
-  uses it. Keep the plan engine.
-- [Apps 010](../later/apps-010-activation-and-lending.md)'s execution tokens apply to
-  the in-process evaluator instead of the sidecar.
+**Done** (2026-11-11, branch `claude/project-thread-kn7ley`). Supplies is one Beetle tree,
+`packages/beetle/examples/supplies` (its store and `scripts/seed-fixture.ts` moved there;
+`examples/` is gone). Removed: the TSX/MDX Supplies, `packages/overstoryd-exec`,
+`packages/exec-protocol`, overstoryd's sidecar process, activations and SQLite
+materializations (`collections.ts`), `OVERSTORYD_ACTIVATIONS`, and every part of
+`packages/apps-runtime` except Story Sync's projection-provider types and SQLite
+introspection. `serveHost({ beetle })` replaces `serveHost({ collections })`.
 
-**Verify:** `bun run typecheck`, `bun run test`, `bun run test:protocol`; nothing imports
-the removed modules.
+The SQLite plan engine went too, against this step's first wording: with the views gone
+nothing ran it, and its tests were all written through the TypeScript authoring layer.
+Lowering Beetle plans to SQL, if a large collection needs it, is new work. Host
+declared views (`~views` served by the sidecar's built-in list view) went with it: a
+`view` in `schema.beetle` replaces them (`data/schema.beetle?view=ByOwner`), and Story's
+own `~views` presentation is unchanged. `host-collections.test.ts`'s cases that still
+apply (a device's edit reaching a view, a schema's view, a profile edit) are in
+`beetle-host.test.ts`.
 
 ## 5. Views as nodes, and view blocks in pages
 
@@ -143,8 +148,12 @@ Joe decided on 2026-11-11 that a `.view` file is a node's body, like a `.md` fil
 
 ## 6. Editor support
 
-- Syntax highlighting for `.view` in Story's code blocks and for VS Code and Zed, and
-  `story check <tree-or-path>` running the checker. A language server later.
+- **Done:** `packages/beetle/editors`: a tree-sitter grammar with highlight, outline and
+  bracket queries, a Zed extension built from it, and a VS Code extension (TextMate)
+  that also colors ` ```view ` and ` ```beetle ` blocks in Markdown. The `beetle` CLI
+  already checks and formats.
+- **Left:** highlighting in Story's code blocks and view blocks (Quagmire's code row is
+  plain text today), with step 3's Swift work on Joe's Mac; a language server later.
 
 ## Open questions
 

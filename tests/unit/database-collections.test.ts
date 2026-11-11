@@ -10,7 +10,7 @@ import { mergeProtocolTrees } from "@ovst/tree-merge";
 import { CollectionProjections, type CollectionProjectionForm } from "@ovst/story-sync/state";
 const TEST_AT = Date.UTC(2026, 10, 11);
 
-const SUPPLIES = join(import.meta.dir, "../../examples/supplies/data");
+const SUPPLIES = join(import.meta.dir, "../../packages/beetle/examples/supplies/data");
 const LIST = "10000000-0000-4000-8000-000000000001";
 const key = (id: string) => JSON.stringify([["id", id]]);
 

@@ -161,7 +161,7 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_TRUSTED_PROXY_HOPS` | 0 | How many reverse proxies in front of overstoryd append to `X-Forwarded-For`; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_STORY_MAC_URL` | unset | Where to get Story for Mac. The page at a reserved, unclaimed `/~handle` offers it as "Get Story for Mac" to a person who opened an invitation link; no link when unset. |
 | `OVERSTORYD_STORY_IPHONE_URL` | unset | The same for "Get Story for iPhone". |
-| `OVERSTORYD_ACTIVATIONS` | unset | A JSON file listing the modules the host runs as views and mutations, each `{"tree", "path", "root"}`; see [views and mutations](#views-and-mutations). Unset, the views and mutate routes answer `unsupported-operation`. |
+| `OVERSTORYD_BEETLE` | unset | The trees whose Beetle views and mutations the host runs: `1` for every tree, or tree IDs separated by commas; see [views and mutations](#views-and-mutations). Unset, the views and mutate routes answer `unsupported-operation`. |
 | `OVERSTORYD_MERGE_EXECUTABLE` | the workspace `overstoryd-merge` | Alternate merge sidecar implementing `serve`; see [writing a sidecar](../../../docs/architecture/overstoryd/writing-a-sidecar.md) and [the merge sidecar](../../../docs/architecture/overstoryd/merge-tool.md#running-and-configuring). |
 
 ### Response headers and stored files
@@ -240,30 +240,18 @@ domain actually arrives with, and count from that.
 
 ### Views and mutations
 
-A host runs authored views and mutations only for the modules `OVERSTORYD_ACTIVATIONS`
-names ([the execution sidecar](../../../docs/architecture/overstoryd/execution-sidecar.md)).
-Each entry pins a module to a root object of its tree:
+A host runs the Beetle views and mutations ([spec 1.5](../../../docs/overstory-spec/1.5-beetle.md))
+of the trees `OVERSTORYD_BEETLE` names, in process, over each tree's accepted rows.
 
-```json
-[{ "tree": "tr_…", "path": "/supplies/List.tsx", "root": "sha256:…" }]
-```
-
-- **Who runs.** The code runs with each caller's own authority until Apps 010, so
-  activate only your own apps, on a host you're willing to test them on.
-- **When it loads.** overstoryd reads the file and the modules' code the first time a
-  view or mutation is asked for, and starts the sidecar then. Health, readiness, reads
-  and updates never wait for it. An activation that doesn't load is logged and left out;
-  its handles answer "not active". To change what runs, edit the file and restart.
-- **Limits.** One question may run for 30 seconds before the sidecar is restarted and
-  every question in flight fails as retryable. At most 64 questions are in flight; more
-  answer 503. A stream buffers 64 events and closes when a client can't keep up. A
-  materialization's disk budget is 1 GiB, beyond which idle ones are evicted.
-- **Shutdown and rollback.** Stopping the host stops the sidecar. A mutation stopped
-  between the host accepting it and the sidecar writing its receipt is answered from
-  the host's receipt on retry. To roll back, unset `OVERSTORYD_ACTIVATIONS` and restart:
-  the routes answer `unsupported-operation` and nothing else changes.
-  `<data>/exec/code`, `<data>/exec/compiled` and `<data>/materialized` are caches;
-  `<data>/exec/mutation-receipts.sqlite3` is kept with the host's data.
+- **Who runs.** A view reads with its caller's access (profile cards they can't read
+  are null), and a mutation's update is submitted as its caller, guarded on the head it
+  read. Activate only trees whose code you're willing to run until Apps 010.
+- **When it loads.** A handle's file and everything it uses are checked at the tree's
+  head when a request names it; a handle whose code version is not the head's answers
+  "not active".
+- **Rollback.** Unset `OVERSTORYD_BEETLE` and restart: the routes answer
+  `unsupported-operation` and nothing else changes. `<data>/beetle/receipts.sqlite3`
+  holds mutation receipts and is kept with the host's data.
 
 ### Health and readiness
 
