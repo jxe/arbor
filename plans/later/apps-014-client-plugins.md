@@ -70,6 +70,19 @@ Two jobs, in two places (proposed to Joe 2026-11-11):
   `point` is a built-in name inside a pointer action: canvas coordinates, mapped back
   through the shape's transforms. Drawing order decides which shape wins, and `hitArea={…}`
   can enlarge a small target. A drag-and-drop board game needs no plugin.
+- **Raw input goes to plugins** (Joe agreed 2026-11-11). For anything beyond tap and drag
+  (pinch, rotate, multi-touch, lasso, freehand strokes with pressure, swipe and long-press
+  recognizers, flicks with momentum, snapping, hit tests that aren't "which shape"), an
+  event line hands the pointer stream to a plugin:
+
+  ```
+  on pointer → gestures.input(Stroke, Selection, event)
+  ```
+
+  `event` carries pointer id, phase (down, move, up, cancel), x, y, pressure, modifiers and
+  time, in canvas coordinates. The plugin keeps what it needs in session tables, hit-tests
+  itself, and gets inertia from its `every` step. The shape attributes above are
+  conveniences for the common case.
 - **Collision is the plugin's.** Ball against paddle, ranges, line of sight are game logic
   inside `step`, over the rows it is given. A pure spatial relation such as
   `within(a, b, 20)` can live in [Apps 016](apps-016-pure-plugins.md) for views to use too.
@@ -81,7 +94,9 @@ Two jobs, in two places (proposed to Joe 2026-11-11):
 - **What a plugin sees.** Probably the tables and values its call passes, plus a frame
   time; no network, no other tables.
 - **Sensors and device input** (motion, microphone level): plugin-fed session tables, or
-  built-in event lines like `on key`?
+  built-in event lines like `on pointer`?
+- **Out of scope for now** (Joe, 2026-11-11): platform views (maps, video, camera, AR) and
+  custom text editing (IME, selection).
 - **Canvas vocabulary**: which shapes, text, images and transforms.
 - **Packaging and loading**: how `use "plugins/physics.ts"` resolves, and how Story and the
   HTML renderer sandbox it; what a client that can't run it shows.
