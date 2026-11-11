@@ -89,7 +89,7 @@ profile may only read, at any host, and Story Sync never publishes its edits
 (they wait, shown as a conflict) however much the host would allow. Its `host`
 needs no placement connection: Story Sync reads it with the profile's account
 there if it has one, else a visitor session
-([accounts and devices §4.6](../../overstory-spec/3.1-accounts-and-devices.md#46-visitor-sessions))
+([accounts and devices §4.5](../../overstory-spec/3.1-accounts-and-devices.md#45-visitor-sessions))
 opened with this device's key and cached under
 `accounts/<ConfigurationTreeID>/visitors/`, else as anyone; a host that refuses
 a visitor session is read as anyone for five minutes before it is asked again.

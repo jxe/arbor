@@ -113,7 +113,7 @@ With `--read-only`, the URL may be at any host, including one where your
 profile has no account: the folder follows the tree and never sends your
 edits. Story Sync reads it with your account there if you have one, else as a
 visitor whom that host checks against the device keys your home host
-publishes ([accounts and devices §4.6](../overstory-spec/3.1-accounts-and-devices.md#46-visitor-sessions)),
+publishes ([accounts and devices §4.5](../overstory-spec/3.1-accounts-and-devices.md#45-visitor-sessions)),
 else as anyone. A visitor reads what the host's rules grant your profile by
 its URL at your home host (such as `https://garden.example/~joe`), plus
 whatever is public.

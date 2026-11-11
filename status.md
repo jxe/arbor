@@ -239,7 +239,7 @@ domains nowhere yet (Names 001 step 5).
 **Implemented** on main, deployed with it (overstoryd). A profile can now read at a host
 where it has no account. A device asks for a session challenge naming its home host;
 the host checks the device against the keys that home host publishes and opens a
-**visitor session** ([accounts and devices §4.6](docs/overstory-spec/3.1-accounts-and-devices.md#46-visitor-sessions)),
+**visitor session** ([accounts and devices §4.5](docs/overstory-spec/3.1-accounts-and-devices.md#45-visitor-sessions)),
 kept in memory only. A visitor reads (descriptors, snapshots, objects, watches, listings)
 what the host's rules grant its profile by a locator at that home host, through a group
 that names it so, or what anyone can read; it never writes, and every other route treats
@@ -325,7 +325,7 @@ and Sharing 004, closed out. Story builds for the Mac and the iPhone simulator o
 **Implemented** on main (`e99919e`), deployed with it (overstoryd); Sharing 004 steps 1, 2, 4
 and 5, and step 3's image and template definition. Not yet published or rehearsed.
 
-- **Founding by code** ([accounts §1.2](docs/overstory-spec/3.1-accounts-and-devices.md)):
+- **Founding by code** ([accounts and devices §1.2](docs/overstory-spec/3.1-accounts-and-devices.md)):
   `OVERSTORYD_FOUNDER_CODE` takes the place of `OVERSTORYD_FIRST_WRITER_PROFILE` (`cli.ts`, one
   or the other). On first start the host reserves the founder's handle as an ordinary
   invitation and logs the full founder link at every start until it is claimed, then logs that

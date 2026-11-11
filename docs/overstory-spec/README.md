@@ -109,7 +109,7 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 | `QUERY /.overstory/trees/{TreeID}/views` | [executable documents §12.1](4.1-executable-documents.md#121-evaluate-and-stream-views) |
 | `POST /.overstory/trees/{TreeID}/mutate` | [executable documents §12.2](4.1-executable-documents.md#122-execute-named-mutations) |
 | `GET /.overstory/trees/{TreeID}/access` | [access control §4](3.2-access-control.md#4-reading-access) |
-| `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` (a new home, or with `profile` a member) | [accounts §1.1–1.4](3.1-accounts-and-devices.md#11-beginning-a-person-identity) |
+| `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` (a new home, or with `profile` a member) | [accounts and devices §1.1–1.4](3.1-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.overstory/pairings`, `PUT /.overstory/pairings/{PairingID}/claim` | [accounts and devices §4](3.1-accounts-and-devices.md#4-device-pairing) |
 | `POST /.overstory/device-sessions/challenges`, `POST /.overstory/device-sessions` | [accounts and devices §4.1](3.1-accounts-and-devices.md#41-device-sessions) |
 
@@ -118,7 +118,7 @@ needs them:
 
 | Route | Defined in |
 |---|---|
-| `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` | [accounts and devices §4.4](3.1-accounts-and-devices.md#44-published-device-keys) |
+| `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` | [accounts and devices §4.3](3.1-accounts-and-devices.md#43-published-device-keys) |
 | `GET https://{domain}/.overstory/peer/domain-check` | [locators §5.1](1.6-locators.md#51-trees-at-a-persons-domain) |
 
 A host also reads another host's public trees (a remote group's members) with

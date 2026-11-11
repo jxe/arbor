@@ -1,7 +1,7 @@
 # Tree configurations: decisions and failure cases
 
 Every hosted tree is configured in its own private configuration tree
-([accounts §2– §2](../../overstory-spec/3.1-accounts-and-devices.md#2-tree-configuration-graph),
+([accounts and devices §2– §2](../../overstory-spec/3.1-accounts-and-devices.md#2-tree-configuration-graph),
 [access control §1](../../overstory-spec/3.2-access-control.md#1-subjects-and-rules)).
 This page keeps why it has that shape and which tests show each failure is
 refused. It was overstoryd 005, cut over live on 2026-09-26 by
@@ -69,7 +69,7 @@ migration 022 (`packages/overstoryd/migrations/022-tree-configurations/README.md
    help is the answer: `overstoryd recover <handle>` issues a recovery pairing
    whose claim rewrites the person's `devices.yaml` to the claiming device,
    an administrator, and revokes the rest, as an accepted configuration
-   update ([accounts and devices §4.3](../../overstory-spec/3.1-accounts-and-devices.md#43-recovering-a-profiles-devices)).
+   update ([accounts and devices §4.2](../../overstory-spec/3.1-accounts-and-devices.md#42-recovering-a-profiles-devices)).
    A tree whose administrators are all unreachable is recovered by recovering
    one of them.
 2. **Two meanings of "administrator".** Keep both names: a profile's `admin`

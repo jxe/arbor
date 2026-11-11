@@ -30,7 +30,7 @@ laptop, with its key, as the first administrator device. The server derives the 
 Profile TreeID from the supplied public key, verifies the target-bound
 signature locally, and in one transaction creates the account and the
 configuration and declares the profile tree. It receives no profile bytes yet
-([accounts §1.1–1.2](3.1-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](3.1-accounts-and-devices.md#1-profiles-and-host-accounts),
+([accounts and devices §1.1–1.2](3.1-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](3.1-accounts-and-devices.md#1-profiles-and-host-accounts),
 [configuration graph](3.1-accounts-and-devices.md#2-tree-configuration-graph)).
 
 ## 2. Declare a tree
