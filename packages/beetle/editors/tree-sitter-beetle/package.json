@@ -1,0 +1,7 @@
+{
+  "name": "tree-sitter-beetle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tree-sitter grammar for Beetle (.beetle)",
+  "tree-sitter": [{ "scope": "source.beetle", "file-types": ["beetle"], "highlights": "queries/highlights.scm" }]
+}

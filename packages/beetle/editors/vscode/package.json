@@ -1,0 +1,30 @@
+{
+  "name": "beetle",
+  "displayName": "Beetle",
+  "description": "Syntax highlighting for Beetle (.beetle) views, tables and mutations, and for view blocks in Markdown.",
+  "version": "0.1.0",
+  "publisher": "ovst",
+  "license": "UNLICENSED",
+  "repository": { "type": "git", "url": "https://github.com/jxe/arbor", "directory": "packages/beetle/editors/vscode" },
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "beetle",
+        "aliases": ["Beetle", "beetle"],
+        "extensions": [".beetle"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      { "language": "beetle", "scopeName": "source.beetle", "path": "./syntaxes/beetle.tmLanguage.json" },
+      {
+        "scopeName": "markdown.beetle.codeblock",
+        "path": "./syntaxes/beetle-markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": { "meta.embedded.block.beetle": "beetle" }
+      }
+    ]
+  }
+}

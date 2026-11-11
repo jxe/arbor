@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { compileUsl, layoutOf, modelLayer } from "@ovst/usl";
 import { checkView, compileSchema, formatPage, formatView, parseView, viewBlocks, type ElementPlan } from "@ovst/beetle";
@@ -360,5 +360,22 @@ describe("converting schema.usl to schema.beetle", () => {
     expect(schema.diagnostics.filter((d) => d.code === "presentation-attribute").map((d) => d.line)).toEqual([2, 3, 6]);
     const tag = compileSchema("main table Tag:\n  color Text\n");
     expect(tag.models.find((m) => m.name === "Tag")!.fields.find((f) => f.name === "color")!.color).toBe(true);
+  });
+});
+
+describe("beetle editor support", () => {
+  const editors = join(import.meta.dir, "../../packages/beetle/editors");
+  test("Zed's queries are the tree-sitter grammar's", () => {
+    const queries = join(editors, "tree-sitter-beetle/queries");
+    for (const name of readdirSync(queries)) {
+      expect(readFileSync(join(editors, "zed/languages/beetle", name), "utf8")).toBe(readFileSync(join(queries, name), "utf8"));
+    }
+  });
+
+  test("the TextMate grammars are JSON with the scopes the extension names", () => {
+    const grammar = JSON.parse(readFileSync(join(editors, "vscode/syntaxes/beetle.tmLanguage.json"), "utf8"));
+    expect(grammar.scopeName).toBe("source.beetle");
+    const markdown = JSON.parse(readFileSync(join(editors, "vscode/syntaxes/beetle-markdown.tmLanguage.json"), "utf8"));
+    expect(markdown.scopeName).toBe("markdown.beetle.codeblock");
   });
 });

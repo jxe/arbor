@@ -1,0 +1,477 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Beetle",
+  "scopeName": "source.beetle",
+  "fileTypes": [
+    "beetle"
+  ],
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#declaration"
+    },
+    {
+      "include": "#line"
+    },
+    {
+      "include": "#element"
+    },
+    {
+      "include": "#expression"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-slash.beetle",
+      "match": "//.*$"
+    },
+    "declaration": {
+      "patterns": [
+        {
+          "match": "^(use)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.beetle"
+            }
+          }
+        },
+        {
+          "match": "\\b(as)\\b",
+          "name": "keyword.control.import.beetle"
+        },
+        {
+          "begin": "^(view)\\b\\s*([A-Za-z_][A-Za-z0-9_]*)?\\s*(?=\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.view.beetle"
+            },
+            "2": {
+              "name": "entity.name.function.view.beetle"
+            }
+          },
+          "end": "(?<=\\))",
+          "patterns": [
+            {
+              "include": "#parameters"
+            }
+          ]
+        },
+        {
+          "begin": "^(rule|mutation)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.beetle"
+            },
+            "2": {
+              "name": "entity.name.function.beetle"
+            }
+          },
+          "end": "(?<=\\))",
+          "patterns": [
+            {
+              "include": "#parameters"
+            }
+          ]
+        },
+        {
+          "match": "^(?:(main|my|session)\\s+)?(table)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.beetle"
+            },
+            "2": {
+              "name": "storage.type.table.beetle"
+            },
+            "3": {
+              "name": "entity.name.type.table.beetle"
+            }
+          }
+        },
+        {
+          "match": "^(enum|re)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.beetle"
+            },
+            "2": {
+              "name": "entity.name.type.beetle"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(ordered\\s+)?([A-Z][A-Za-z0-9_]*)(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.beetle"
+            },
+            "2": {
+              "name": "entity.name.type.beetle"
+            },
+            "3": {
+              "name": "punctuation.accessor.beetle"
+            },
+            "4": {
+              "name": "variable.other.property.beetle"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(?!(?:not|if|for|let|state|keep|on|every|unauthorized|forbidden|missing|invalid|conflict|true|false|null)\\b)([a-z_][A-Za-z0-9_]*)\\s+((?:(?:ordered|unique|path)\\s+)*)(Text|Markdown|Int|Number|Bool|Date|Duration|Person)\\b",
+          "captures": {
+            "1": {
+              "name": "variable.other.property.beetle"
+            },
+            "2": {
+              "name": "storage.modifier.beetle"
+            },
+            "3": {
+              "name": "support.type.beetle"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(?!(?:not|if|for|let|state|keep|on|every|unauthorized|forbidden|missing|invalid|conflict|true|false|null)\\b)([a-z_][A-Za-z0-9_]*)\\s+((?:(?:ordered|unique|path)\\s+)*)([A-Z][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "variable.other.property.beetle"
+            },
+            "2": {
+              "name": "storage.modifier.beetle"
+            },
+            "3": {
+              "name": "entity.name.type.beetle"
+            }
+          }
+        },
+        {
+          "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.annotation.beetle"
+            },
+            "2": {
+              "name": "storage.type.annotation.beetle"
+            }
+          },
+          "name": "meta.annotation.storage.beetle"
+        },
+        {
+          "match": "(~)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.annotation.beetle"
+            },
+            "2": {
+              "name": "support.function.presentation.beetle"
+            }
+          },
+          "name": "meta.annotation.presentation.beetle"
+        },
+        {
+          "match": "<->",
+          "name": "keyword.operator.connection.beetle"
+        }
+      ]
+    },
+    "line": {
+      "patterns": [
+        {
+          "match": "^\\s+(state|keep)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.state.beetle"
+            },
+            "2": {
+              "name": "variable.other.beetle"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(on)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.beetle"
+            },
+            "2": {
+              "name": "entity.name.tag.event.beetle"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(every)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.beetle"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(if|for|let)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.beetle"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(unauthorized|forbidden|missing|invalid|conflict)\\b(?=\\s*(\"|$|//))",
+          "captures": {
+            "1": {
+              "name": "keyword.control.exception.beetle"
+            }
+          }
+        }
+      ]
+    },
+    "element": {
+      "patterns": [
+        {
+          "begin": "(</?)([A-Za-z_][A-Za-z0-9_]*)(?=[\\s/>])",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.begin.beetle"
+            },
+            "2": {
+              "name": "entity.name.tag.beetle"
+            }
+          },
+          "end": "(/?>)",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.end.beetle"
+            }
+          },
+          "name": "meta.tag.beetle",
+          "patterns": [
+            {
+              "include": "#comment"
+            },
+            {
+              "match": "\\b(for|where|if|orderBy|group|limit|fallback|key|slot)\\b(?=\\s*=)",
+              "name": "keyword.control.attribute.beetle"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\b(?=\\s*=)",
+              "name": "entity.other.attribute-name.beetle"
+            },
+            {
+              "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\b",
+              "name": "entity.other.attribute-name.beetle"
+            },
+            {
+              "include": "#string"
+            },
+            {
+              "include": "#braces"
+            }
+          ]
+        }
+      ]
+    },
+    "braces": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.beetle"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.beetle"
+        }
+      },
+      "name": "meta.embedded.expression.beetle",
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.beetle",
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.beetle"
+        },
+        {
+          "include": "#braces"
+        }
+      ]
+    },
+    "expression": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#element"
+        },
+        {
+          "match": "\\b\\d+(ms|s|m|h|d)\\b",
+          "name": "constant.numeric.duration.beetle"
+        },
+        {
+          "match": "\\b\\d+(\\.\\d+)?\\b",
+          "name": "constant.numeric.beetle"
+        },
+        {
+          "match": "\\b(true|false|null)\\b",
+          "name": "constant.language.beetle"
+        },
+        {
+          "match": "\\b(not|and|or|in|excludes)\\b|[∈∉]",
+          "name": "keyword.operator.word.beetle"
+        },
+        {
+          "match": "\\b(where|desc|asc|for|if)\\b",
+          "name": "keyword.control.beetle"
+        },
+        {
+          "match": "\\b(me|community|page|now|today)\\b",
+          "name": "variable.language.beetle"
+        },
+        {
+          "match": "\\b(count|exists|sum|min|max|lower|upper|trim|length|set)(?=\\()",
+          "name": "support.function.builtin.beetle"
+        },
+        {
+          "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\()",
+          "name": "entity.name.function.call.beetle"
+        },
+        {
+          "match": "\\b(Text|Markdown|Int|Number|Bool|Date|Duration|Person)\\b",
+          "name": "support.type.beetle"
+        },
+        {
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\b(?=\\()",
+          "name": "entity.name.type.table.beetle"
+        },
+        {
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+          "name": "entity.name.type.beetle"
+        },
+        {
+          "match": "(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.accessor.beetle"
+            },
+            "2": {
+              "name": "variable.other.property.beetle"
+            }
+          }
+        },
+        {
+          "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.annotation.beetle"
+            },
+            "2": {
+              "name": "storage.type.annotation.beetle"
+            }
+          }
+        },
+        {
+          "match": "(~)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.annotation.beetle"
+            },
+            "2": {
+              "name": "support.function.presentation.beetle"
+            }
+          }
+        },
+        {
+          "match": "→|->|==|!=|<=|>=|\\?\\?|[-+*/<>?=]",
+          "name": "keyword.operator.beetle"
+        },
+        {
+          "begin": "\\{",
+          "end": "\\}",
+          "patterns": [
+            {
+              "include": "#expression"
+            }
+          ]
+        },
+        {
+          "begin": "\\(",
+          "end": "\\)",
+          "patterns": [
+            {
+              "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(:)(?!\\s*$)",
+              "captures": {
+                "1": {
+                  "name": "variable.parameter.argument.beetle"
+                },
+                "2": {
+                  "name": "punctuation.separator.key-value.beetle"
+                }
+              }
+            },
+            {
+              "include": "#expression"
+            }
+          ]
+        },
+        {
+          "begin": "\\[",
+          "end": "\\]",
+          "patterns": [
+            {
+              "include": "#expression"
+            }
+          ]
+        }
+      ]
+    },
+    "parameters": {
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.parameters.begin.beetle"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.parameters.end.beetle"
+        }
+      },
+      "name": "meta.parameters.beetle",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "\\b([a-z_][A-Za-z0-9_]*)(?:\\s+(?:(Text|Markdown|Int|Number|Bool|Date|Duration|Person)|([A-Z][A-Za-z0-9_]*))(\\?|\\[\\])?)?",
+          "captures": {
+            "1": {
+              "name": "variable.parameter.beetle"
+            },
+            "2": {
+              "name": "support.type.beetle"
+            },
+            "3": {
+              "name": "entity.name.type.beetle"
+            },
+            "4": {
+              "name": "keyword.operator.arity.beetle"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
