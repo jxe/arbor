@@ -94,15 +94,54 @@ public struct ProtocolDirectoryEntry: Hashable, Codable, Sendable {
     public var page: String?
     public var directory: String?
     public var tree: String?
+    /// A file or page entry's times, Unix milliseconds in UTC (data model §6):
+    /// when its content first appeared, and when it last changed. Directory
+    /// and tree entries carry none.
+    public var created: Int?
+    public var modified: Int?
     public var hash: String? { file ?? page ?? directory }
     public var kind: ProtocolEntryKind? { file != nil ? .file : page != nil ? .page : directory != nil ? .directory : nil }
+    /// Whether this entry holds content, so carries times.
+    public var isContent: Bool { file != nil || page != nil }
 
-    public init(name: String, file: String? = nil, directory: String? = nil, tree: String? = nil, page: String? = nil) {
+    public init(name: String, file: String? = nil, directory: String? = nil, tree: String? = nil, page: String? = nil, created: Int? = nil, modified: Int? = nil) {
         self.name = name
         self.file = file
         self.page = page
         self.directory = directory
         self.tree = tree
+        self.created = created
+        self.modified = modified
+    }
+
+    /// The entry for `object` named `name`, stamped against the entry that was
+    /// there before (data model §6): the same object keeps both times; changed
+    /// content keeps the earlier `created` and is modified `at`; new content is
+    /// created and modified `at`. `keep` keeps `previous`'s times whatever the
+    /// object (a move or rename). `source`, a file date, is used when no later
+    /// than `at`.
+    public static func stamped(_ kind: ProtocolEntryKind, name: String, object: String, previous: ProtocolDirectoryEntry?, at: Int, keep: Bool = false, source: Int? = nil) -> ProtocolDirectoryEntry {
+        precondition(kind == .file || kind == .page, "only file and page entries carry times")
+        var entry = kind == .file ? ProtocolDirectoryEntry(name: name, file: object) : ProtocolDirectoryEntry(name: name, page: object)
+        if let previous, previous.isContent, let created = previous.created, let modified = previous.modified,
+           keep || previous.hash == object {
+            entry.created = created
+            entry.modified = modified
+            return entry
+        }
+        let stamp = source.map { min($0, at) } ?? at
+        let before = previous?.isContent == true ? previous?.created : nil
+        entry.created = before.map { min($0, stamp) } ?? stamp
+        entry.modified = stamp
+        return entry
+    }
+
+    /// This entry without its times: what a comparison of content ignores.
+    public var untimed: ProtocolDirectoryEntry {
+        var entry = self
+        entry.created = nil
+        entry.modified = nil
+        return entry
     }
 
     /// The entry for Markdown `bytes` named `name`: in a tree that holds pages
@@ -113,6 +152,12 @@ public struct ProtocolDirectoryEntry: Hashable, Codable, Sendable {
             return ProtocolDirectoryEntry(name: name, page: try store(encoded))
         }
         return ProtocolDirectoryEntry(name: name, file: try store(bytes))
+    }
+
+    /// `markdown`, stamped against `previous` at `at` (`stamped`).
+    public static func markdown(name: String, bytes: Data, pages: Bool, previous: ProtocolDirectoryEntry?, at: Int, source: Int? = nil, store: (Data) throws -> String) rethrows -> ProtocolDirectoryEntry {
+        let entry = try markdown(name: name, bytes: bytes, pages: pages, store: store)
+        return stamped(entry.kind!, name: name, object: entry.hash!, previous: previous, at: at, source: source)
     }
 }
 
@@ -151,13 +196,16 @@ public enum ProtocolObjectCodec {
         var fields: [(String, CanonicalCBORValue)] = [
             ("type", .text("directory")),
             ("entries", .array(entries.map { entry in
-                .map([
+                var fields: [(String, CanonicalCBORValue)] = [
                     ("name", .text(entry.name)),
                     entry.file.map { ("file", .text($0)) }
                         ?? entry.page.map { ("page", .text($0)) }
                         ?? entry.directory.map { ("directory", .text($0)) }
                         ?? ("tree", .text(entry.tree!))
-                ])
+                ]
+                if let created = entry.created { fields.append(("created", .integer(created))) }
+                if let modified = entry.modified { fields.append(("modified", .integer(modified))) }
+                return .map(fields)
             }))
         ]
         if let collection { fields.append(("collection", collectionValue(collection))) }
@@ -207,10 +255,16 @@ public enum ProtocolObjectCodec {
                 let page = item["page"].flatMap { if case let .text(value) = $0 { value } else { nil } }
                 let directory = item["directory"].flatMap { if case let .text(value) = $0 { value } else { nil } }
                 let tree = item["tree"].flatMap { if case let .text(value) = $0 { value } else { nil } }
-                guard item.count == 2, [file != nil, page != nil, directory != nil, tree != nil].filter({ $0 }).count == 1 else {
+                let content = file != nil || page != nil
+                guard item.count == (content ? 4 : 2), [file != nil, page != nil, directory != nil, tree != nil].filter({ $0 }).count == 1 else {
                     throw ProtocolValidationError.invalidCBOR("Directory entry target is invalid")
                 }
-                return ProtocolDirectoryEntry(name: name, file: file, directory: directory, tree: tree, page: page)
+                let created = content ? entryTime(item["created"]) : nil
+                let modified = content ? entryTime(item["modified"]) : nil
+                if content, created == nil || modified == nil {
+                    throw ProtocolValidationError.invalidCBOR("Directory entry times are invalid")
+                }
+                return ProtocolDirectoryEntry(name: name, file: file, directory: directory, tree: tree, page: page, created: created, modified: modified)
             }
             let collection = try values["collection"].map(decodeCollection)
             object = .directory(decoded, collection: collection)
@@ -370,6 +424,18 @@ public enum ProtocolObjectCodec {
         return name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_") }
     }
 
+    /// Whether `value` can be an entry time: Unix milliseconds a JSON number holds exactly.
+    public static func isEntryTime(_ value: Int) -> Bool { abs(value) <= 9_007_199_254_740_991 }
+
+    /// An entry time from CBOR: an integer `isEntryTime` accepts, or nil.
+    private static func entryTime(_ value: CanonicalCBORValue?) -> Int? {
+        switch value {
+        case let .unsigned(number)?: return isEntryTime(number) ? number : nil
+        case let .negative(number)?: return isEntryTime(-1 - number) ? -1 - number : nil
+        default: return nil
+        }
+    }
+
     private static func validate(_ object: ProtocolObject) throws {
         guard case let .directory(entries, collection) = object else { return }
         var previous: Data?
@@ -392,6 +458,14 @@ public enum ProtocolObjectCodec {
             }
             if let hash = entry.hash { try validateObjectHash(hash) }
             if let tree = entry.tree, tree.isEmpty { throw ProtocolValidationError.invalidValue("Nested tree ID is empty") }
+            if entry.isContent {
+                guard let created = entry.created, let modified = entry.modified,
+                      isEntryTime(created), isEntryTime(modified), created <= modified else {
+                    throw ProtocolValidationError.invalidValue("A file or page entry carries created ≤ modified, in Unix milliseconds")
+                }
+            } else if entry.created != nil || entry.modified != nil {
+                throw ProtocolValidationError.invalidValue("Only file and page entries carry times")
+            }
         }
         if let collection {
             guard collection.version == 1 else { throw ProtocolValidationError.invalidValue("Collection version must be 1") }
