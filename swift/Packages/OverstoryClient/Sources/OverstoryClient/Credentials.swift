@@ -658,8 +658,10 @@ public actor NativeAccountService {
                 inviteCode: claim.inviteCode,
                 device: try enrollment(id: claim.deviceID, label: claim.deviceLabel, secret: claim.credential),
                 // The journal keeps the snapshot; the claim sends it as the configuration
-                // tree's activation element, named by the device so a replay sends the same one.
-                configuration: .activation(claim.configuration, change: claim.deviceID)
+                // tree's activation element, named by the device and timed by the snapshot's
+                // own entries so a replay sends the same one.
+                configuration: .activation(claim.configuration, change: claim.deviceID,
+                                           at: ProtocolEntryTime.string(claim.configuration.newestEntryTime ?? 0))
             )
         }
         let result: ProtocolAccountClaimResult
@@ -903,7 +905,9 @@ public actor NativeAccountService {
     ) throws -> ProtocolSnapshot {
         let sources = try TreeConfigurationYAML.initialPersonFiles(profileTree: profileTree, deviceID: deviceID, label: label, key: key)
         let files = try sources.mapValues { try ProtocolObjectCodec.object(.file(Data($0.utf8))) }
-        let entries = files.keys.sorted().map { ProtocolDirectoryEntry(name: $0, file: files[$0]!.hash) }
+        // A new tree's files are created now (data model §6).
+        let at = ProtocolEntryTime.milliseconds(Date())
+        let entries = files.keys.sorted().map { ProtocolDirectoryEntry.stamped(.file, name: $0, object: files[$0]!.hash, previous: nil, at: at) }
         let root = try ProtocolObjectCodec.object(.directory(entries))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: (Array(files.values) + [root]).sorted { $0.hash < $1.hash })
         _ = try ProtocolObjectGraph.validate(snapshot)

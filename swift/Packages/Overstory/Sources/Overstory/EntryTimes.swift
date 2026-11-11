@@ -104,3 +104,18 @@ public extension ProtocolDirectoryEntry {
         return entry
     }
 }
+
+public extension ProtocolSnapshot {
+    /// The newest `modified` of any file or page entry the snapshot's
+    /// directories hold, or nil when they hold none: the earliest `at` an
+    /// update proposing this snapshot may state.
+    var newestEntryTime: Int? {
+        var newest: Int?
+        for envelope in objects {
+            guard let object = try? ProtocolObjectCodec.decode(envelope.bytes, kind: .directory),
+                  case let .directory(entries, _) = object else { continue }
+            for modified in entries.compactMap(\.modified) { newest = max(newest ?? modified, modified) }
+        }
+        return newest
+    }
+}
