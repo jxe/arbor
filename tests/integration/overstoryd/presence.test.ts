@@ -116,8 +116,8 @@ describe("presence", () => {
   test("a hidden subscriber sees the roster but no cursors, and never appears", async () => {
     const hidden = subscribe(ben, { visible: false });
     const hiddenReady = await ready(hidden);
-    expect(hiddenReady.self).toBeNull();
-    expect(hiddenReady.stream).toBeString();
+    // A hidden stream still learns its own entry; it is never listed.
+    expect(hiddenReady.self).toBeString();
 
     const a = subscribe(ana);
     const aReady = await ready(a);
@@ -127,6 +127,9 @@ describe("presence", () => {
     expect((await hidden.take()).kind).toBe("presence.peer");
     await ana.updatePresence(community, aReady.self!, { selection: { source: SOURCE, anchor: 0, head: 0 } });
     expect(await hidden.quiet()).toBe(true);
+    // The hidden stream may update its own entry; nobody hears of it.
+    await ben.updatePresence(community, hiddenReady.self!, { page: { path: "/Groceries", stableKey: null } });
+    expect(await a.quiet()).toBe(true);
     a.close();
     hidden.close();
   });
@@ -219,9 +222,9 @@ describe("presence", () => {
     // A phone that is hidden still has its own stream for messages.
     const hidden = subscribe(ana, { visible: false });
     const hiddenReady = await ready(hidden);
-    expect(hiddenReady.self).toBeNull();
-    await ana.sendPresenceMessage(community, hiddenReady.stream!, macReady.self!, { kind: "stop", run: "run_0" });
-    expect(await mac.take()).toEqual({ kind: "presence.message", message: { from: hiddenReady.stream!, body: { kind: "stop", run: "run_0" } } });
+    expect(hiddenReady.self).toBeString();
+    await ana.sendPresenceMessage(community, hiddenReady.self!, macReady.self!, { kind: "stop", run: "run_0" });
+    expect(await mac.take()).toEqual({ kind: "presence.message", message: { from: hiddenReady.self!, body: { kind: "stop", run: "run_0" } } });
     hidden.close();
 
     const visiblePhone = subscribe(ana, { device: "ios" });

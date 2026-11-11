@@ -104,8 +104,8 @@ export class PresenceHub {
     return {
       id: entry.id,
       listed,
-      // `stream`: the entry's own ID, for messages (spec 12 §6), even when it is not listed.
-      ready: encodeSSEFrame({ event: "presence.ready", data: { self: listed ? entry.id : null, ...(join.caller ? { stream: entry.id } : {}), peers } }),
+      // `self`: the entry's own ID for any caller with an account, listed or not (spec 1.2 §3.3).
+      ready: encodeSSEFrame({ event: "presence.ready", data: { self: join.caller ? entry.id : null, peers } }),
     };
   }
 
@@ -128,7 +128,7 @@ export class PresenceHub {
   /** A POST from the stream's own caller; anyone else gets not-found. */
   update(tree: string, id: PresenceID, caller: PresenceCaller, update: PresenceUpdate): void {
     const entry = this.trees.get(tree)?.get(id);
-    if (!entry || !entry.visible || entry.caller?.account !== caller.account || entry.caller.device !== caller.device) {
+    if (!entry || entry.caller?.account !== caller.account || entry.caller.device !== caller.device) {
       throw new PresenceNotFound("Presence entry not found");
     }
     if (update.status !== undefined && entry.agent === null) throw new PresenceRefused("Only an agent's stream has a status");
@@ -155,6 +155,8 @@ export class PresenceHub {
       entry.selection = entry.page === null ? null : update.selection;
       cursorChanged = true;
     }
+    // A hidden entry keeps its state but is never disclosed.
+    if (!entry.visible) return;
     if (peerChanged) this.fanOut(tree, entry, "peer", encodeSSEFrame({ event: "presence.peer", data: peerOf(entry) }), () => true);
     if (cursorChanged) {
       const frame = encodeSSEFrame({ event: "presence.cursor", data: { id, selection: entry.selection } });

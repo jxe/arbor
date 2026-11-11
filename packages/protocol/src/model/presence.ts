@@ -69,10 +69,8 @@ export interface PresenceMessage {
 }
 
 export interface PresenceReady {
-  /** Null when the subscriber is not visible. */
+  /** The stream's own entry, listed or not; null for a caller without an account. */
   self: PresenceID | null;
-  /** This stream's own entry, listed or not, for sending and receiving messages; absent for a caller without an account. */
-  stream?: PresenceID;
   peers: PresencePeer[];
 }
 
@@ -262,8 +260,7 @@ export function decodePresenceEvent(event: string | undefined, data: unknown): P
       const ready = record(data, "ready");
       if (ready.self !== null && typeof ready.self !== "string") fail("ready.self must be a string or null");
       if (!Array.isArray(ready.peers)) fail("ready.peers must be an array");
-      if (ready.stream !== undefined && typeof ready.stream !== "string") fail("ready.stream must be a string");
-      return { kind: event, ready: { self: ready.self as string | null, ...(typeof ready.stream === "string" ? { stream: ready.stream } : {}), peers: ready.peers.map(decodePresencePeer) } };
+      return { kind: event, ready: { self: ready.self as string | null, peers: ready.peers.map(decodePresencePeer) } };
     }
     case "presence.peer":
       return { kind: event, peer: decodePresencePeer(data) };
