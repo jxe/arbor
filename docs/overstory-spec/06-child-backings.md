@@ -231,16 +231,19 @@ A row's §2.2 form is a map with `key`, `fields`, `created` and `modified`:
 - **`fields`** holds every other declared field that has a value, by name.
   An optional field without a value and an empty many-valued field are
   absent, never `null` or empty.
-- **`created`** and **`modified`** are RFC 3339 date-times in UTC with
-  millisecond precision. They are stamped from accepted operations' `at`, and
+- **`created`** and **`modified`** are Unix milliseconds in UTC, like a
+  file or page entry's times
+  ([tree operations §1.1.2a](01-tree-operations.md#112a-entry-times)). They are stamped from accepted operations' `at`, and
   never set directly ([source intent §4.1](10-source-intent.md#41-property-operations)).
 
 Values have one canonical form per type, so no projection's conventions
 reach the tree: `Text` and `Markdown` are UTF-8 strings, `Int` is a CBOR
 integer, `Number` is a number in canonical CBOR (an integral value is
 encoded as an integer, so `1` and `1.0` are one value; the schema, not the
-encoding, says which type a field has), `Bool` is a boolean, a `Date` is `YYYY-MM-DD` or an RFC 3339
-date-time in UTC, a reference to a model is the target's key value (an array
+encoding, says which type a field has), `Bool` is a boolean, a `Date` is a date or a date-time tagged as in a page
+property (tag 1004 around `YYYY-MM-DD`, tag 0 around an RFC 3339 date-time in
+UTC), so rows and pages spell dates one way and a date is never a plain
+string, a reference to a model is the target's key value (an array
 of its pairs when the key has several fields), a reference to an enum is the
 value's name, a `Person` is a profile TreeID, and a value array is an array.
 

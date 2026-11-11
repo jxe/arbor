@@ -76,7 +76,7 @@ basis.
 |---|---|---|
 | `current` | confirmed `{ root, update }` | Every local change is settled. |
 | `locally-pending` | confirmed base plus the change log through its tip | Local changes exist but are not part of any possibly transmitted request. |
-| `prepared` | one exact request from the base through a tip, its element digests, **and every object envelope the request carries** | The request is durable, self-contained, before its first network attempt. |
+| `prepared` | one exact request from the base through a tip, its element digests, **and every object the request carries** | The request is durable, self-contained, before its first network attempt. |
 | `submitting` | the same immutable request record | The outcome may become ambiguous; the request is never mutated or replaced. |
 | `submitting-pending` | the immutable request record plus a later tip | Later local changes wait as one successor, not another request. |
 | `accepted-pending-apply` | the validated authority result, any later tip | The decision is known; the accepted graph is not yet durably applied. |
@@ -146,8 +146,8 @@ transport is unavailable. Unsettled local changes behind it are then its tip.
    change and operation identities while descendants need them. A settled
    publication still named as a basis is repeated without its objects or
    deltas, so the host trims it by request digest. A request's base, change IDs, traces,
-   matching policies, candidates, derived digests, **and the object
-   envelopes it carries** are one immutable record from the first attempt
+   matching policies, candidates, derived digests, **and the
+   objects it carries** are one immutable record from the first attempt
    onward. Resubmission reads only that record, never a live object store:
    collecting the working tree's overlay between attempts must not change
    what is resent. A candidate carries only the objects its base does not

@@ -273,9 +273,9 @@ valid directory encoding without being interpreted as a directory.
 
 ```ts
 type ProtocolDirectoryEntry =
-  | { name: Name; file: Hash }
+  | { name: Name; file: Hash; created: number; modified: number }
   | { name: Name; directory: Hash }
-  | { name: Name; page: Hash }
+  | { name: Name; page: Hash; created: number; modified: number }
   | { name: Name; tree: TreeID };
 
 type ProtocolDirectory = {
@@ -305,8 +305,8 @@ type ProtocolRows = {
 type LogicalRow = {
   key: [Name, JSONValue][];
   fields: Record<Name, JSONValue>;
-  created: string;
-  modified: string;
+  created: number;                            // Unix ms, as entry times
+  modified: number;
 };
 
 type ProtocolPage = {
@@ -322,7 +322,8 @@ In a directory object `collection` has exactly these three fields, with
 member is invalid ([logical collections](06-child-backings.md#21-what-the-tree-holds)).
 
 A directory entry either addresses another Overstory object by hash or marks a
-nested Overstory tree boundary by TreeID. A snapshot walk stops at such a boundary:
+nested Overstory tree boundary by TreeID. A file or page entry also carries its
+times, `created` and `modified` (§1.1.2a); a directory or tree entry has none. A snapshot walk stops at such a boundary:
 the nested tree has its own roots, history, and access. `collection`, when
 present, holds the rows of the directory's logical collection; its table and
 rows objects are reached through it, and its validation rules are defined by
@@ -373,56 +374,35 @@ Section 4.1 defines the common encoding and hash rules.
 
 #### 1.1.2a Entry times
 
-```text
-GET /.overstory/trees/{TreeID}/snapshots/{root}?times
-GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{logical path}?times
-```
+A file or page entry carries two times, as Unix milliseconds in UTC:
 
-An entry's time is when its content first appeared at its path: the
-`acceptedAt` of the earliest retained accepted update of this tree whose root
-holds that entry's object at that directory-entry path. It is a function of the
-root alone, like everything else the snapshot read answers, so it is immutable
-with it. A move is new content at its new path and is dated by the move;
-content changed and later restored keeps the time it first had there, and the
-restore is visible in history, not in the time. Converting a file entry to a
-page entry, or back ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity)),
-changes its kind, not its content, and keeps its time. A host whose retained
-history begins with a squashed root may date that root's entries from older
-records it kept, never later than that root's own `acceptedAt`.
+- `modified` is the `at` (§2.1) of the update that last gave the entry a
+  different object at its path, or created it there.
+- `created` is the `at` of the update that created the entry. A rename or move
+  keeps both times, since it does not change the object; so does converting a
+  file entry to a page entry, or back
+  ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity)),
+  which changes its kind, not its content. An entry that is removed and later
+  added again is a new entry.
 
-With `times`, a snapshot read (§1.1.2) or a path read (§1.2.4) answers the same
-bundle with one more member:
+Times are part of the directory object and so of the root: a reader gets them
+with any directory, from a snapshot, a path read or an object read, with no
+separate request. The objects an entry names stay free of times, so identical
+content still hashes identically wherever and whenever it was written. A
+directory or tree entry has no time; a reader that wants one for a directory
+takes the newest of its entries'.
 
-```ts
-type TimedBundle = {
-  version: 1;
-  objects: Uint8Array[];
-  times: Record<EntryPath, number>; // "/Trips/_index.md" → Unix ms
-};
-```
+A time is the editor's stated time, not the host's acceptance time: the client
+computes the root it proposes (§2.1), so the time must be known before the
+host accepts it. An authority rejects an `at` more than five minutes ahead of
+its own clock. The accepted update's `acceptedAt` remains the host's time, and
+history, not an entry, records when the host accepted it. A date a person means
+as content, such as when a page was written, is a page property.
 
-`times` holds every file and page entry of every directory object in the
-bundle, keyed by its directory-entry path (not its logical page path; a client
-maps a page to its body entry), and no other key. Nested-tree boundaries have no
-time. Without `times` the bundle is exactly §1.1.2's. The response's access,
-`404`s, `Vary` and `Cache-Control` are those of the read it extends; its quoted
-`ETag` is that read's followed by `;times`. A host still indexing a tree's
-history answers `503 internal-error` with `retryable: true`. A local reader
-such as Story Sync on loopback answers `times` with the host's.
-
-Times are never part of an object or a hash: identical content hashes
-identically wherever and whenever it was written, and a time is always the
-host's acceptance time. A date a person means as content, such as when a page
-was written, is a page property. A host keeps what it needs to date a root's
-entries for as long as it serves that root, so retention never moves a time.
-After an install, each watch frame's `acceptedAt` dates the entries it
-changes.
-
-`GET /.overstory/trees/{TreeID}/entry-metadata[?path=]`, which answered the
-current root's times as `{ update, entries: { [path]: { modifiedAt } } }`, is
-answered only for released clients until
-[Protocol 001](../../plans/soon/protocol-001-spec-review-route-changes.md)
-removes it.
+When a merge (§2.3) combines two sides that both changed an entry, the result
+takes the later `modified` of the two, whether or not their objects were
+identical; `created` is kept from the basis, or is the earlier of the two when
+both sides created the entry.
 
 #### 1.1.3 Watching
 
@@ -939,6 +919,7 @@ type UpdateRequest = {
 
 type CandidateUpdate = {
   change: string;
+  at: string;                            // RFC 3339 UTC, millisecond precision
   candidate: Hash | null;
   trace?: Frame[] | null;                // omitted: null, snapshot semantics
   resolves?: ResolutionDeclaration[];    // omitted: []
@@ -965,10 +946,14 @@ and 1024 operations. A trace is evidence the host checks in full, never a
 hint it may skip. There is no capability-discovery endpoint or negotiation
 mechanism: a request the host does not support fails closed with no
 translation and no alternate route.
+`at` is when the edit was made. It stamps the times of the entries this
+update creates or changes (§1.1.2a), so it is part of the candidate's root,
+and a derived candidate's root is derived with it. Within one request each
+`at` is no earlier than the one before it.
 `resolves` declares guarded decisions endorsed by this candidate; empty means none.
 An omitted `trace`, `resolves`,
 `objects` or `deltas` means `null` or `[]`, so the smallest update is
-`{ change, candidate, objects }`; identity is computed over the filled-in
+`{ change, at, candidate, objects }`; identity is computed over the filled-in
 values (§2.4), so omitting a field and sending its default are the same request.
 A sender may omit them; it never sends `null` for a list. They are included in
 request identity and preserved in an adopted or retried prefix.
@@ -1108,7 +1093,8 @@ replay handling in §2.1:
    applicable format-aware rules. If valid competing effects cannot be uniquely
    combined, retain them as unresolved decisions within the representation limits
    of [source intent §6–7](10-source-intent.md#6-accepted-decisions-and-continued-editing).
-   Missing automatic merge rules alone do not require rejection. Ordinary operations
+   Missing automatic merge rules alone do not require rejection. Entry times
+   merge as §1.1.2a says. Ordinary operations
    and snapshots preserve existing decisions; only guarded explicit resolution
    closes them.
 3. Compare the resulting semantic state with current. Return `unchanged` without a
@@ -1222,11 +1208,11 @@ applied exactly becomes a new client-owned conflict before submission.
 
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
-of `{ domain: "arbor-update/2", tree, base, change, trace, candidate, resolves, ifCurrent }`,
+of `{ domain: "arbor-update/3", tree, base, change, at, trace, candidate, resolves, ifCurrent }`,
 with absent `ifCurrent` encoded as CBOR null, an omitted `trace` as CBOR null,
 an omitted `resolves` as an empty array, and a derived candidate's
 `candidate` as CBOR null. Omitting a field and sending its default therefore
-give the same digest. Execution is deterministic (a row operation carries its
+give the same digest. Execution is deterministic (an update and each row operation carry their
 `at`), so a retried derived candidate derives the same root under the same digest. The digest covers the whole trace,
 including each frame's `before` and `after` as stated or omitted, so the same operations divided into
 different frames are a different change. Ordered arrays retain their submitted
@@ -1389,27 +1375,18 @@ The permitted CBOR subset is: `null`; booleans; integers in the safe 53-bit
 range as CBOR integers with minimal-length heads; every other finite number as
 a 64-bit float; UTF-8 text; byte strings; arrays; and maps whose keys are text,
 unique, and ordered by the bytes of their encoded form. Non-finite numbers,
-indefinite lengths, tags, and non-text keys are invalid, except that a page
-object's timestamps use tags 1004 and 0 ([pages](#pages)).
+indefinite lengths, tags, and non-text keys are invalid, except that date
+values in page properties ([pages](#pages)) and in rows
+([child backings §2.2](06-child-backings.md#22-rows-and-values)) use tags 1004
+and 0. Times the host or client stamps, such as an entry's `modified` or a
+row's `created`, are integers of Unix milliseconds, never tagged.
 
-For an Overstory object, the envelope is constructed as follows:
-
-```text
-objectBytes = fileBytes OR canonicalCBOR(directory | page | table | rows)
-envelope = {
-  hash: sha256(objectBytes),
-  bytes: paddedBase64(objectBytes)
-}
-```
-
-In a CBOR body (§4.4) `bytes` is a byte string holding `objectBytes` itself.
-To validate an envelope, the receiver decodes `bytes` as canonical padded
-base64 (or takes the byte string) and requires the SHA-256 of the resulting
-bytes to equal `hash`.
-Graph validation separately interprets directory objects according to their
-references and requires their canonical encoding. The envelope is not itself hashed and is not a node in the object graph;
-it only carries an addressed object's hash and bytes through a request,
-response, or transition payload.
+An Overstory object's bytes are `fileBytes` for a file, or
+`canonicalCBOR(directory | page | table | rows)`, and its hash is
+`sha256(objectBytes)`. Wherever objects travel, in a snapshot bundle, an
+`objects` array or an object read, only the bytes travel: the receiver hashes
+them, and graph validation separately requires each directory, page, table or
+rows object to decode canonically.
 
 Model hashes, collections' logical hashes, update and mutation
 request digests, and query output hashes apply the same CBOR-then-SHA-256

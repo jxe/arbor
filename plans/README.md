@@ -134,6 +134,8 @@ Joe's spec review changes routes on both ends at once: overstoryd answers old an
 clients move and are released, then the old forms go. Left: removing the old forms after the
 next release.
 
+**[Protocol 003: times in directory entries, one date encoding, history dropped](soon/protocol-003-times-in-directory-entries.md).** Entries carry `created`/`modified` stamped from the update's `at`; row dates tagged like page dates; a flag-day migration drops history (Joe, 2026-11-11).
+
 **[Filesystem 026: page provenance, and dropping Markdown file entries](soon/filesystem-026-page-provenance-and-cleanup.md).**
 Pages are logical nodes, written to disk by each placement: built, released in 0.1.6 and
 converted on Joe's todos tree ([status](../status.md#pages-as-logical-nodes-built--2026-10-28)).

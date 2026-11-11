@@ -205,7 +205,9 @@ one.
 | `disconnect` | `field, member` | Remove `member`, which MUST be present. |
 | `move` | `field, member, after` | Place `member` directly after the member `after`, or first when `after` is `null`, in an `ordered` field or a page list. Both are present and the order changes. |
 
-Values are JSON. A row's follow its field types. A page's are YAML 1.2 core
+Values are JSON. A row's follow its field types; a `Date` is a plain string in
+JSON, since its field type already says it is a date, and tagged in CBOR as in
+the row itself ([child backings §2.2](06-child-backings.md#22-rows-and-values)). A page's are YAML 1.2 core
 values plus timestamps ([tree operations](01-tree-operations.md#pages)), which
 JSON spells `{"$date": "2026-10-28"}` for a date and
 `{"$dateTime": "2026-10-28T09:00:00Z"}` for a UTC date-time. A map whose
@@ -223,7 +225,8 @@ from its two ends are the same fact. `move` names the `ordered` end.
 Every property operation but `rowDelete` has `at`, when the edit was made, as
 an RFC 3339 date-time in UTC with millisecond precision. Replay writes it to a
 row's `modified`, and on `rowCreate` to `created` too; nothing else sets them.
-A page has no such times. An authority rejects an `at` more than five minutes
+A page or file has none of its own; its directory entry takes the update's
+`at` ([tree operations §1.1.2a](01-tree-operations.md#112a-entry-times)). An authority rejects an `at` more than five minutes
 ahead of its own clock.
 
 A property operation names its node by identity, so concurrent changes to one
