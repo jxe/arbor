@@ -225,7 +225,7 @@ Before execution, the runtime resolves an effective namespace from:
 
 The intersection is the complete authority. The agent and its tools cannot address a path, tree, credential, network target, or host capability outside it. A tool cannot widen the namespace of the agent that called it. Access changes during a run take effect before subsequent operations.
 
-This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](../../docs/overstory-spec/1.5-vad.md#22-vad-files) applies to agents and their tools.
+This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](../../docs/overstory-spec/1.5-vad.md#36-vad-files) applies to agents and their tools.
 
 #### 13.4 Consent and effects
 

@@ -33,7 +33,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   | Reader | Personal data, as `personal model X` or `personal model X (placement)`, read like any model |
 
   The spec now has these as state models
-  ([VAD](../../docs/overstory-spec/1.5-vad.md#5-state)), with
+  ([VAD](../../docs/overstory-spec/1.5-vad.md#39-state)), with
   `state` and `keep` as one-row shorthands and `session` models for fast state such as games.
 
   An app reads and writes only its own personal models, with no prompt, written locally
@@ -99,7 +99,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
 - Placement identity, page and personal models, `state` and `keep`, as decided above.
 - Decide where kept page and personal rows are stored and how they reach the reader's other
   devices, then write it into
-  [VAD](../../docs/overstory-spec/1.5-vad.md#5-state).
+  [VAD](../../docs/overstory-spec/1.5-vad.md#39-state).
 - Personal rows live under the reader's own tree and sync like any collection.
 - Port Supplies' List, Practice and search screens as widgets. They are the acceptance
   corpus.
