@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { type ObjectHash } from "@ovst/protocol";
@@ -8,6 +8,8 @@ import { FolderSync, type FolderSyncHost } from "../../packages/story-sync/src/f
 
 const tree = "tr_foldersyncinstalltestaaaaa";
 const cleanup: string[] = [];
+/** a.md's file date at the start: entry times are part of the root. */
+const A_TIME = new Date(Date.UTC(2026, 0, 1));
 afterEach(async () => { for (const path of cleanup.splice(0)) await rm(path, { recursive: true, force: true }); });
 
 /**
@@ -26,6 +28,7 @@ async function fixture(beforeVerify?: (folder: string) => Promise<void>, options
   const state = await realpath(await mkdtemp(join(tmpdir(), "story-install-state-")));
   cleanup.push(folder, state);
   await writeFile(join(folder, "a.md"), "v1\n");
+  await utimes(join(folder, "a.md"), A_TIME, A_TIME);
   if (options.withC) await writeFile(join(folder, "c.md"), "c1\n");
   const known = await resolveSnapshot(await snapshotDirectory(folder));
   const objects = new Map<string, Uint8Array>(known.objects);
@@ -95,7 +98,7 @@ describe("installing an accepted root into a folder", () => {
   });
 
   test("a folder that still holds its old root after the write stops", async () => {
-    const f = await fixture(async (folder) => { await writeFile(join(folder, "a.md"), "v1\n"); });
+    const f = await fixture(async (folder) => { await writeFile(join(folder, "a.md"), "v1\n"); await utimes(join(folder, "a.md"), A_TIME, A_TIME); });
     await expect(f.install()).rejects.toThrow("The folder does not hold the accepted root it was given");
     await f.sync.close();
     expect(await f.knownRoot()).toBe(f.known);

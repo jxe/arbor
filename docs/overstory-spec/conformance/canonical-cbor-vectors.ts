@@ -199,12 +199,12 @@ function graph(name: string, mode: string, entries: any[], members: typeof graph
   return { name, mode, valid, root: hashObject(bytes), objects: [ { hash: hashObject(bytes), bytesBase64: b64(bytes) }, ...members.map(member => ({ hash: member.hash, bytesBase64: b64(member.bytes) })) ] };
 }
 const graphVectors = [
-  graph("raw-file", "complete", [{ name: "file", file: graphLeaf.hash }], [graphLeaf], true),
-  graph("directory-shaped-file", "complete", [{ name: "file", file: graphDirectory.hash }], [graphDirectory], true),
-  graph("omitted-file", "sparse-files", [{ name: "file", file: graphLeaf.hash }], [], true),
-  graph("missing-file", "complete", [{ name: "file", file: graphLeaf.hash }], [], false),
+  graph("raw-file", "complete", [{ name: "file", file: graphLeaf.hash, created: 0, modified: 0 }], [graphLeaf], true),
+  graph("directory-shaped-file", "complete", [{ name: "file", file: graphDirectory.hash, created: 0, modified: 0 }], [graphDirectory], true),
+  graph("omitted-file", "sparse-files", [{ name: "file", file: graphLeaf.hash, created: 0, modified: 0 }], [], true),
+  graph("missing-file", "complete", [{ name: "file", file: graphLeaf.hash, created: 0, modified: 0 }], [], false),
   graph("missing-directory", "sparse-files", [{ name: "dir", directory: graphDirectory.hash }], [], false),
-  graph("kind-conflict", "complete", [{ name: "dir", directory: graphDirectory.hash }, { name: "file", file: graphDirectory.hash }], [graphDirectory], false),
+  graph("kind-conflict", "complete", [{ name: "dir", directory: graphDirectory.hash }, { name: "file", file: graphDirectory.hash, created: 0, modified: 0 }], [graphDirectory], false),
   graph("unreachable", "complete", [], [graphLeaf], false),
 ];
 await writeFile("docs/overstory-spec/conformance/protocol-graphs.json", JSON.stringify({ version: 1, cases: graphVectors }, null, 2) + "\n");

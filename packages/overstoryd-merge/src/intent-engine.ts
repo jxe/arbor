@@ -2130,6 +2130,8 @@ class Engine {
       if (index === request.incoming.trace.length - 1) break;
       if ((await this.project(authored)) !== frame.after)
         return fail("Frame does not reproduce its result");
+      // Each frame dates what it changed, as the client's replay of it did.
+      await this.settleTimes(authored);
       basis = this.cloneState(authored);
     }
     const wrapped = new Set<string>([...this.pendingEnclosures].filter(key => !resolved.has(key)));
@@ -3473,6 +3475,7 @@ class Engine {
         return fail(trace.length > 1
           ? "Frame does not reproduce its result"
           : "Operations do not reproduce the complete candidate");
+      await this.settleTimes(authored);
       frameBasis = this.cloneState(authored);
       // Carry the projected file objects into the next frame, detached from the
       // live nodes: the next frame edits those nodes in place, and a reused

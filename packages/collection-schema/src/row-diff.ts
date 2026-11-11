@@ -35,7 +35,7 @@ function rowEdits(model: LogicalModel, before: LogicalRow, after: LogicalRow, op
   // A row's times come from its operations' `at`, never from a set.
   if (before.created !== after.created || before.modified === after.modified) return false;
   let count = 0;
-  const timed = (fields: Record<string, unknown>) => { count++; op({ ...fields, at: after.modified }); };
+  const timed = (fields: Record<string, unknown>) => { count++; op({ ...fields, at: new Date(after.modified).toISOString() }); };
   return fieldEdits(model, before, after, timed) && count > 0;
 }
 
@@ -81,7 +81,7 @@ export function rowOperationsBetween(models: readonly LogicalModel[], before: Lo
       if (!prior) {
         // A created row's times are its operation's.
         if (value.created !== value.modified) return null;
-        op({ kind: "rowCreate", values: { ...Object.fromEntries(value.key), ...value.fields }, at: value.created });
+        op({ kind: "rowCreate", values: { ...Object.fromEntries(value.key), ...value.fields }, at: new Date(value.created).toISOString() });
       } else if (json(prior) !== json(value) && !rowEdits(model, prior, value, op)) return null;
     }
     for (const row of rowsBefore.keys())

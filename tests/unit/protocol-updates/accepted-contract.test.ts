@@ -24,5 +24,5 @@ test("inspection context compares exact accepted-state bytes",()=>{
 });
 test("resolution declarations have no fixed decision or alternative count cap",()=>{
   const resolves=Array.from({length:40},(_,i)=>({state:"u1",conflict:`d${i}`,alternatives:Array.from({length:1025},(_,j)=>`a${j}`)}));
-  expect(decodeAuthoredRequestIntent({base:"u1",updates:[{change:"c1",candidate:"sha256:"+"1".repeat(64),trace:[],resolves}]}).updates[0]!.resolves).toHaveLength(40);
+  expect(decodeAuthoredRequestIntent({base:"u1",updates:[{change:"c1",at:"2026-11-11T00:00:00.000Z",candidate:"sha256:"+"1".repeat(64),trace:[],resolves}]}).updates[0]!.resolves).toHaveLength(40);
 });

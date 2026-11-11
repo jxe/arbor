@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { checkPlainTrace, deriveTrace, UnsupportedDerivation, encodeProtocolDirectory, hashObject, type SourceOperation, type ProtocolDirectoryEntry } from "@ovst/protocol";
 import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@ovst/merge-protocol";
-const TEST_AT = Date.UTC(2026, 10, 11);
+// Fixture entries are dated 0, so edits at 0 leave their times as they were.
+const TEST_AT = 0;
 
 const objects = new Map<string, Uint8Array>();
 const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };

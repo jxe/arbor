@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { encodeProtocolDirectory, hashObject, type MaterialRef, type SourceOperation } from "@ovst/protocol";
 import { composeFrames, executeExactSourceEdits, validateSourceEditCandidate, validateSourceTrace, UnsupportedSourceEdit } from "../../support/source-edits.ts";
-const TEST_AT = Date.UTC(2026, 10, 11);
+// Fixture entries are dated 0, so edits at 0 leave their times as they were.
+const TEST_AT = 0;
 
 function fixture(text: string, nested = false) {
   const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
@@ -165,17 +166,17 @@ describe("authored source traces", () => {
       { before: start.root, after: first.root, operations: [a] },
       { before: first.root, after: second.root, operations: [b] },
     ];
-    const composed = await composeFrames(frames, load);
+    const composed = await composeFrames(frames, load, TEST_AT);
     expect(composed.before).toBe(start.root);
     expect(composed.after).toBe(second.root);
     expect(composed.operations.map(o => o.key)).toEqual(["edit-0-0", "edit-0-1"]);
     expect(composed.operations.map(o => o.kind === "editSource" && o.source.material.kind === "basis" && o.source.material.path)).toEqual(["/a.md", "/b.md"]);
     expect((await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load, TEST_AT)).root).toBe(second.root);
-    expect(await composeFrames([frames[0]!], load)).toBe(frames[0]!);
+    expect(await composeFrames([frames[0]!], load, TEST_AT)).toBe(frames[0]!);
     // Lineage names the generation it was captured against and is never rebased.
     const preserved: SourceOperation = { key: "b2", kind: "editSource", source: b.source, text: "y",
       lineage: [{ source: { material: { kind: "basis", path: "/b.md", object: start.fileB }, range: [1, 2] }, range: [0, 1] }] };
-    await expect(composeFrames([frames[0]!, { ...frames[1]!, operations: [preserved] }], load)).rejects.toBeInstanceOf(UnsupportedSourceEdit);
+    await expect(composeFrames([frames[0]!, { ...frames[1]!, operations: [preserved] }], load, TEST_AT)).rejects.toBeInstanceOf(UnsupportedSourceEdit);
   });
 
   test("a second edit of the same file composes by range over the first, without its bytes", async () => {
@@ -193,7 +194,7 @@ describe("authored source traces", () => {
     const composed = await composeFrames([
       { before: start.root, after: first.root, operations: g1 },
       { before: first.root, after: second.root, operations: g2 },
-    ], load);
+    ], load, TEST_AT);
     expect(composed.operations).toEqual([
       edit("edit-0-0", "/a.md", start.fileA, [0, 6], "AFTer"),
       edit("edit-0-1", "/a.md", start.fileA, [12, 12], "!"),
@@ -203,7 +204,7 @@ describe("authored source traces", () => {
     const undone = await composeFrames([
       { before: start.root, after: first.root, operations: g1 },
       { before: first.root, after: start.root, operations: [edit("edit-1-0", "/a.md", middle, [0, 5], "Before")] },
-    ], load);
+    ], load, TEST_AT);
     expect(undone.operations).toEqual([]);
     expect(undone.before).toBe(undone.after);
   });

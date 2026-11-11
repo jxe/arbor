@@ -16,7 +16,8 @@ import {
   type ProtocolPage,
   type SourceOperation,
 } from "@ovst/protocol";
-const TEST_AT = Date.UTC(2026, 10, 11);
+// Fixture entries are dated 0, so edits at 0 leave their times as they were.
+const TEST_AT = 0;
 
 const objects = new Map<string, Uint8Array>();
 const put = (bytes: Uint8Array) => {
@@ -88,7 +89,7 @@ describe("page property operations", () => {
   });
 
   test("the contract accepts page targets and rejects an id or a ranged target", () => {
-    const frame = (operation: Record<string, unknown>) => ({ change: "c1", candidate: null, resolves: [], trace: [{ operations: [{ key: "k1", ...operation }] }] });
+    const frame = (operation: Record<string, unknown>) => ({ change: "c1", at: new Date(TEST_AT).toISOString(), candidate: null, resolves: [], trace: [{ operations: [{ key: "k1", ...operation }] }] });
     const ref = target(`sha256:${"0".repeat(64)}`);
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "title", before: null, value: { $date: "2026-10-28" } }))).not.toThrow();
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "id", before: null, value: "x" }))).toThrow();

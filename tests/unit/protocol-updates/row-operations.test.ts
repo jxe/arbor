@@ -38,7 +38,7 @@ async function replay(tree: CollectionTree, operations: SourceOperation[]) {
 }
 
 describe("row operation grammar", () => {
-  const candidate = (operation: unknown) => ({ change: "c1", candidate: HASH, resolves: [], trace: [{ before: HASH, after: HASH, operations: [operation] }] });
+  const candidate = (operation: unknown) => ({ change: "c1", at: AT, candidate: HASH, resolves: [], trace: [{ before: HASH, after: HASH, operations: [operation] }] });
   const collection = { material: { kind: "basis", path: "/items", object: HASH } };
   const base = { key: "op", collection, model: "Item", row: key("a") };
 
@@ -140,7 +140,6 @@ describe("row operation replay", () => {
       [[{ ...op.remove("a"), model: "Other" }], /not a model/],
       [[op.set("a", "title", "A", 5)], /Expected text/],
       [[op.set("a", "modified", null, AT)], /operation's time/],
-      [[{ ...op.set("a", "title", "A", "Z"), at: undefined }], /carries its time/],
       [[{ ...op.set("a", "title", "A", "Z"), at: "2026-10-24T10:00:00Z" }], /milliseconds/],
     ] as Array<[SourceOperation[], RegExp]>) await expect(replay(tree, operations)).rejects.toThrow(message);
   });
