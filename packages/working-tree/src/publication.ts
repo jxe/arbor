@@ -1,4 +1,4 @@
-import { composeSourceEdits, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolDirectoryEntry, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
+import { composeSourceEdits, deriveTrace, entryTimeOf, type ObjectHash, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolDirectoryEntry, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
 import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 
@@ -416,4 +416,59 @@ export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange
   }
   visit(basis.root, candidate.root, true);
   return {...update, objects: [...envelopes.values()].sort((a,b) => a.hash.localeCompare(b.hash)), deltas};
+}
+
+/**
+ * `update` with its frames replayed from `basis` at its own `at`, as the host
+ * replays them (data model §6): every entry the update touches is stamped
+ * with the update's time, so a batch of edits made at different times
+ * carries the last one's time throughout, and an update after one that was
+ * restamped continues from that root. The objects the new roots reach that
+ * the update does not already carry are added; intermediate frames' objects,
+ * which the host regenerates, are not. Undefined when the frames cannot be
+ * replayed here (row operations, which need a collection replay), so the
+ * update goes as it is.
+ */
+export async function restampUpdate(update: CandidateUpdateJSON, basis: string, load: (hash: string) => Promise<Uint8Array>): Promise<{ update: CandidateUpdateJSON; generated: Map<string, Uint8Array> } | undefined> {
+  if (!update.trace?.length) return;
+  let derived: Awaited<ReturnType<typeof deriveTrace>>;
+  try {
+    derived = await deriveTrace(basis as ObjectHash, update.trace.map(frame => ({ operations: frame.operations })), load as (hash: ObjectHash) => Promise<Uint8Array>, entryTimeOf(update.at));
+  } catch {
+    // Unsupported here (UnsupportedDerivation) or not reproducible: sent as it is.
+    return;
+  }
+  // What the update carries and the new root still reaches stays; the new
+  // directories the replay made are added whole. Walk only new or carried
+  // objects: anything else the host already holds, with all it reaches.
+  const envelopes = new Map(update.objects.map(object => [object.hash, object])), deltas = new Map(update.deltas.map(delta => [delta.result, delta]));
+  const keptObjects = new Map<string, { hash: string; bytes: string }>(), keptDeltas = new Set<string>(), seen = new Set<string>();
+  const stack: Array<{ kind: ProtocolObjectKind; hash: string }> = [{ kind: "directory", hash: derived.root }];
+  for (let next = stack.pop(); next; next = stack.pop()) {
+    if (seen.has(next.hash)) continue;
+    seen.add(next.hash);
+    const envelope = envelopes.get(next.hash), made = derived.generated.get(next.hash as ObjectHash);
+    let bytes: Uint8Array | undefined;
+    if (envelope) { keptObjects.set(next.hash, envelope); bytes = decodeBase64(envelope.bytes); }
+    else if (deltas.has(next.hash)) { keptDeltas.add(next.hash); bytes = made ?? await load(next.hash).catch(() => undefined); }
+    // A new directory travels whole; new content was already carried, or is
+    // the host's (unchanged by the restamp, which changes only directories).
+    else if (made && next.kind === "directory") { keptObjects.set(next.hash, { hash: next.hash, bytes: encodeBase64(made) }); bytes = made; }
+    if (bytes) stack.push(...protocolObjectReferences(next.kind, bytes));
+  }
+  // Execution reads an added entry's value rather than producing it.
+  for (const frame of derived.frames) for (const operation of frame.operations) {
+    if (operation.kind !== "addEntry" && operation.kind !== "replaceEntry") continue;
+    const value = operation.value as { file?: string; page?: string; directory?: string };
+    for (const hash of [value.file, value.page, value.directory]) {
+      const envelope = hash ? envelopes.get(hash) : undefined;
+      if (envelope) keptObjects.set(envelope.hash, envelope);
+    }
+  }
+  const objects = [...keptObjects.values()].sort((a, b) => a.hash.localeCompare(b.hash));
+  return {
+    update: { ...update, candidate: derived.root, trace: derived.frames.map(frame => ({ before: frame.before, after: frame.after, operations: [...frame.operations] })), objects,
+      deltas: update.deltas.filter(delta => keptDeltas.has(delta.result)) },
+    generated: derived.generated as Map<string, Uint8Array>,
+  };
 }

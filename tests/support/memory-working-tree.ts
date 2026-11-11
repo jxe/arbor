@@ -86,7 +86,7 @@ export async function editorView(coordinator: UpdateCoordinator, working: Memory
 /** Append one editor generation to the change log, as an editor source does, and tell the runner. */
 export async function appendSource(coordinator: UpdateCoordinator, log: ChangeLog, working: MemoryWorkingTree,
     sourcePath: string, edit: (source: string) => { offset: number; length: number; replacement: string },
-    from?: LocalChange): Promise<LocalChange> {
+    from?: LocalChange, at?: string): Promise<LocalChange> {
   // An editor that captured an earlier change of its own continues from it.
   const { graph, basis } = from ? { graph: decodeTreeSnapshotJSON(from.candidate), basis: { kind: "authored" as const, change: from.change } }
     : await editorView(coordinator, working);
@@ -95,7 +95,7 @@ export async function appendSource(coordinator: UpdateCoordinator, log: ChangeLo
   const bytes = new TextEncoder().encode(source);
   const expected = new TextDecoder().decode(bytes.subarray(offset, offset + length));
   const result = new TextDecoder().decode(new Uint8Array([...bytes.subarray(0, offset), ...new TextEncoder().encode(replacement), ...bytes.subarray(offset + length)]));
-  const record = prepareSourceChange({ change: `change-${crypto.randomUUID()}`, tree: log.tree, basis, graph, sourcePath,
+  const record = prepareSourceChange({ ...(at ? { at } : {}), change: `change-${crypto.randomUUID()}`, tree: log.tree, basis, graph, sourcePath,
     intent: { basis: { tree: log.tree, path: sourcePath.replace(/\.md$/, ""), revision: graph.root, source },
       edits: [{ offset, length, expected, replacement }], source: result } });
   await log.retain(record);

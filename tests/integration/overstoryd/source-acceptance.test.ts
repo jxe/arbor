@@ -675,6 +675,41 @@ test("the TS runner publishes a stale local change after restart, continues it, 
   await running.overstoryd.verifyIntegrity();
 });
 
+test("queued edits made at different times publish as one update under the last edit's time", async () => {
+  await installNestedPeers();
+  const { UpdateCoordinator } = await import("@ovst/working-tree");
+  const { ChangeLog, FileControlStore } = await import("@ovst/working-tree/node");
+  const stateRoot = `${dir}/ts-batch`;
+  const r1 = await client.descriptor(tree);
+  const working = new MemoryWorkingTree({ base: { root: r1.tree.root, update: r1.tree.update, cursor: r1.observedThrough },
+    snapshot: await client.snapshot(tree, r1.tree.root) });
+  const log = new ChangeLog(tree, stateRoot);
+  const coordinator = new UpdateCoordinator(tree, log, new FileControlStore(stateRoot), client, working,
+    { publicationDelayMs: 3_600_000, publicationMaxDelayMs: 3_600_000 });
+  const [early, late] = ["2026-11-11T10:00:00.000Z", "2026-11-11T10:05:00.000Z"];
+  // Two files, so the edits stay two frames rather than composing into one.
+  const first = await appendSource(coordinator, log, working, "/nested/left/note.md", () => ({ offset: 0, length: 3, replacement: "One" }), undefined, early);
+  await appendSource(coordinator, log, working, "/nested/right/note.md", () => ({ offset: 0, length: 3, replacement: "Two" }), first, late);
+  const entryAt = async (root: string, side: string) => {
+    const snapshot = await client.snapshot(tree, root), read = (hash: string) => decodeProtocolDirectory(snapshot.objects.get(hash as ObjectHash)!);
+    const nested = read(read(root).entries.find(e => e.name === "nested")!.directory!);
+    return read(nested.entries.find(e => e.name === side)!.directory!).entries[0];
+  };
+  const before = running.overstoryd.acceptedUpdates(tree).length;
+  await coordinator.syncOnce();
+  expect(await coordinator.pendingChanges()).toEqual([]);
+  const head = await client.descriptor(tree);
+  expect(head.tree.conflicted).toBe(false);
+  // One update, and every entry it touched carries the last edit's time.
+  expect(running.overstoryd.acceptedUpdates(tree).length).toBe(before + 1);
+  for (const side of ["left", "right"]) expect(await entryAt(head.tree.root, side)).toMatchObject({ created: 0, modified: Date.parse(late) });
+  // The tree installs the restamped root in place of its own candidate.
+  expect(working.base!.root).toBe(head.tree.root);
+  expect(await readSource((await editorView(coordinator, working)).graph, "/nested/left/note.md")).toBe("One\r\n");
+  coordinator.close();
+  await running.overstoryd.verifyIntegrity();
+});
+
 async function nestedConflict() {
   await installNestedPeers();
   const peer = await editAt("/nested/left/note.md", "PEER");
