@@ -12,11 +12,16 @@ import {
 import { encodeCanonicalCBOR } from "@ovst/protocol/cbor";
 import { decodeLogEntry } from "@ovst/merge-protocol";
 import { createHostSchema } from "../../src/schema.ts";
+import { compileLogicalSchema } from "@ovst/collection-schema";
+import { convertVerified } from "../../../../tools/convert-usl-to-vad.ts";
 import { HostDaemon } from "@ovst/overstoryd";
 import { runBatch } from "../tools/batch.ts";
 import { migrateNextBatch, steps } from "./run.ts";
 
 let sandbox: string, schema32: string;
+const usl = "main model Event {\n  name Text\n  on Date\n}\n";
+// The fingerprint the USL had is the converted VAD's: the converter checks it.
+const fingerprint = compileLogicalSchema(convertVerified(usl)).fingerprint;
 const enc = new TextEncoder();
 
 /** A data root as the live host holds it before the flag day: schema 32, and
@@ -50,13 +55,13 @@ async function legacyRoot(path: string): Promise<void> {
     { name: "x.mdx", page },
   ]);
   // Tree t_two: a profile with a collection whose rows hold RFC 3339 times and a Date.
-  const schema = put(enc.encode("main model Event {\n  name Text\n  on Date\n}\n"));
+  const schema = put(enc.encode(usl));
   const rows = put(encodeCanonicalCBOR({ type: "rows", rows: [
     { key: [["id", "e1"]], fields: { name: "Launch", on: "2026-11-11" }, created: "2026-11-01T10:00:00.000Z", modified: "2026-11-02T10:00:00.000Z" },
   ] }));
   const table = put(encodeProtocolTable({ type: "table", rows: 1, chunks: [{ rows: 1, chunk: rows as `sha256:${string}` }] }));
   const events = directory([{ name: "schema.usl", file: schema }], {
-    collection: { version: 1, modelFingerprint: `sha256:${"0".repeat(64)}`, tables: [{ model: "Event", table }] },
+    collection: { version: 1, modelFingerprint: fingerprint, tables: [{ model: "Event", table }] },
   });
   const index = put(enc.encode("---\ntype: person\nname: Two\n---\n\n# Two\n"));
   const two = directory([{ name: "_index.md", file: index }, { name: "events", directory: events }]);
@@ -110,7 +115,7 @@ test("each tree starts again at one update holding its head with entry times, pa
   const roots = Object.fromEntries(report.trees!.map((tree) => [tree.id, tree.root]));
   expect(report).toMatchObject({ migrated: true, from: 32, to: 34, steps: ["033-device-clients", "034-protocol-003"] });
   expect(report.protocol003).toEqual({
-    trees: 4, droppedUpdates: 6, converted: { pages: 2, mdx: 1, collections: 1 }, conflicted: ["t_two"], undated: [],
+    trees: 4, droppedUpdates: 6, converted: { pages: 2, mdx: 1, collections: 1, schemas: 1 }, conflicted: ["t_two"], undated: [],
   });
   expect(report.shortIds!.trees.map((tree) => tree.id)).toEqual(["c_one", "c_two", "t_one", "t_two"]);
 
@@ -147,7 +152,9 @@ test("each tree starts again at one update holding its head with entry times, pa
   const [row] = decodeProtocolRows(await store.read(table.chunks[0]!.chunk)).rows;
   expect(row).toMatchObject({ created: Date.parse("2026-11-01T10:00:00.000Z"), modified: Date.parse("2026-11-02T10:00:00.000Z") });
   expect(row!.fields.on).toBeInstanceOf(CBORTag);
-  expect(events.collection!.modelFingerprint).not.toBe(`sha256:${"0".repeat(64)}`);
+  expect(events.collection!.modelFingerprint).toBe(fingerprint);
+  expect(events.entries.map((e) => e.name)).toEqual(["schema.vad"]);
+  expect(new TextDecoder().decode(await store.read(events.entries[0]!.file!))).toBe(convertVerified(usl));
 
   expect((db.query("SELECT tree_id, facts FROM profile_facts").all() as Array<{ tree_id: string; facts: string }>).map((r) => [r.tree_id, JSON.parse(r.facts).type])).toEqual([["t_two", "person"]]);
   expect(db.query("SELECT 1 FROM document_versions").all()).toEqual([]);

@@ -14,7 +14,8 @@
 // - every Markdown file that reads as a page becomes that page (outside a
 //   collection's folder, as the host's conversion did), and a `.mdx` page
 //   becomes its canonical file (Apps 011);
-// - a collection's rows get Unix-ms times and tagged Date fields;
+// - a collection's rows get Unix-ms times and tagged Date fields, and its
+//   schema.usl becomes the schema.vad it converts to (same models);
 // - its profile facts are read again from the new root.
 import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
@@ -26,6 +27,8 @@ import {
   isPageName, parsePage, readRootProfile, type CollectionReference, type ObjectHash, type ProtocolDirectoryEntry,
 } from "@ovst/protocol";
 import { decodeCBOR } from "@ovst/protocol/cbor";
+import { compareUTF8 } from "@ovst/protocol/utf8";
+import { convertVerified } from "../../../../tools/convert-usl-to-vad.ts";
 import { storedProfileOf, type StoredProfile } from "../../src/profile.ts";
 
 /** The `change` of every migrated tree's first entry, and its `change_id`. */
@@ -49,7 +52,7 @@ export interface TreePlan {
 export interface Protocol003Report {
   trees: number;
   droppedUpdates: number;
-  converted: { pages: number; mdx: number; collections: number };
+  converted: { pages: number; mdx: number; collections: number; schemas: number };
   /** Trees whose head had decisions open: the fresh entry has none. */
   conflicted: string[];
   /** Entries no history dated, given their tree's head time. */
@@ -254,9 +257,17 @@ async function rewrite(objects: Objects, tree: string, head: ObjectHash, held: M
     }
     let collection: CollectionReference | undefined;
     if (directory.collection) {
-      const source = directory.entries.find((entry) => entry.name === "schema.usl")?.file;
-      if (!source) throw new Error(`${tree}:${path || "/"}: a collection without a schema.usl file`);
-      const schema = compileLogicalSchema(await objects.bytes(source));
+      // The schema becomes schema.vad (Apps 015): the same models, so the
+      // same fingerprint; the entry keeps the schema.usl entry's times.
+      const index = entries.findIndex((entry) => entry.name === "schema.usl");
+      const usl = index < 0 ? undefined : entries[index]!;
+      if (!usl?.file) throw new Error(`${tree}:${path || "/"}: a collection without a schema.usl file`);
+      const vad = new TextEncoder().encode(convertVerified(new TextDecoder("utf-8", { fatal: true }).decode(await objects.bytes(usl.file))));
+      entries[index] = { name: "schema.vad", file: objects.put(vad), created: usl.created, modified: usl.modified };
+      entries.sort((a, b) => compareUTF8(a.name, b.name));
+      report.converted.schemas++;
+      const schema = compileLogicalSchema(vad);
+      if (schema.fingerprint !== directory.collection.modelFingerprint) throw new Error(`${tree}:${path || "/"}: schema.vad changes the model fingerprint`);
       const tables: Record<string, Awaited<ReturnType<typeof legacyRows>>> = {};
       for (const { model, table } of directory.collection.tables) tables[model] = await legacyRows(objects, table);
       const encoded = encodeCollection(schema, tables as Parameters<typeof encodeCollection>[1]);
@@ -279,7 +290,7 @@ export async function planProtocol003(dataRoot: string): Promise<{ plans: TreePl
   const root = resolve(dataRoot);
   const db = new Database(join(root, "overstoryd.sqlite3"), { readonly: true });
   const store = new ObjectStore(join(root, "objects"));
-  const report: Protocol003Report = { trees: 0, droppedUpdates: 0, converted: { pages: 0, mdx: 0, collections: 0 }, conflicted: [], undated: [] };
+  const report: Protocol003Report = { trees: 0, droppedUpdates: 0, converted: { pages: 0, mdx: 0, collections: 0, schemas: 0 }, conflicted: [], undated: [] };
   const plans: TreePlan[] = [];
   try {
     for (const { id: tree, ref } of db.query("SELECT id, ref FROM trees ORDER BY id").all() as Array<{ id: string; ref: ObjectHash }>) {
