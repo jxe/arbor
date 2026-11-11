@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
 import { deviceClient, testAccount } from "../../../../tests/helpers/devices.ts";
-import { inventory } from "./inventory.ts";
+import { encodeCanonicalCBOR } from "@ovst/protocol/cbor";
+import { inventory, legacyEntries } from "./inventory.ts";
 
 let sandbox: string, dataRoot: string;
 
@@ -30,4 +31,11 @@ test("the inventory reads every tree's head and lists short ids without writing"
     expect(tree.directories).toBeGreaterThan(0);
   }
   expect(report.shortTrees.map((tree) => tree.id)).toEqual(report.trees.filter((tree) => tree.short).map((tree) => tree.id));
+});
+
+test("directories from before entry times are read as they stand", () => {
+  const file = `sha256:${"1".repeat(64)}`;
+  const legacy = encodeCanonicalCBOR({ type: "directory", entries: [{ name: "a.md", file }, { name: "b", page: file }] });
+  expect(legacyEntries(legacy)).toEqual([{ name: "a.md", file }, { name: "b", page: file }]);
+  expect(() => legacyEntries(encodeCanonicalCBOR({ type: "file" }))).toThrow();
 });

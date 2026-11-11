@@ -16,7 +16,8 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ObjectStore } from "@ovst/object-store";
-import { decodeProtocolDirectory, type ObjectHash } from "@ovst/protocol";
+import { type ObjectHash } from "@ovst/protocol";
+import { decodeCBOR } from "@ovst/protocol/cbor";
 
 /** A TreeID or DeviceID in the form the spec requires: a prefix and at least 26 base32 characters (derived TreeIDs are longer). */
 const LONG_ID = /^[a-z]+_[a-z2-7]{26,}$/;
@@ -44,6 +45,19 @@ export interface Inventory {
   entryTimesIndex: boolean;
 }
 
+/** A directory's entries in either form: the data a flag day starts from has
+ * no entry times, which today's decoder requires, so this reads the CBOR as it
+ * stands and checks only what the walk uses. */
+type LegacyEntry = { name: string; file?: ObjectHash; page?: ObjectHash; directory?: ObjectHash; tree?: string };
+export function legacyEntries(bytes: Uint8Array): LegacyEntry[] {
+  const value = decodeCBOR(bytes) as { type?: unknown; entries?: unknown };
+  if (value?.type !== "directory" || !Array.isArray(value.entries)) throw new Error("Not a directory object");
+  return value.entries.map((entry) => {
+    if (!entry || typeof entry !== "object" || typeof (entry as LegacyEntry).name !== "string") throw new Error("Invalid directory entry");
+    return entry as LegacyEntry;
+  });
+}
+
 export async function inventory(dataRoot: string): Promise<Inventory> {
   const root = resolve(dataRoot);
   const db = new Database(join(root, "overstoryd.sqlite3"), { readonly: true });
@@ -63,7 +77,7 @@ export async function inventory(dataRoot: string): Promise<Inventory> {
       let bytes: Uint8Array;
       try { bytes = await store.read(hash); } catch { tree.missingObjects++; return; }
       tree.directories++;
-      for (const entry of decodeProtocolDirectory(bytes).entries) {
+      for (const entry of legacyEntries(bytes)) {
         const at = path ? `${path}/${entry.name}` : entry.name;
         if (entry.directory) await walk(entry.directory, at);
         else if (entry.tree) tree.treeEntries.push({ path: at, tree: entry.tree });
