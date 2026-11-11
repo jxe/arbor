@@ -105,7 +105,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
 
 ## 5. Checking and editor tooling (from Apps 003)
 
-- `story check` and editor highlighting are Apps 015 step 5. Later, one language service
+- `story check` and editor highlighting are Apps 015 step 6. Later, one language service
   for VS Code and Zed over the same checker, with completion for models, fields and
   mutations.
 
@@ -124,7 +124,8 @@ site, served by overstoryd and later from a host such as Vercel.
 
 The spec addresses views by file path with the extension
 ([apps and views §1](../../docs/overstory-spec/4.1-apps-and-views.md#1-views-and-their-addresses)),
-now `views/list.view`. `.mdx` is gone. Still to do in code:
+now `views/list.view`, the view at `views/list` (a `.view` file is a node's body, like a
+`.md` file). `.mdx` is gone. Still to do in code:
 
 - `.mdx` files are plain file entries, not pages: `packages/protocol/src/pages.ts`,
   `path-read.ts` (`x.mdx`, `_index.mdx`), Swift `ProtocolPage.swift` and `ProtocolPathRead.swift`,

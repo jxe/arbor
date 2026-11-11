@@ -230,8 +230,11 @@ To use it, put a link to it on a line by itself in any page:
 ```
 
 and it draws right there, live. The query string is its input. There's no
-route table and no app manifest: the file's path is its address, the same
-spelling you use, embed, link to, or fetch.
+route table and no app manifest: like a page, the view is a node, so it
+answers at `views/reading-room?status=draft` on its own, and its path is the
+address you embed, link to, or fetch. For a one-off, you don't even need the
+file: a fenced `view` block inside any page draws in place, and can read the
+page it sits in, such as its frontmatter and its child pages.
 
 It looks like JSX, but it isn't JavaScript, and there's no web view. The
 `Row` repeats once per essay that matches its `for` and `where`, and that's

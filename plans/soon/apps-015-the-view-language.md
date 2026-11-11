@@ -85,7 +85,23 @@ the no-gap and retry tests unchanged.
 **Verify:** `bun run typecheck`, `bun run test`, `bun run test:protocol`; nothing imports
 the removed modules.
 
-## 5. Editor support
+## 5. Views as nodes, and view blocks in pages
+
+Joe decided on 2026-11-11 that a `.view` file is a node's body, like a `.md` file, so
+`List.view` answers at `List`, and that pages may hold fenced `view` blocks
+([apps and views §1](../../docs/overstory-spec/4.1-apps-and-views.md#1-views-and-their-addresses),
+[§15.7](../../docs/overstory-spec/4.1-apps-and-views.md#157-view-blocks-in-pages)).
+
+- Node mapping in both stacks (`packages/protocol` pages and path reads, Swift
+  `ProtocolPage`/`ProtocolPathRead`): `x.view` and `x/_index.view` supply node `x`;
+  `x.md` beside `x.view` reports `duplicate-node-representation` and reads the Markdown.
+  Conformance vectors for the new spellings.
+- A page's view blocks as one source: code version over the blocks' text only, `page`
+  (properties, `name`, `children`), unnamed views addressed internally as `#n`, named ones
+  as `Page?view=Name`.
+- Story draws view blocks in place, and shows the source while editing.
+
+## 6. Editor support
 
 - Syntax highlighting for `.view` in Story's code blocks and for VS Code and Zed, and
   `story check <tree-or-path>` running the checker. A language server later.

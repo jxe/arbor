@@ -112,13 +112,14 @@ Each row has an ordinary public address such as
 
 ## 7. Show it on a page
 
-Joe writes a view in `views/practices.view` and embeds it in his page with a
-link to `views/practices.view` on a line of its own:
+Joe writes a view in `views/practices.view`, which is the node `views/practices`
+the way a `.md` file is a page, and embeds it in his page with a link to
+`views/practices.view` on a line of its own:
 
 ```
 use "../practices/schema.usl"
 
-view Practices() =
+view() =
   <Column>
     <Link to="practices/{p.id}" for={p in Practice} where={p.published}>{p.title}</Link>
   </Column>
