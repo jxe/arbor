@@ -7,18 +7,19 @@ reference implementation's progress toward it.
 
 ## 1. An authored change
 
-Every candidate has required `change`, `candidate`, `trace` and `resolves`
-fields. `change` identifies an immutable authored change within its TreeID and uses
+Every candidate has `change`, `at` and `candidate`, and may carry `trace` and
+`resolves` ([tree operations §2.1](01-tree-operations.md#21-the-update-request)).
+`change` identifies an immutable authored change within its TreeID and uses
 the [reference key syntax](01-tree-operations.md#122-references-and-selectors).
 A random UUID is suitable for a new change. Exact retry and
 adoption retain its identity and semantics; clients MUST NOT reuse it for different
 intent. Change identities within a request are distinct.
 
-`trace: null` means snapshot semantics. Otherwise the trace is a chain of frames
+`trace: null`, or an omitted trace, means snapshot semantics. Otherwise the trace is a chain of frames
 (§2.1) whose operations explain the entire authored transition, including effects
 on hidden material. There is no residual field. Known operations followed by
-snapshot-only edits are separate candidate elements. `resolves` is always an
-array; empty means no human-authored resolution. An empty trace is valid only
+snapshot-only edits are separate candidate elements. `resolves` is an array, empty
+or omitted when there is no human-authored resolution. An empty trace is valid only
 with nonempty `resolves`, for an explicit resolution that leaves the projection
 unchanged. Snapshot candidates may also carry explicit resolution declarations;
 snapshots alone never resolve. Unknown semantic fields or operation kinds are
@@ -62,8 +63,7 @@ operation references name an earlier key anywhere in the same change. Frames are
 therefore concatenated without rebasing, which is what lets a client coalesce
 several generations into one change.
 
-Limits: at most 64 frames per candidate and 1024 operations across the whole
-trace. The request digest ([tree operations §2.1](01-tree-operations.md#21-the-update-request))
+Limits are in §4. The request digest ([tree operations §2.1](01-tree-operations.md#21-the-update-request))
 covers the trace, so the same operations divided into different frames are a
 different change.
 
@@ -283,7 +283,7 @@ does not force joint resolution if an individual choice leaves the other alterna
 meaningful and correctly attached. New concurrency affecting a resolved choice causes
 rejection, not silent expansion of the person's resolution. Unrelated edits may merge.
 
-Keeping the existing projection can use `operations: []` plus guarded `resolves`.
+Keeping the existing projection can use an empty trace (`trace: []`) plus guarded `resolves`.
 It advances accepted identity even with an unchanged root. An automatic rule uses the
 same resolution invariants with separately recorded authority authorship under §6.
 
@@ -315,9 +315,9 @@ Inspection failures may delay review but cannot alone block ordinary synchroniza
 Durable review caching is optional.
 
 Inspection is authorized and scoped to accepted state. It supplies the
-complete relevant identities, locations, dependencies and actions without requiring
+complete relevant identities, locations and dependencies without requiring
 a full provenance graph. [Tree operations §1.2.3](01-tree-operations.md#123-reading-conflicts)
-specifies text, whole-entry and placement inspection using the same material-reference
+specifies text, whole-entry and placement inspection using the same reference
 vocabulary.
 
 ## 7. Format-aware merge rules and explicit automatic resolution
@@ -381,8 +381,8 @@ page only one side changed takes that side. For one both sides changed:
 - A `Markdown` field merges by lines. Edits that overlap conflict.
 - Deleting a row conflicts with a concurrent change to it, and with nothing
   else.
-- Times never conflict: `created` keeps current's value and `modified` takes
-  the later one.
+- Times never conflict: `created` takes the earlier value and `modified` the
+  later one, as for entries ([tree operations §1.1.2a](01-tree-operations.md#112a-entry-times)).
 - A page property both sides added lands in current's order, followed by the
   candidate's additions in their order.
 
