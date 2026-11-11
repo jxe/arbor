@@ -11,7 +11,7 @@ const objects = new Map<ObjectHash, Uint8Array>();
 const file = (text: string) => { const bytes = new TextEncoder().encode(text), hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
 const dir = (entries: Record<string, ObjectHash | { directory: ObjectHash }>) => {
   const list: ProtocolDirectoryEntry[] = Object.entries(entries).map(([name, value]) =>
-    typeof value === "string" ? { name, file: value } : { name, directory: value.directory });
+    typeof value === "string" ? { name, file: value, created: 0, modified: 0 } : { name, directory: value.directory });
   list.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   const bytes = encodeProtocolDirectory({ type: "directory", entries: list }), hash = hashObject(bytes);
   objects.set(hash, bytes); return hash;
@@ -62,7 +62,7 @@ test("accepted updates keep entry times and document versions, served by the met
   const existing = decodeProtocolDirectory(objects.get(initial.root)!).entries;
   // The community tree's own entries stay; the test adds its files beside them.
   const tree_ = (entries: Record<string, ObjectHash>) => {
-    const list: ProtocolDirectoryEntry[] = [...existing, ...Object.entries(entries).map(([name, hash]) => ({ name, file: hash }))];
+    const list: ProtocolDirectoryEntry[] = [...existing, ...Object.entries(entries).map(([name, hash]) => ({ name, file: hash, created: 0, modified: 0 }))];
     list.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
     const bytes = encodeProtocolDirectory({ type: "directory", entries: list }), hash = hashObject(bytes);
     objects.set(hash, bytes); return hash;

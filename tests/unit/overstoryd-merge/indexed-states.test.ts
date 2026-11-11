@@ -20,7 +20,7 @@ function sidecar(f: Fixture, publish = false, indexes?: Map<string, ProvenanceNo
 function withFiles(f: Fixture, root: string, files: Record<string, string>) {
   const directory = decodeProtocolDirectory(f.objects.get(root)!);
   directory.entries = [...directory.entries.filter((e) => !(e.name in files)),
-    ...Object.entries(files).map(([name, text]) => ({ name, file: f.put(text) }))]
+    ...Object.entries(files).map(([name, text]) => ({ name, file: f.put(text), created: 0, modified: 0 }))]
     .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   return f.put(encodeProtocolDirectory(directory));
 }
@@ -33,7 +33,7 @@ async function history(f: Fixture, length: number) {
   const s = sidecar(f, true), rules = { id: "tree-default", revision: 1 };
   const indexes = new Map<string, ProvenanceNode>(), entries: string[] = [];
   let head = f.put(encodeLogEntry({ format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null,
-    root: f.tree({ "a.md": "start", "choice.bin": "start\0" }), change: "start", trace: null, resolves: [], decisions: [] }));
+    root: f.tree({ "a.md": "start", "choice.bin": "start\0" }), at: 0, change: "start", trace: null, resolves: [], decisions: [] }));
   // The chain's first entry is indexed as an import, as overstoryd does.
   indexes.set(head, await entryProvenance(null, decodeLogEntry(f.objects.get(head)!) as never, async (hash: ObjectHash) => f.objects.get(hash)!));
   let previousHead = head;
@@ -43,11 +43,11 @@ async function history(f: Fixture, length: number) {
     const files: Record<string, string> = index % 10 === 8 ? { "choice.bin": `left ${index}\0` } : concurrent ? { "choice.bin": `right ${index}\0` }
       : { "a.md": `mine ${index}`, [`f${index}.md`]: "x" };
     const question = { base, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(base)!).root, files),
-      change: `change-${index}`, trace: null, resolves: [] }, rules };
+      change: `change-${index}`, at: 0, trace: null, resolves: [] }, rules };
     const answer: MergeAnswer = await s.answer(question);
     previousHead = head;
     head = f.put(encodeLogEntry({ format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: head, root: answer.root,
-      change: question.candidate.change, trace: null, resolves: [], decisions: answer.decisions,
+      at: 0, change: question.candidate.change, trace: null, resolves: [], decisions: answer.decisions,
       asked: { ...(base !== question.head ? { base } : {}), ...(question.candidate.root !== answer.root ? { candidate: question.candidate.root } : {}), rules } }));
     indexes.set(head, await readProvenance(answer.provenance!, async (hash: ObjectHash) => f.objects.get(hash)!));
     entries.push(head);
@@ -83,7 +83,7 @@ test("a head whose replay from its basis runs past the budget starts from its in
   const f = new Fixture(), { entries, indexes } = await history(f, 30);
   const base = entries[2]!, head = entries.at(-1)!;
   const question = { base, head, candidate: { root: withFiles(f, decodeLogEntry(f.objects.get(base)!).root, { "z.md": "late" }),
-    change: "late", trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
+    change: "late", at: 0, trace: null, resolves: [] }, rules: { id: "tree-default", revision: 1 } };
   const expected = await sidecar(f, false, indexes).answer(question);
   const budgeted = new Sidecar({
     shared: { find: async (hash) => f.objects.get(hash) ?? null, has: async (hash) => f.objects.has(hash) },

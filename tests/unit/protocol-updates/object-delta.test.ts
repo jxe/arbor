@@ -67,10 +67,10 @@ describe("object delta derivation", () => {
   test("handles a directory that gained one entry among many", () => {
     const file = hashObject(new Uint8Array([1]));
     const names = Array.from({ length: 400 }, (_, index) => `page-${String(index).padStart(4, "0")}.md`);
-    const base = encodeProtocolDirectory({ type: "directory", entries: names.map((name) => ({ name, file: file })) });
+    const base = encodeProtocolDirectory({ type: "directory", entries: names.map((name) => ({ name, file: file, created: 0, modified: 0 })) });
     const target = encodeProtocolDirectory({
       type: "directory",
-      entries: [...names, "page-0200a.md"].sort().map((name) => ({ name, file: file })),
+      entries: [...names, "page-0200a.md"].sort().map((name) => ({ name, file: file, created: 0, modified: 0 })),
     });
     const delta = roundTrip(base, target);
     expect(insertedBytes(delta)).toBeLessThan(160);

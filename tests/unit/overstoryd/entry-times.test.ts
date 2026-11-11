@@ -38,8 +38,8 @@ async function fixture() {
 
 test("converting a file to a page keeps its time", async () => {
   const { put, directory, accept, index, times } = await fixture();
-  const file = directory([{ name: "Notes.md", file: put(new TextEncoder().encode("Hello\n")) }]);
-  const page = directory([{ name: "Notes.md", page: put(encodeProtocolPage({ type: "page", properties: [], body: new TextEncoder().encode("Hello\n") })) }]);
+  const file = directory([{ name: "Notes.md", file: put(new TextEncoder().encode("Hello\n")), created: 0, modified: 0 }]);
+  const page = directory([{ name: "Notes.md", page: put(encodeProtocolPage({ type: "page", properties: [], body: new TextEncoder().encode("Hello\n") })), created: 0, modified: 0 }]);
   accept(file, 1_000);
   accept(page, 2_000);
   await index.catchUp("t");
@@ -50,13 +50,13 @@ test("converting a file to a page keeps its time", async () => {
 test("a first retained root dates its entries from the records the squash kept", async () => {
   const { db, put, directory, accept, index, times } = await fixture();
   const old = put(new TextEncoder().encode("Old\n")), kept = put(new TextEncoder().encode("Kept\n")), fresh = put(new TextEncoder().encode("Fresh\n"));
-  const first = directory([{ name: "Old.md", file: old }, { name: "Kept.bin", file: kept }, { name: "Fresh.md", file: fresh }]);
+  const first = directory([{ name: "Old.md", file: old, created: 0, modified: 0 }, { name: "Kept.bin", file: kept, created: 0, modified: 0 }, { name: "Fresh.md", file: fresh, created: 0, modified: 0 }]);
   // History before this root was squashed: a version of Old.md from 100, and
   // Kept.bin unchanged at the head since 200.
   db.run("INSERT INTO document_versions (tree_id, stable_key, update_id, entry_path, content_hash, accepted_at) VALUES ('t', 'path:/Old.md', 'x', '/Old.md', ?, 100)", [old]);
   db.run("INSERT INTO entry_metadata (tree_id, path, modified_at) VALUES ('t', '/Kept.bin', 200)");
   accept(first, 5_000);
-  const next = directory([{ name: "Old.md", file: old }, { name: "Kept.bin", file: kept }, { name: "Fresh.md", file: put(new TextEncoder().encode("Fresher\n")) }]);
+  const next = directory([{ name: "Old.md", file: old, created: 0, modified: 0 }, { name: "Kept.bin", file: kept, created: 0, modified: 0 }, { name: "Fresh.md", file: put(new TextEncoder().encode("Fresher\n")), created: 0, modified: 0 }]);
   accept(next, 6_000);
   await index.catchUp("t");
   expect(await times(first)).toEqual({ "/Old.md": 100, "/Kept.bin": 200, "/Fresh.md": 5_000 });
@@ -66,7 +66,7 @@ test("a first retained root dates its entries from the records the squash kept",
 
 test("a read of a root the index has not reached waits for it", async () => {
   const { put, directory, accept, index, times } = await fixture();
-  const root = directory([{ name: "A.md", file: put(new TextEncoder().encode("A\n")) }]);
+  const root = directory([{ name: "A.md", file: put(new TextEncoder().encode("A\n")), created: 0, modified: 0 }]);
   accept(root, 7);
   expect(await times(root)).toEqual({ "/A.md": 7 });
   expect(index.through("t")).toBe(1);

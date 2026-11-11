@@ -35,7 +35,7 @@ file.intents = file.intents.map((item: Record<string, unknown>) => {
 // the data-file rows `rowsFromLogical` makes of them: what Story reads.
 file.logical = Object.keys(fixtures).map((name) => {
   const layout = layoutOf(compiled[name]!, { store: "files" });
-  const tables = logicalFromRows(compiled[name]!, layout, fixtures[name]!.rows, { now: "2026-01-01T00:00:00.000Z" });
+  const tables = logicalFromRows(compiled[name]!, layout, fixtures[name]!.rows, { now: Date.parse("2026-01-01T00:00:00.000Z") });
   return { fixture: name, tables, rows: rowsFromLogical(compiled[name]!, layout, tables) };
 });
 writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`);

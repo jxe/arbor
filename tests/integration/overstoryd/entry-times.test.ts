@@ -49,10 +49,10 @@ beforeAll(async () => {
   const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
   const tree = (notes: string, photo: string, trips = "Trips") => {
     const tripsDirectory = put(encodeProtocolDirectory({ type: "directory", entries: sorted([
-      { name: "Paris.md", file: put(text("# Paris\n")) },
-      { name: photo, file: put(new Uint8Array([1, 2, 3])) },
+      { name: "Paris.md", file: put(text("# Paris\n")), created: 0, modified: 0 },
+      { name: photo, file: put(new Uint8Array([1, 2, 3])), created: 0, modified: 0 },
     ]) }));
-    return put(encodeProtocolDirectory({ ...top, entries: sorted([...top.entries, { name: trips, directory: tripsDirectory }, { name: "Notes.md", file: put(text(notes)) }]) }));
+    return put(encodeProtocolDirectory({ ...top, entries: sorted([...top.entries, { name: trips, directory: tripsDirectory }, { name: "Notes.md", file: put(text(notes)), created: 0, modified: 0 }]) }));
   };
   let update = head.tree.update;
   for (const root of [tree("Notes\n", "photo.bin"), tree("Notes, edited\n", "pic.bin"), tree("Notes\n", "pic.bin"), tree("Notes\n", "pic.bin", "Journeys")]) {

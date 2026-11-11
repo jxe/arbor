@@ -63,7 +63,7 @@ export class Fixture {
         type: "directory",
         entries: Object.entries(files)
           .sort(([a], [b]) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
-          .map(([name, text]) => ({ name, file: this.put(text) })),
+          .map(([name, text]) => ({ name, file: this.put(text), created: 0, modified: 0 })),
       }),
     );
   }
@@ -107,6 +107,7 @@ export class Fixture {
       current: ref(current ?? base),
       incoming: {
         change,
+        at: 0,
         object: candidate,
         trace: singleStep(ref(base).object, candidate, operations),
       },
@@ -133,7 +134,7 @@ export class Fixture {
       tree: "tree",
       base: ref(base),
       current: ref(current ?? base),
-      incoming: { change, object: chain.at(-1)!.after, trace: chain },
+      incoming: { change, at: 0, object: chain.at(-1)!.after, trace: chain },
       rules: { id: "tree-default", revision: 1 },
     };
   }

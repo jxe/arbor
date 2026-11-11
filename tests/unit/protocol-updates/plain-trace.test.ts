@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { checkPlainTrace, deriveTrace, UnsupportedDerivation, encodeProtocolDirectory, hashObject, type SourceOperation, type ProtocolDirectoryEntry } from "@ovst/protocol";
 import { decodeLogEntry, encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@ovst/merge-protocol";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 const objects = new Map<string, Uint8Array>();
 const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
@@ -8,8 +9,8 @@ const text = (value: string) => put(new TextEncoder().encode(value));
 const dir = (entries: ProtocolDirectoryEntry[]) => put(encodeProtocolDirectory({ type: "directory", entries: [...entries].sort((a, b) => a.name < b.name ? -1 : 1) }));
 const load = async (hash: string) => objects.get(hash) ?? Promise.reject(new Error("missing"));
 
-const note = text("hello world"), inner = dir([{ name: "a.md", file: note }]);
-const root = dir([{ name: "docs", directory: inner }, { name: "top.md", file: note }]);
+const note = text("hello world"), inner = dir([{ name: "a.md", file: note, created: 0, modified: 0 }]);
+const root = dir([{ name: "docs", directory: inner }, { name: "top.md", file: note, created: 0, modified: 0 }]);
 const edit = (path: string, object: string, range: [number, number], value: string, key = "edit"): SourceOperation =>
   ({ key, kind: "editSource", source: { material: { kind: "basis", path, object }, range }, text: value });
 const add = (name: string, file: string, key = "add"): SourceOperation =>
@@ -17,15 +18,15 @@ const add = (name: string, file: string, key = "add"): SourceOperation =>
 
 test("plain edits and additions that reproduce each frame are plain, naming what they touch", async () => {
   const edited = text("HELLO world"), added = text("new");
-  const after = dir([{ name: "docs", directory: dir([{ name: "a.md", file: edited }, { name: "b.md", file: added }]) }, { name: "top.md", file: note }]);
-  const checked = await checkPlainTrace([{ before: root, after, operations: [edit("/docs/a.md", note, [0, 5], "HELLO"), add("b.md", added)] }], load);
+  const after = dir([{ name: "docs", directory: dir([{ name: "a.md", file: edited, created: 0, modified: 0 }, { name: "b.md", file: added, created: 0, modified: 0 }]) }, { name: "top.md", file: note, created: 0, modified: 0 }]);
+  const checked = await checkPlainTrace([{ before: root, after, operations: [edit("/docs/a.md", note, [0, 5], "HELLO"), add("b.md", added)] }], load, TEST_AT);
   expect(checked).toMatchObject({ plain: true });
   expect(checked.plain && checked.touched.sort()).toEqual(["/docs/a.md", "/docs/b.md"]);
 });
 
 test("anything else falls through with its reason and is never a rejection", async () => {
   const added = text("new");
-  const wrong = dir([{ name: "docs", directory: inner }, { name: "top.md", file: added }]);
+  const wrong = dir([{ name: "docs", directory: inner }, { name: "top.md", file: added, created: 0, modified: 0 }]);
   const cases: Array<[SourceOperation[], string, RegExp]> = [
     [[{ key: "move", kind: "moveEntry", source: { material: { kind: "basis", path: "/top.md", object: note } }, destination: { parent: { material: { kind: "basis", path: "/", object: root } }, name: "moved.md" } } as SourceOperation], wrong, /operation moveEntry/],
     [[add("a.md", added)], wrong, /existing entry/],
@@ -33,15 +34,15 @@ test("anything else falls through with its reason and is never a rejection", asy
     [[edit("/top.md", note, [0, 5], "A", "same"), edit("/docs/a.md", note, [0, 1], "B", "same")], wrong, /duplicate operation key/],
   ];
   for (const [operations, after, reason] of cases) {
-    const checked = await checkPlainTrace([{ before: root, after, operations }], load);
+    const checked = await checkPlainTrace([{ before: root, after, operations }], load, TEST_AT);
     expect(checked.plain).toBe(false);
     expect(!checked.plain && checked.reason).toMatch(reason);
   }
-  expect(await checkPlainTrace([], load)).toEqual({ plain: false, reason: "empty trace" });
+  expect(await checkPlainTrace([], load, TEST_AT)).toEqual({ plain: false, reason: "empty trace" });
 });
 
 test("a log entry's bytes are canonical and name it", () => {
-  const entry: LogEntry = { format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null, root, change: "c", trace: null, resolves: [],
+  const entry: LogEntry = { format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null, root, at: 0, change: "c", trace: null, resolves: [],
     decisions: [{ key: "k", path: ["top.md"], dependencies: [], selected: 0, alternatives: [{ object: root, contributions: [] }, { object: inner, contributions: [{ change: "c", operation: null }] }] }] };
   const bytes = encodeLogEntry(entry);
   expect(decodeLogEntry(bytes)).toEqual(entry);
@@ -52,18 +53,18 @@ test("a log entry's bytes are canonical and name it", () => {
 
 test("deriving a trace fills in the roots a stating client would have stated, and checks the ones stated", async () => {
   const edited = text("HELLO world"), added = text("new");
-  const middle = dir([{ name: "docs", directory: dir([{ name: "a.md", file: edited }]) }, { name: "top.md", file: note }]);
-  const middleInner = dir([{ name: "a.md", file: edited }]);
+  const middle = dir([{ name: "docs", directory: dir([{ name: "a.md", file: edited, created: 0, modified: 0 }]) }, { name: "top.md", file: note, created: 0, modified: 0 }]);
+  const middleInner = dir([{ name: "a.md", file: edited, created: 0, modified: 0 }]);
   const second: SourceOperation = { key: "add", kind: "addEntry", destination: { parent: { material: { kind: "basis", path: "/docs", object: middleInner } }, name: "b.md" }, value: { file: added } };
-  const after = dir([{ name: "docs", directory: dir([{ name: "a.md", file: edited }, { name: "b.md", file: added }]) }, { name: "top.md", file: note }]);
-  const derived = await deriveTrace(root, [{ operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }, { operations: [second] }], load);
+  const after = dir([{ name: "docs", directory: dir([{ name: "a.md", file: edited, created: 0, modified: 0 }, { name: "b.md", file: added, created: 0, modified: 0 }]) }, { name: "top.md", file: note, created: 0, modified: 0 }]);
+  const derived = await deriveTrace(root, [{ operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }, { operations: [second] }], load, TEST_AT);
   expect(derived.frames.map((f) => [f.before, f.after])).toEqual([[root, middle], [middle, after]]);
   expect(derived.root).toBe(after);
   // A stated root is checked: right ones pass, a wrong one is invalid.
-  expect((await deriveTrace(root, [{ before: root, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }, { after, operations: [second] }], load)).root).toBe(after);
-  await expect(deriveTrace(root, [{ before: middle, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }], load)).rejects.toThrow(/basis/);
-  await expect(deriveTrace(root, [{ after: root, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }], load)).rejects.toThrow(/reproduce/);
+  expect((await deriveTrace(root, [{ before: root, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }, { after, operations: [second] }], load, TEST_AT)).root).toBe(after);
+  await expect(deriveTrace(root, [{ before: middle, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }], load, TEST_AT)).rejects.toThrow(/basis/);
+  await expect(deriveTrace(root, [{ after: root, operations: [edit("/docs/a.md", note, [0, 5], "HELLO")] }], load, TEST_AT)).rejects.toThrow(/reproduce/);
   // An operation the plain executor does not run cannot be derived; that is not a rejection of it.
   const moveEntry = { key: "move", kind: "moveEntry", source: { material: { kind: "basis", path: "/top.md", object: note } }, destination: { parent: { material: { kind: "basis", path: "/", object: root } }, name: "moved.md" } } as SourceOperation;
-  await expect(deriveTrace(root, [{ operations: [moveEntry] }], load)).rejects.toBeInstanceOf(UnsupportedDerivation);
+  await expect(deriveTrace(root, [{ operations: [moveEntry] }], load, TEST_AT)).rejects.toBeInstanceOf(UnsupportedDerivation);
 });

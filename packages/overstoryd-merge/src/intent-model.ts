@@ -50,6 +50,8 @@ function checkFrames(request: IntentRequest): void {
         throw new MergeRefusal("unsupported", "Unknown operation kind");
     decodeAuthoredCandidateIntent({
       change: incoming.change,
+      // Only the operations are checked here; the update's time is not the engine's concern.
+      at: new Date(0).toISOString(),
       candidate: frame.after,
       trace: [{ before: frame.before, after: frame.after, operations: frame.operations }],
       resolves: [],
@@ -91,6 +93,13 @@ export interface Node {
   pieces?: Piece[];
   directory?: Record<string, unknown>;
   active: boolean;
+  /** A file or page's entry times (data model §6) and the object they were
+   * stamped for. When its projection is another object, the projection
+   * stamps it again with the incoming update's `at`; a node without them is
+   * new and takes `at` for both. */
+  created?: number;
+  modified?: number;
+  stamped?: string;
 }
 export interface View {
   root: string;

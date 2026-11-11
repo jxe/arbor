@@ -317,7 +317,7 @@ export class Sidecar {
         ...(asked?.prefix ? { prefix: asked.prefix } : {}),
         candidate: {
           root: asked?.candidate ?? entry.trace?.at(-1)?.after ?? entry.root,
-          change: entry.change, trace: entry.trace, resolves: entry.resolves,
+          change: entry.change, at: entry.at, trace: entry.trace, resolves: entry.resolves,
           ...(asked?.alternatives ? { alternatives: asked.alternatives } : {}),
         },
         rules: asked?.rules ?? rules,
@@ -423,7 +423,7 @@ export class Sidecar {
       base: { object: base.object, state: base.state },
       current: { object: current.object, state: current.state },
       incoming: {
-        change: candidate.change, object: candidate.root, trace: candidate.trace ?? [],
+        change: candidate.change, object: candidate.root, at: candidate.at, trace: candidate.trace ?? [],
         ...(candidate.resolves.length ? { resolves: candidate.resolves } : {}),
       },
       rules,

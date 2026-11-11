@@ -16,6 +16,7 @@ import {
   type ProtocolPage,
   type SourceOperation,
 } from "@ovst/protocol";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 const objects = new Map<string, Uint8Array>();
 const put = (bytes: Uint8Array) => {
@@ -29,7 +30,7 @@ const pageOf = (properties: PageProperty[], body: string, id?: string): Protocol
   ({ type: "page", ...(id ? { id } : {}), properties, body: encoder.encode(body) });
 const tree = (page: ProtocolPage) => {
   const object = put(encodeProtocolPage(page));
-  const folder = put(encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", page: object }] }));
+  const folder = put(encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", page: object, created: 0, modified: 0 }] }));
   return { object, root: put(encodeProtocolDirectory({ type: "directory", entries: [{ name: "notes", directory: folder }] })) };
 };
 const target = (object: ObjectHash) => ({ material: { kind: "basis" as const, path: "/notes/a.md", object } });
@@ -80,10 +81,10 @@ describe("page property operations", () => {
     const before = tree(page);
     const after = tree(applyPageOperations(page, [{ kind: "set", field: "title", before: "A", value: "B" }]));
     const operations: SourceOperation[] = [{ key: "op-1", kind: "set", page: target(before.object), field: "title", before: "A", value: "B" }];
-    const result = await validateSourceTrace([{ before: before.root, after: after.root, operations }], load);
+    const result = await validateSourceTrace([{ before: before.root, after: after.root, operations }], load, TEST_AT);
     expect(result.root).toBe(after.root);
     const wrong = tree(applyPageOperations(page, [{ kind: "set", field: "title", before: "A", value: "C" }]));
-    await expect(validateSourceTrace([{ before: before.root, after: wrong.root, operations }], load)).rejects.toThrow();
+    await expect(validateSourceTrace([{ before: before.root, after: wrong.root, operations }], load, TEST_AT)).rejects.toThrow();
   });
 
   test("the contract accepts page targets and rejects an id or a ranged target", () => {
@@ -102,7 +103,7 @@ describe("a page's body is its source text", () => {
     const before = tree(page);
     const after = tree({ ...page, body: encoder.encode("Hello there\n") });
     const operations: SourceOperation[] = [{ key: "e1", kind: "editSource", source: { ...target(before.object), range: [6, 11] }, text: "there" }];
-    const result = await validateSourceTrace([{ before: before.root, after: after.root, operations }], load);
+    const result = await validateSourceTrace([{ before: before.root, after: after.root, operations }], load, TEST_AT);
     expect(result.root).toBe(after.root);
     const folder = decodeProtocolDirectory(result.generated.get(decodeProtocolDirectory(result.generated.get(result.root)!).entries[0]!.directory!)!);
     const written = decodeProtocolPage(result.generated.get(folder.entries[0]!.page!)!);

@@ -38,6 +38,7 @@ import {
   rootText,
   withRootFile,
 } from "./lab-node.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 const ROLES = ["alice", "bob", "carol"] as const;
 type Role = typeof ROLES[number];
@@ -109,7 +110,7 @@ async function setup(): Promise<void> {
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
       device: { id: device, label, key },
-      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label, key }))),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label, key }), directoryStamper(undefined, 0))),
     });
     const held: LabDevice = { profileTree: identity.profileTree, device, seed };
     const client = await labClient(LOCAL_COMMUNITY, held, TIMEOUT);

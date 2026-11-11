@@ -35,7 +35,7 @@ beforeAll(async () => {
     "  - handle: guest", `    inviteDigest: ${JSON.stringify(`sha256:${sha256("report-invite-code-xyz")}`)}`,
     "---", "", "# Garden", "",
   ].join("\n"));
-  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(index) } : entry) });
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(index), created: 0, modified: 0 } : entry) });
   await owner.submitUpdate(community.id, head.tree.update,
     { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [hashObject(index), index], [hashObject(rootBytes), rootBytes]]) },
     { ifCurrent: head.tree.update });

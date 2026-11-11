@@ -11,7 +11,7 @@ describe("accepted transition wire encoding", () => {
   test("round-trips complete objects and object deltas", () => {
     const base = new TextEncoder().encode("base");
     const result = new TextEncoder().encode("best");
-    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: hashObject(result) }] });
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: hashObject(result), created: 0, modified: 0 }] });
     const payload: TransitionPayload = {
       objects: [{ hash: hashObject(directory), bytes: directory }],
       deltas: [{

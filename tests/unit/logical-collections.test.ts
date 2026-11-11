@@ -21,7 +21,7 @@ import { compileUsl, layoutOf, logicalFromRows, logicalModels, rowsFromLogical, 
 
 const examples = join(import.meta.dir, "../../packages/usl/examples");
 const schema = (name: string) => compileUsl(readFileSync(join(examples, `${name}.usl`), "utf8"));
-const T = "2026-10-24T09:00:00.000Z";
+const T = Date.parse("2026-10-24T09:00:00.000Z");
 const row = (key: LogicalRow["key"], fields: LogicalRow["fields"] = {}): LogicalRow => ({ key, fields, created: T, modified: T });
 
 describe("logical models", () => {

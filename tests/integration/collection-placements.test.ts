@@ -13,6 +13,7 @@ import { CollectionProjections, type CollectionProjectionForm } from "@ovst/stor
 import { compileUsl, layoutOf } from "@ovst/usl";
 import { verifyStore } from "@ovst/usl/verify";
 import { collectionRows, collectionTree, idRow, T0 } from "../support/collection-trees.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 const GAMES = `main model Game {
   name  Text
@@ -68,7 +69,7 @@ describe("one tree, placed with different projections", () => {
     database.close();
     const edited = await sqlite.scan();
     const objects = new Map([...tree.objects, ...edited.objects]);
-    const operations = await deriveRowOperations(tree.root, edited.root, async (hash) => objects.get(hash)!);
+    const operations = (await deriveRowOperations(tree.root, edited.root, async (hash) => objects.get(hash)!, TEST_AT))?.operations;
     expect(operations).toEqual([expect.objectContaining({ kind: "set", model: "Game", field: "name", before: "Go", value: "Weiqi", at: "2026-10-24T12:00:00.000Z" })]);
 
     // The JSONL placement takes the accepted tree, changing one line.
@@ -149,7 +150,7 @@ describe("a SQLite placement's change log", () => {
     expect(names()).toEqual([{ id: "g1", name: "Chess" }, { id: "g2", name: "Weiqi" }, { id: "g3", name: "Havannah" }]);
     const scanned = await placed.scan();
     const objects = new Map([...accepted.objects, ...scanned.objects]);
-    expect(await deriveRowOperations(accepted.root, scanned.root, async (hash) => objects.get(hash)!))
+    expect((await deriveRowOperations(accepted.root, scanned.root, async (hash) => objects.get(hash)!, TEST_AT))?.operations)
       .toEqual([expect.objectContaining({ kind: "set", model: "Game", field: "name", before: "Baduk", value: "Weiqi" })]);
   });
 
@@ -199,7 +200,7 @@ describe("a CSV placement", () => {
     await writeFile(path, (await readFile(path, "utf8")).replace("Apples", "Green apples"));
     const edited = await csv.scan();
     const objects = new Map([...tree.objects, ...edited.objects]);
-    expect(await deriveRowOperations(tree.root, edited.root, async (hash) => objects.get(hash)!))
+    expect((await deriveRowOperations(tree.root, edited.root, async (hash) => objects.get(hash)!, TEST_AT))?.operations)
       .toEqual([expect.objectContaining({ kind: "set", model: "Item", field: "title", before: "Apples", value: "Green apples" })]);
   });
 });

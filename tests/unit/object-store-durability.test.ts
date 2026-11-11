@@ -158,7 +158,7 @@ const recent = async (path: string) => (await stat(path)).mtimeMs > Date.now() -
 test("a verified walk freshens only stored objects, and freshening a vanished object throws", async () => {
   const store = new ObjectStore(join(directory, "objects"));
   const leaf = object("leaf"), proposed = object("proposed");
-  const bytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a", file: leaf.hash }, { name: "b", file: proposed.hash }] });
+  const bytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a", file: leaf.hash, created: 0, modified: 0 }, { name: "b", file: proposed.hash, created: 0, modified: 0 }] });
   const root = { hash: hashObject(bytes), bytes };
   await store.store([leaf]);
   await store.stage([root]);

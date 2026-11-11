@@ -14,7 +14,7 @@ import {
 function fixture(): TreeSnapshot {
   const file = new TextEncoder().encode("snapshot\n");
   const fileHash = hashObject(file);
-  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash }] });
+  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash, created: 0, modified: 0 }] });
   const rootHash = hashObject(root);
   return { root: rootHash, objects: new Map([[rootHash, root], [fileHash, file]]) };
 }

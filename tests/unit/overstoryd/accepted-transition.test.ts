@@ -12,7 +12,7 @@ import {
 function graph(name: string, payload: Uint8Array) {
   const file = payload;
   const fileHash = hashObject(file);
-  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name, file: fileHash }] });
+  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name, file: fileHash, created: 0, modified: 0 }] });
   const rootHash = hashObject(root);
   return { root: rootHash, file: fileHash, objects: new Map<ObjectHash, Uint8Array>([[fileHash, file], [rootHash, root]]) };
 }
@@ -84,10 +84,10 @@ describe("accepted transition derivation", () => {
     const shared = encoder.encode("# Page\n");
     const changed = encoder.encode("# Page\n\nChanged\n");
     const names = Array.from({ length: 400 }, (_, index) => `page-${String(index).padStart(4, "0")}.md`);
-    const beforeRoot = encodeProtocolDirectory({ type: "directory", entries: names.map((name) => ({ name, file: hashObject(shared) })) });
+    const beforeRoot = encodeProtocolDirectory({ type: "directory", entries: names.map((name) => ({ name, file: hashObject(shared), created: 0, modified: 0 })) });
     const afterRoot = encodeProtocolDirectory({
       type: "directory",
-      entries: names.map((name) => ({ name, file: hashObject(name === "page-0200.md" ? changed : shared) })),
+      entries: names.map((name) => ({ name, file: hashObject(name === "page-0200.md" ? changed : shared), created: 0, modified: 0 })),
     });
     const objects = new Map<ObjectHash, Uint8Array>([
       [hashObject(shared), shared],

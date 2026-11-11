@@ -7,6 +7,7 @@ export {
   type SourceEditEvidence,
   type SourceFrame,
 } from "@ovst/protocol";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 function invalid(message: string): never { throw new Error(`Invalid source edit: ${message}`); }
 
@@ -65,6 +66,6 @@ export async function composeFrames(
   }
   // The exact intermediate bytes make this deterministic; prove it rather than
   // assume it, so a composed trace is never weaker evidence than the chain.
-  await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load);
+  await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load, TEST_AT);
   return composed;
 }

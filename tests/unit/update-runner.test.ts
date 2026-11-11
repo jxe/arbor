@@ -10,6 +10,8 @@ import { publication } from "../../packages/working-tree/src/publication.ts";
 import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
 import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../support/memory-working-tree.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 /** Executes `tests/fixtures/update-runner.json` against the TypeScript runner, as `RunnerVectorTests` does for Swift. */
 interface Expectation { phase?: string; requests?: number; lastElements?: number; repeatsPrefix?: boolean; sameBody?: boolean; sameDigests?: boolean; lastEncoding?: WireEncoding; pending?: number; document?: string }
@@ -21,7 +23,7 @@ const TREE = "tr_runner_vectors";
 
 function snapshot(markdown: string): TreeSnapshot {
   const file = new TextEncoder().encode(markdown), fileHash = hashObject(file);
-  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash }] });
+  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash, created: 0, modified: 0 }] });
   return { root: hashObject(directory), objects: new Map([[fileHash, file], [hashObject(directory), directory]]) };
 }
 
@@ -224,7 +226,7 @@ test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s prese
     const resolves = kind === "resolution" ? [{ state: "up_initial", conflict: "choice", alternatives: ["left", "right"] }] : [];
     await log.retain({ change: "keep-current", tree: TREE, basis: { kind: "accepted", root: initial.root, update: "up_initial" },
       graph, candidate: graph, sourcePath: null, document: null,
-      update: encodeCandidateUpdateJSON({ change: "keep-current", candidate: initial.root, trace: null, resolves,
+      update: encodeCandidateUpdateJSON({ at: TEST_TIME, change: "keep-current", candidate: initial.root, trace: null, resolves,
         ...(kind === "guard" ? { ifCurrent: "up_initial" } : {}), objects: [], deltas: [] }) });
     await coordinator.noteLocalChange();
     await coordinator.syncOnce();
@@ -243,7 +245,7 @@ test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s prese
 for (const frozen of [false, true]) test(`branched publication ${frozen ? "recovers a frozen interior basis after restart" : "ends batching at a known branch point"}`, async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "story-branch-batch-"));
   const objects = new Map<string, Uint8Array>();
-  const entries = ["a", "b", "c"].map(name => { const bytes = new TextEncoder().encode(name), file = hashObject(bytes); objects.set(file, bytes); return {name: name + ".md", file}; });
+  const entries = ["a", "b", "c"].map(name => { const bytes = new TextEncoder().encode(name), file = hashObject(bytes); objects.set(file, bytes); return {name: name + ".md", file, created: 0, modified: 0}; });
   const bytes = encodeProtocolDirectory({type: "directory", entries}), root = hashObject(bytes); objects.set(root, bytes);
   const initial = {root, objects}, host = new VectorHost(initial, frozen ? ["accept", "acceptThenFail"] : []);
   const working = new MemoryWorkingTree({base: {root, update: "up_initial"}, snapshot: initial});

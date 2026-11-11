@@ -372,6 +372,27 @@ class Engine {
     if (same(node[field], value)) (node as Node)[field] = value;
     else this.edit(view, node, (n) => { n[field] = value; });
   }
+  /** The entry times of a file or page node that projects to `object` (data
+   * model §6): its own when they were stamped for that object; otherwise the
+   * incoming update changed it, so `modified` is the update's `at`, and a new
+   * node is created then too. Computed, not written, while projecting, since
+   * effects and kept projections hold the very nodes a walk visits; `record`
+   * writes them into the state it keeps. A frame that changes a file and a
+   * later frame that changes it back leave its times as they were. */
+  private readonly stamps = new Map<string, { from: string; created: number; modified: number; stamped: string }>();
+  private readonly stamped = new Set<string>();
+  private timesOf(node: Readonly<Node>, object: string): { created: number; modified: number } {
+    if (node.stamped === object) return { created: node.created!, modified: node.modified! };
+    // Keyed by identity and prior times, not by node object: fast paths
+    // project copies of the nodes the evaluation records.
+    const from = `${node.stamped}|${node.created}|${node.modified}`, key = `${node.id}\0${object}\0${from}`, known = this.stamps.get(key);
+    if (known) return { created: known.created, modified: known.modified };
+    const at = this.request.incoming.at ?? fail("An update that changes an entry states its time");
+    const stamp = { from, created: node.created === undefined ? at : Math.min(node.created, at), modified: at, stamped: object };
+    this.stamps.set(key, stamp);
+    this.stamped.add(node.id);
+    return { created: stamp.created, modified: stamp.modified };
+  }
   /** Place `node` in `view` under `id`, replacing any node there. */
   setNode(view: View, id: string, node: Node): void {
     const old = view.nodes[id];
@@ -411,7 +432,9 @@ class Engine {
     parent: string | null,
     name: string,
     // Counted once per import rather than per node, which was quadratic.
-    count = { nodes: Object.keys(view.nodes).length }
+    count = { nodes: Object.keys(view.nodes).length },
+    /** The entry's times, when it is imported from a directory. */
+    times?: { created: number; modified: number }
   ): Promise<string> {
     if (id.length > 16_384)
       throw new MergeRefusal("limit", "Material nesting budget exceeded");
@@ -428,6 +451,7 @@ class Engine {
         ? [{ origin: id, start: 0, object, offset: 0, length: size }]
         : []);
     }
+    if (times && textual(kind)) Object.assign(node, { created: times.created, modified: times.modified, stamped: object });
     if (kind === "directory") {
       const directory = directoryOf(object, await this.read(object));
       this.assign(view, node, "directory", { ...directory, entries: [] });
@@ -439,7 +463,8 @@ class Engine {
           `${id}/${encodeURIComponent(entry.name)}`,
           id,
           entry.name,
-          count
+          count,
+          entry.created !== undefined ? { created: entry.created, modified: entry.modified! } : undefined
         );
       }
     }
@@ -669,11 +694,12 @@ class Engine {
           names.add(child.name);
           const { object, height: below } = await this.projectNode(view, child.id, visiting, shared);
           height = Math.max(height, below + 1);
+          const times = textual(child.kind) ? this.timesOf(child, object) : undefined;
           entries.push(
             child.kind === "file"
-              ? { name: child.name, file: object }
+              ? { name: child.name, file: object, ...times }
               : child.kind === "page"
-              ? { name: child.name, page: object }
+              ? { name: child.name, page: object, ...times }
               : child.kind === "directory"
               ? { name: child.name, directory: object }
               : { name: child.name, tree: object }
@@ -1281,6 +1307,11 @@ class Engine {
               );
         this.placement(state, id, target.node, operation.destination.name);
         if (operation.kind === "copyEntry") {
+          // A copy is a new entry (data model §6): its files and pages take
+          // the update's time when projected.
+          for (const copied of Object.values(state.nodes))
+            if (copied.id === id || copied.id.startsWith(`${key}/`))
+              if (copied.stamped !== undefined) this.edit(state, copied, (n) => { delete n.created; delete n.modified; delete n.stamped; });
           for (const old of Object.values((material.view ?? basis).nodes)) {
             const copied = state.nodes[`${key}/${encodeURIComponent(old.id)}`];
             if (copied?.pieces && old.pieces)
@@ -1807,8 +1838,21 @@ class Engine {
   editable(ref: { state?: string }): boolean {
     return !this.eager && !!ref.state && this.retained(ref.state).editable;
   }
+  /** Write into `state`'s nodes the times its last projection stamped them
+   * with (`timesOf`), so the state it is kept as carries them. */
+  private async settleTimes(state: IntentState): Promise<void> {
+    for (const id of this.stamped) {
+      const node = state.nodes[id];
+      if (!node || !textual(node.kind)) continue;
+      // Only the few nodes the evaluation changed get here.
+      const object = node.pieces ? this.put(await this.content(node, node.pieces)) : node.object;
+      const stamp = this.stamps.get(`${id}\0${object}\0${node.stamped}|${node.created}|${node.modified}`);
+      if (stamp) Object.assign(node as Node, { created: stamp.created, modified: stamp.modified, stamped: stamp.stamped });
+    }
+  }
   async record(state: IntentState, editable = false): Promise<{ object: string; state: string }> {
     const object = await this.project(state);
+    await this.settleTimes(state);
     return { object, state: retainState(this.states, state, object, editable).id };
   }
   // What `current` recorded under keys `base` lacks. An evaluation compares
@@ -2704,6 +2748,9 @@ class Engine {
         }
         for (const field of Object.keys(incoming) as Array<keyof Node>) {
           if (same(b[field], incoming[field])) continue;
+          // Entry times follow the content: the merged node is stamped as it
+          // is projected (`timesOf`), never chosen between.
+          if (field === "created" || field === "modified" || field === "stamped") continue;
           if (field === "deletions") {
             const prior = new Set(b.deletions ?? []),
               desired = new Set(incoming.deletions ?? []);
@@ -3439,6 +3486,7 @@ class Engine {
     }
     if (object !== request.incoming.object) return fail("Operations do not reproduce the complete candidate");
     authored.changes[request.incoming.change] = this.put(encodeJSON(changeIdentity(request)));
+    await this.settleTimes(authored);
     return this.response({object, state: retainState(this.states, authored, object, true).id}, authored);
   }
   response(

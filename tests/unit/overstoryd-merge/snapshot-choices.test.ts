@@ -106,8 +106,8 @@ async function checkpoint(f: Fixture, current: { object: string; state?: string 
 }
 
 async function folderChoice(f: Fixture) {
-  const folder = (text: string) => f.dir([{ name: "x.txt", file: f.put(text) }]);
-  const root = (docs: string, other = "bee") => f.dir([{ name: "docs", directory: docs }, { name: "b.txt", file: f.put(other) }]);
+  const folder = (text: string) => f.dir([{ name: "x.txt", file: f.put(text), created: 0, modified: 0 }]);
+  const root = (docs: string, other = "bee") => f.dir([{ name: "docs", directory: docs }, { name: "b.txt", file: f.put(other), created: 0, modified: 0 }]);
   const initial = await checkpoint(f, { object: root(folder("old")) }, root(folder("old")), "initial");
   const shown = root(folder("mine")), incoming = root(folder("theirs"));
   const open = await checkpoint(f, initial.result, shown, "conflict", [{
@@ -149,7 +149,7 @@ test("a folder choice is untouched by edits elsewhere and continues edits inside
 
 test("a snapshot removing a folder with an open folder choice is withheld behind a choice", async () => {
   const f = new Fixture(), { open } = await folderChoice(f);
-  const removed = f.dir([{ name: "b.txt", file: f.put("bee") }]);
+  const removed = f.dir([{ name: "b.txt", file: f.put("bee"), created: 0, modified: 0 }]);
   const next = await checkpoint(f, open.result, removed, "remove");
   // The folder choice stays as it was; the removal is the enclosing choice's alternative.
   expect(next.object).toBe(open.object);
@@ -159,7 +159,7 @@ test("a snapshot removing a folder with an open folder choice is withheld behind
 
 test("a traced removal of a folder with an open folder choice encloses the choice", async () => {
   const f = new Fixture(), { folder, open } = await folderChoice(f);
-  const removed = f.dir([{ name: "b.txt", file: f.put("bee") }]);
+  const removed = f.dir([{ name: "b.txt", file: f.put("bee"), created: 0, modified: 0 }]);
   const next = await f.run(f.request(open.result, removed,
     [{ key: "remove", kind: "removeEntry", source: { material: { kind: "basis", path: "/docs", object: folder("mine") } } }], "remove"));
   expect(next.decisions.find((d) => d.key === "folder")!.context).toBeDefined();

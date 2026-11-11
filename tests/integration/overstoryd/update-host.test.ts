@@ -23,6 +23,9 @@ import {
 import { editTreeConfig } from "../../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deviceClient, deviceSession, newTestDevice, testAccount, testDevice } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 const NO_ENTRY_CHANGES = { set: [], removed: [] };
 
 // Every test runs once per request encoding: CBOR, the clients' default,
@@ -64,7 +67,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
     current: Awaited<ReturnType<typeof currentConfig>>["current"],
     graph: TreeConfigValues,
   ) {
-    const snapshot = snapshotTreeConfig(graph);
+    const snapshot = snapshotTreeConfig(graph, directoryStamper(undefined, 0));
     return client.submitUpdate(
       current.tree.id,
       current.tree.update,
@@ -114,7 +117,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       try {
         const response = await fetch(`${running.url}/.overstory/trees/${baseline.current.tree.id}/updates`, {
           method: "POST", headers: {authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json"},
-          body: JSON.stringify({base: baseline.current.tree.update, updates: [{change: crypto.randomUUID(), candidate: baseline.current.tree.root, trace: null, resolves: [], objects: [], deltas: []}]}),
+          body: JSON.stringify({base: baseline.current.tree.update, updates: [{at: TEST_TIME, change: crypto.randomUUID(), candidate: baseline.current.tree.root, trace: null, resolves: [], objects: [], deltas: []}]}),
         });
         expect(response.status).toBe(503);
         expect(await response.json()).toMatchObject({error: "merge-failed", retryable: true, message: "Evaluation time budget exceeded"});
@@ -127,9 +130,9 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
       const candidate = (label: string) => snapshotTreeConfig({ ...baseline.graph,
         devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label } },
-      });
+      }, directoryStamper(undefined, 0));
       const element = (snapshot: ReturnType<typeof candidate>) => ({
-        change: crypto.randomUUID(), candidate: snapshot.root, trace: null, resolves: [], deltas: [],
+        at: TEST_TIME, change: crypto.randomUUID(), candidate: snapshot.root, trace: null, resolves: [], deltas: [],
         objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       });
       const first = element(candidate("Batch prefix " + crypto.randomUUID()));
@@ -161,8 +164,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
           [administrator]: { ...graphOne.devices[administrator]!, label: `Cumulative two ${crypto.randomUUID()}` },
         },
       };
-      const snapshots = [snapshotTreeConfig(graphOne), snapshotTreeConfig(graphTwo)];
-      const updates = snapshots.map((snapshot) => ({ change: crypto.randomUUID(), trace: null,
+      const snapshots = [snapshotTreeConfig(graphOne, directoryStamper(undefined, 0)), snapshotTreeConfig(graphTwo, directoryStamper(undefined, 0))];
+      const updates = snapshots.map((snapshot) => ({ at: TEST_TIME, change: crypto.randomUUID(), trace: null,
         candidate: snapshot.root,
         resolves: [],
         objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
@@ -193,9 +196,9 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const candidate = snapshotTreeConfig({
         ...baseline.graph,
         devices: {...baseline.graph.devices, [administrator]: {...baseline.graph.devices[administrator]!, label: `Guarded ${crypto.randomUUID()}`}},
-      });
+      }, directoryStamper(undefined, 0));
       const request = {base:baseline.current.tree.update,updates:[{
-        change:crypto.randomUUID(),candidate:candidate.root,trace:null,resolves:[],ifCurrent:baseline.current.tree.update,
+        at: TEST_TIME, change:crypto.randomUUID(),candidate:candidate.root,trace:null,resolves:[],ifCurrent:baseline.current.tree.update,
         objects:[...candidate.objects].map(([hash,bytes])=>({hash,bytes})),deltas:[],
       }]};
       const first = await client.submitUpdates(baseline.current.tree.id,request);
@@ -204,7 +207,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect(restored.update.id).not.toBe(baseline.current.tree.update);
       const count = running.overstoryd.acceptedUpdates(baseline.current.tree.id).length;
       const rejected = await client.submitUpdates(baseline.current.tree.id,{
-        ...request,updates:[{...request.updates[0]!,change:crypto.randomUUID()}],
+        ...request,updates:[{...request.updates[0]!,at: TEST_TIME, change:crypto.randomUUID()}],
       }).catch(error=>error);
       expect(rejected).toBeInstanceOf(ProtocolUpdateConflict);
       expect(rejected.result.message).toContain("ifCurrent");
@@ -218,12 +221,12 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const baseline = await currentConfig();
       const administrator = Object.values(baseline.graph.devices).find(device => device.administrator)!.id;
       const candidate = snapshotTreeConfig({...baseline.graph,devices:{...baseline.graph.devices,
-        [administrator]:{...baseline.graph.devices[administrator]!,label:`After no-op ${crypto.randomUUID()}`}}});
+        [administrator]:{...baseline.graph.devices[administrator]!,label:`After no-op ${crypto.randomUUID()}`}}}, directoryStamper(undefined, 0));
       const request = {base:activation ? null : baseline.current.tree.update,updates:[{
-        change:crypto.randomUUID(),candidate:baseline.snapshot.root,trace:null,resolves:[],
+        at: TEST_TIME, change:crypto.randomUUID(),candidate:baseline.snapshot.root,trace:null,resolves:[],
         ...(activation ? {} : {ifCurrent:baseline.current.tree.update}),objects:[],deltas:[],
       },{
-        change:crypto.randomUUID(),candidate:candidate.root,trace:null,resolves:[],
+        at: TEST_TIME, change:crypto.randomUUID(),candidate:candidate.root,trace:null,resolves:[],
         objects:[...candidate.objects].map(([hash,bytes])=>({hash,bytes})),deltas:[],
       }]};
       const response = await client.submitUpdates(baseline.current.tree.id,request);
@@ -241,11 +244,11 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const snapshot = snapshotTreeConfig({
         ...baseline.graph,
         devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label: "Must not be accepted" } },
-      });
-      const first = { change: crypto.randomUUID(), trace: null, candidate: snapshot.root, resolves: [], objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })), deltas: [] };
+      }, directoryStamper(undefined, 0));
+      const first = { at: TEST_TIME, change: crypto.randomUUID(), trace: null, candidate: snapshot.root, resolves: [], objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })), deltas: [] };
       // A governed configuration tree accepts no authored evidence at all, so a
       // perfectly well-formed trace is the unsupported form here.
-      const second = { ...first, change: crypto.randomUUID(), trace: [{ before: baseline.current.tree.root, after: snapshot.root, operations: [
+      const second = { ...first, at: TEST_TIME, change: crypto.randomUUID(), trace: [{ before: baseline.current.tree.root, after: snapshot.root, operations: [
         { key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/devices.yaml", object: baseline.current.tree.root } }, text: "" },
       ] }] };
       const count = running.overstoryd.acceptedUpdates(baseline.current.tree.id).length;
@@ -265,7 +268,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const response = await fetch(`${running.url}/.overstory/trees/${baseline.current.tree.id}/updates`, {
         method: "POST",
         headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json" },
-        body: JSON.stringify({ change: crypto.randomUUID(), trace: null,
+        body: JSON.stringify({ at: TEST_TIME, change: crypto.randomUUID(), trace: null,
           base: baseline.current.tree.update,
           candidate: baseline.current.tree.root,
           resolves: [],
@@ -505,12 +508,12 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const accepted = await client.declareTree(treeID, snapshotTreeConfig({
         access: [{ who: { profile }, allow: ["admin"] }, { who: { link: `sha256:${sha256(linkSecret)}` }, allow: ["read"] }],
         mounts: {},
-      }));
+      }, directoryStamper(undefined, 0)));
       expect(accepted.outcome).toBe("accepted");
       expect(accepted.update.tree).toBe(treeConfigurationID(treeID));
       expect(running.overstoryd.get(treeID)).toBeNull();
       // A second, different declaration of the same tree conflicts.
-      await expect(client.declareTree(treeID, snapshotTreeConfig({ access: [{ who: { profile }, allow: ["admin"] }], mounts: {} }))).rejects.toThrow();
+      await expect(client.declareTree(treeID, snapshotTreeConfig({ access: [{ who: { profile }, allow: ["admin"] }], mounts: {} }, directoryStamper(undefined, 0)))).rejects.toThrow();
       // The parent mounts the pending tree; its boundary appears when it activates.
       await editTreeConfig(client, profile, "person", (values) => ({ ...values, mounts: { ...values.mounts, "new-shared-tree": treeID } }));
       expect(running.overstoryd.boundary("/~owner/new-shared-tree")).toBeNull();
@@ -522,7 +525,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         method: "POST", headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json" },
         // An activation carries exact bytes only; any authored evidence, however
         // well formed, is unsupported.
-        body: JSON.stringify({ base: null, updates: [{ change: crypto.randomUUID(), trace: [{ before: initial.root, after: initial.root, operations: [
+        body: JSON.stringify({ base: null, updates: [{ at: TEST_TIME, change: crypto.randomUUID(), trace: [{ before: initial.root, after: initial.root, operations: [
           { key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/note.md", object: initial.root } }, text: "" },
         ] }], candidate: initial.root, resolves: [], objects: [], deltas: [] }] }),
       });
@@ -696,7 +699,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const treePath = join(dataRoot, "log-order-tree");
       const declared = await client.declareTree(treeID, snapshotTreeConfig({
         access: [{ who: { profile: baseline.account.account.profileTree! }, allow: ["admin"] }], mounts: {},
-      }));
+      }, directoryStamper(undefined, 0)));
       if (declared.outcome !== "accepted") throw new Error("Expected an accepted update");
       await mkdir(treePath);
       await writeFile(join(treePath, "note.md"), "# Log order\n");
@@ -887,7 +890,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
   describe("overstoryd request failure classification", () => {
     const post = async (tree: string, update: string, root: string) => fetch(`${running.url}/.overstory/trees/${tree}/updates`, {
       method: "POST", headers: {authorization: `Bearer ${await deviceSession(running.url, token)}`, "content-type": "application/json"},
-      body: JSON.stringify({base: update, updates: [{change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], objects: [], deltas: []}]}),
+      body: JSON.stringify({base: update, updates: [{at: TEST_TIME, change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], objects: [], deltas: []}]}),
     });
 
     test("a server fault is an internal error, not an invalid request", async () => {
@@ -948,7 +951,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const snapshot = await client.snapshot(community.tree.id, community.tree.root);
       const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00]);
       const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
-      const directory = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "logo.png", file: hashObject(png) }].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) });
+      const directory = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "logo.png", file: hashObject(png), created: 0, modified: 0 }].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) });
       const objects = new Map(snapshot.objects);
       objects.set(hashObject(png), png);
       objects.set(hashObject(directory), directory);
@@ -972,7 +975,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const snapshot = snapshotTreeConfig({
         ...baseline.graph,
         devices: { ...baseline.graph.devices, [administrator]: { ...baseline.graph.devices[administrator]!, label: `Encoded ${crypto.randomUUID()}` } },
-      });
+      }, directoryStamper(undefined, 0));
       const request = { base: baseline.current.tree.update, updates: [activationElement(snapshot)] };
       return { tree: baseline.current.tree.id, request, digests: updateRequestDigests(baseline.current.tree.id, request) };
     }

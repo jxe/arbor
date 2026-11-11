@@ -6,6 +6,8 @@ import { decodeProtocolDirectory, decodeProtocolPage, encodeProtocolDirectory, e
   type CandidateUpdate, type PageProperty, type ProtocolDirectory, type SourceOperation } from "@ovst/protocol";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
@@ -28,14 +30,14 @@ async function remember(acceptedRoot: string) {
 const payload = () => [...objects].map(([hash, bytes]) => ({ hash, bytes }));
 async function propertyChange(basisRoot: string, field: string, before: unknown, value: unknown): Promise<CandidateUpdate> {
   const operations = [{ key: "set", kind: "set", page: { material: { kind: "basis", path: "/note.md", object: pageHash(basisRoot) } }, field, before, value }] as SourceOperation[];
-  const result = await executeRowOperations(basisRoot, operations, async (hash) => objects.get(hash)!);
+  const result = await executeRowOperations(basisRoot, operations, async (hash) => objects.get(hash)!, TEST_AT);
   for (const [hash, bytes] of result.generated) objects.set(hash, bytes);
-  return { change: crypto.randomUUID(), candidate: result.root, trace: [{ before: basisRoot, after: result.root, operations }], resolves: [], deltas: [], objects: payload() };
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate: result.root, trace: [{ before: basisRoot, after: result.root, operations }], resolves: [], deltas: [], objects: payload() };
 }
 async function submit(update: CandidateUpdate, basis = base) {
   return (await client.submitUpdates(tree, { base: basis, updates: [update] })).results[0]!.update;
 }
-const snapshotUpdate = (candidate: string): CandidateUpdate => ({ change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: payload() });
+const snapshotUpdate = (candidate: string): CandidateUpdate => ({ at: TEST_TIME, change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: payload() });
 
 /** A host with `note.md` as a Markdown file, before conversion. */
 async function start(pages: boolean | string[]) {
@@ -48,14 +50,14 @@ async function start(pages: boolean | string[]) {
   const descriptor = await client.descriptor(tree), initial = await client.snapshot(tree, descriptor.tree.root);
   objects = new Map(initial.objects);
   const value = decodeProtocolDirectory(objects.get(initial.root)!);
-  value.entries.push({ name: "note.md", file: put(encoder.encode(source)) });
+  value.entries.push({ name: "note.md", file: put(encoder.encode(source)), created: 0, modified: 0 });
   const fileRoot = directory(value);
   return { fileRoot, update: (await submit(snapshotUpdate(fileRoot), descriptor.tree.update)).id };
 }
 /** `at` with note.md as `page`, whichever kind it was. */
 function convert(at: string, page: string) {
   const value = decodeProtocolDirectory(objects.get(at)!);
-  value.entries = value.entries.map((e) => e.name === "note.md" ? { name: "note.md", page } : e);
+  value.entries = value.entries.map((e) => e.name === "note.md" ? { name: "note.md", page, created: 0, modified: 0 } : e);
   return directory(value);
 }
 
@@ -83,7 +85,7 @@ test("a property change and a concurrent body edit both land", async () => {
   // A snapshot that edits the body, authored on the same basis.
   const page = pageAt(root);
   const edited = convert(root, put(encodeProtocolPage({ ...page, body: encoder.encode("One\nTwo\nThree\n") })));
-  const second = await submit({ change: crypto.randomUUID(), candidate: edited, trace: null, resolves: [], deltas: [], objects: payload() });
+  const second = await submit({ at: TEST_TIME, change: crypto.randomUUID(), candidate: edited, trace: null, resolves: [], deltas: [], objects: payload() });
   expect(second.conflicted).toBe(false);
   await remember(second.root);
   const merged = pageAt(second.root);

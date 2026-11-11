@@ -18,8 +18,8 @@ class ReadTrace extends ObjectStore {
 
 test("membership reads directory edges, not file bodies, and stops at nested trees", async () => {
   const store = new ReadTrace();
-  const files = Array.from({length: 1000}, (_, i) => ({name: `f${String(i).padStart(4,"0")}`, file: hashObject(new TextEncoder().encode(String(i)))}));
-  const nested = store.directory([{name: "secret", file: hashObject(new TextEncoder().encode("secret"))}]);
+  const files = Array.from({length: 1000}, (_, i) => ({name: `f${String(i).padStart(4,"0")}`, file: hashObject(new TextEncoder().encode(String(i))), created: 0, modified: 0}));
+  const nested = store.directory([{name: "secret", file: hashObject(new TextEncoder().encode("secret")), created: 0, modified: 0 }]);
   const root = store.directory([...files, {name:"nested",tree:"tr_other"}]);
   expect(await store.contains(root, files[999]!.file)).toBe(true);
   expect(store.reads).toEqual([root]);
@@ -32,10 +32,10 @@ test("membership reads directory edges, not file bodies, and stops at nested tre
 
 test("historical membership visits shared directories once and retains older-only objects", async () => {
   const store = new ReadTrace();
-  const shared = store.directory([{name:"common",file:hashObject(new TextEncoder().encode("common"))}]);
+  const shared = store.directory([{name:"common",file:hashObject(new TextEncoder().encode("common")), created: 0, modified: 0}]);
   const old = hashObject(new TextEncoder().encode("old"));
   const roots = Array.from({length:100}, (_, i) => store.directory([
-    {name:"shared",directory:shared}, {name:`version${i}`,file:i===0?old:hashObject(new TextEncoder().encode(`v${i}`))},
+    {name:"shared",directory:shared}, {name:`version${i}`,file:i===0?old:hashObject(new TextEncoder().encode(`v${i}`)), created: 0, modified: 0},
   ]));
   const missing = hashObject(new TextEncoder().encode("missing"));
   expect(await store.containsAny(roots, missing)).toBe(false);
@@ -51,7 +51,7 @@ test("historical membership visits shared directories once and retains older-onl
 test("full integrity verification reads shared bytes once across accepted roots", async () => {
   const store = new ReadTrace();
   const file = store.put(new TextEncoder().encode("retained"));
-  const shared = store.directory([{name:"file",file}]);
+  const shared = store.directory([{name:"file",file, created: 0, modified: 0}]);
   const roots = Array.from({length:100}, (_, i)=>store.directory([{name:`sub${i}`,directory:shared}]));
   await store.verifyReachable(roots);
   expect(store.reads).toHaveLength(102);
@@ -64,8 +64,8 @@ test("full integrity verification reads shared bytes once across accepted roots"
 test("integrity traversal retains directory obligations after historical file reclassification", async () => {
   const store = new ReadTrace();
   const missing = hashObject(new TextEncoder().encode("missing child"));
-  const directory = store.directory([{name:"child",file:missing}]);
-  const asFile = store.directory([{name:"entry",file:directory}]);
+  const directory = store.directory([{name:"child",file:missing, created: 0, modified: 0}]);
+  const asFile = store.directory([{name:"entry",file:directory, created: 0, modified: 0}]);
   const asDirectory = store.directory([{name:"entry",directory}]);
   await expect(store.verifyReachable([asFile, asDirectory])).rejects.toThrow("missing");
 });
@@ -74,7 +74,7 @@ test("integrity traversal retains directory obligations after historical file re
 test("current membership does not enumerate historical roots", async () => {
   const store = new ReadTrace();
   const file = hashObject(new TextEncoder().encode("current"));
-  const root = store.directory([{name:"file",file}]);
+  const root = store.directory([{name:"file",file, created: 0, modified: 0}]);
   function* roots() { yield root; throw Error("History should not be queried"); }
   expect(await store.containsAny(roots(), file)).toBe(true);
 });
@@ -82,7 +82,7 @@ test("current membership does not enumerate historical roots", async () => {
 test("delta bases use the preceding proposed graph, with reachability and hash checks", async () => {
   const store = new ReadTrace();
   const base = new TextEncoder().encode("pending file"), baseHash = hashObject(base);
-  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note", file: baseHash}]}), root = hashObject(directory);
+  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note", file: baseHash, created: 0, modified: 0 }]}), root = hashObject(directory);
   const result = new TextEncoder().encode("pending file!"), resultHash = hashObject(result);
   const delta = {base: baseHash, result: resultHash, instructions: [{copy: {offset: 0, length: base.length}}, {insert: new TextEncoder().encode("!")}]};
   const proposed = new Map([[root, directory], [baseHash, base]]);

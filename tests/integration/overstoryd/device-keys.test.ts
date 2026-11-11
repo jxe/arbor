@@ -18,6 +18,7 @@ import {
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { editTreeConfig, readTreeConfig } from "../../helpers/tree-config.ts";
 import { deviceClient, signAsDevice, testAccount, testDevice } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 /** A device key pair as a client holds it: the `devices.yaml` key and a signer. */
 interface TestDeviceKey { key: string; sign(bytes: Uint8Array): string }
@@ -234,7 +235,7 @@ describe("recovery pairing (accounts §5.3)", () => {
       publicKey: carol.publicKey,
       signature: carol.sign(accountChallengeBytes(challenge)),
       device: { id: laptopID, label: "Carol's laptop", key: laptop.key },
-      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(carol.profileTree, { id: laptopID, label: "Carol's laptop", key: laptop.key }))),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(carol.profileTree, { id: laptopID, label: "Carol's laptop", key: laptop.key }), directoryStamper(undefined, 0))),
     });
     laptopClient = await openSession(carol.profileTree, laptopID, laptop);
     expect((await laptopClient.account()).account.profileTree).toBe(carol.profileTree);

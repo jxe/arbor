@@ -20,7 +20,7 @@ function add(snapshot: TreeSnapshot, name: string, text: string): TreeSnapshot {
     ...dir,
     entries: [
       ...dir.entries.filter((e) => e.name !== name),
-      { name, file: hash },
+      { name, file: hash, created: 0, modified: 0 },
     ],
   });
   const root = hashObject(next);

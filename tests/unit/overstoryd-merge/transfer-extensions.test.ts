@@ -259,15 +259,15 @@ test("a relative link moves between documents of one directory, but not across d
   // The same move into a document in another directory rebinds `./x.md`.
   const f = new Fixture();
   const nested = f.dir([
-    { name: "s.md", file: f.put(source) },
+    { name: "s.md", file: f.put(source), created: 0, modified: 0 },
     { name: "sub", directory: f.tree({ "t.md": target }) },
   ]);
   const moved = f.dir([
-    { name: "s.md", file: f.put("# S\n\nTail\n") },
+    { name: "s.md", file: f.put("# S\n\nTail\n"), created: 0, modified: 0 },
     { name: "sub", directory: f.tree({ "t.md": target + "See [x](./x.md).\n\n" }) },
   ]);
   const peer = f.dir([
-    { name: "s.md", file: f.put("# S\n\nSee [x](./x.md).\n\nPeer\n") },
+    { name: "s.md", file: f.put("# S\n\nSee [x](./x.md).\n\nPeer\n"), created: 0, modified: 0 },
     { name: "sub", directory: f.tree({ "t.md": target }) },
   ]);
   const move = f.request(nested, moved, [{

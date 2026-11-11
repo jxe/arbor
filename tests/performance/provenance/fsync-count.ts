@@ -6,6 +6,8 @@ import { serveHost } from "@ovst/overstoryd";
 import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate, type ObjectHash } from "@ovst/protocol";
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 const dir = await mkdtemp(`${tmpdir()}/story-fsync-count-`);
 const running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", "t", { communityWriter: true })],
@@ -18,7 +20,7 @@ const objects = new Map(snapshot.objects);
 const directory = decodeProtocolDirectory(objects.get(snapshot.root)!);
 for (let i = 0; i < 50; i++) {
   const bytes = new TextEncoder().encode(`page ${i}\n`.repeat(40)), file = hashObject(bytes);
-  objects.set(file, bytes); directory.entries.push({ name: `p${String(i).padStart(2, "0")}.md`, file });
+  objects.set(file, bytes); directory.entries.push({ name: `p${String(i).padStart(2, "0")}.md`, file, created: 0, modified: 0 });
 }
 directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 const encoded = encodeProtocolDirectory(directory); let root = hashObject(encoded); objects.set(root, encoded);
@@ -30,9 +32,9 @@ for (let i = 0; i < 20; i++) {
   const name = `p${String(i % 50).padStart(2, "0")}.md`;
   const file = decodeProtocolDirectory(objects.get(root)!).entries.find((e) => e.name === name)!.file!;
   const operations = [{ key: "e", kind: "editSource" as const, source: { material: { kind: "basis" as const, path: `/${name}`, object: file }, range: [0, 4] as [number, number] }, text: `edit ${i}` }];
-  const executed = await executeExactSourceEdits(root, operations, async (h) => objects.get(h)!);
+  const executed = await executeExactSourceEdits(root, operations, async (h) => objects.get(h)!, TEST_AT);
   for (const [h, b] of executed.generated) objects.set(h, b);
-  const update: CandidateUpdate = { change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: root, after: executed.root, operations }], resolves: [],
+  const update: CandidateUpdate = { at: TEST_TIME, change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: root, after: executed.root, operations }], resolves: [],
     objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
   const before = o.objectCounters();
   const t = performance.now();

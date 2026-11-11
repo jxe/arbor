@@ -14,8 +14,8 @@ function store() {
 
 test("a shared reader reads each object once across the transition and entry-change walks", async () => {
   const s = store();
-  const before = s.dir([{ name: "a.md", file: s.file("A") }, { name: "gone", directory: s.dir([{ name: "x.md", file: s.file("X") }]) }]);
-  const after = s.dir([{ name: "a.md", file: s.file("A!") }, { name: "new", directory: s.dir([{ name: "y.md", file: s.file("Y") }]) }]);
+  const before = s.dir([{ name: "a.md", file: s.file("A"), created: 0, modified: 0 }, { name: "gone", directory: s.dir([{ name: "x.md", file: s.file("X"), created: 0, modified: 0 }]) }]);
+  const after = s.dir([{ name: "a.md", file: s.file("A!"), created: 0, modified: 0 }, { name: "new", directory: s.dir([{ name: "y.md", file: s.file("Y"), created: 0, modified: 0 }]) }]);
   const reader = new TreeReader(s.load);
   const transition = await transitionPayload(before, after, reader);
   const changes = await entryChanges(before, after, reader);
@@ -27,16 +27,16 @@ test("a shared reader reads each object once across the transition and entry-cha
 
 test("entries are skipped only when name and target match exactly", async () => {
   const s = store();
-  const leaf = s.file("L"), sub = s.dir([{ name: "x.md", file: leaf }]);
+  const leaf = s.file("L"), sub = s.dir([{ name: "x.md", file: leaf, created: 0, modified: 0 }]);
   const before = s.dir([
-    { name: "same.md", file: leaf },
-    { name: "edited.md", file: s.file("old") },
-    { name: "kind", file: leaf },
+    { name: "same.md", file: leaf, created: 0, modified: 0 },
+    { name: "edited.md", file: s.file("old"), created: 0, modified: 0 },
+    { name: "kind", file: leaf, created: 0, modified: 0 },
     { name: "nested", tree: "tr_a" },
   ]);
   const after = s.dir([
-    { name: "same.md", file: leaf },
-    { name: "edited.md", file: s.file("new") },
+    { name: "same.md", file: leaf, created: 0, modified: 0 },
+    { name: "edited.md", file: s.file("new"), created: 0, modified: 0 },
     { name: "kind", directory: sub },
     { name: "nested", tree: "tr_b" },
   ]);
@@ -47,7 +47,7 @@ test("entries are skipped only when name and target match exactly", async () => 
 
 test("a reader refuses bytes whose hash does not match", async () => {
   const s = store();
-  const root = s.dir([{ name: "a.md", file: s.file("A") }]);
+  const root = s.dir([{ name: "a.md", file: s.file("A"), created: 0, modified: 0 }]);
   const lying = new TreeReader(async () => new TextEncoder().encode("not it"));
   await expect(walkTreeDiff(null, root, lying, { entry: () => true })).rejects.toThrow("hash mismatch");
 });

@@ -10,6 +10,8 @@ import { StorySyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import type { Workspace } from "@ovst/story-sync";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 import { storySyncFetch } from "../helpers/story-sync-fetch.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 let root: string;
 let state: string;
@@ -275,13 +277,13 @@ describe("story-sync object route (the standard read on loopback)", () => {
     const bytes = new TextEncoder().encode("pending-only-object");
     const hash = hashObject(bytes);
     const empty = encodeProtocolDirectory({ type: "directory", entries: [] }), emptyHash = hashObject(empty);
-    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "pending.bin", file: hash }] }), directoryHash = hashObject(directory);
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "pending.bin", file: hash, created: 0, modified: 0 }] }), directoryHash = hashObject(directory);
     const change = "folder-pending-object";
     const log = new ChangeLog(scope, folderStateRoot(scope));
     await log.retain({ change, tree: scope, basis: { kind: "accepted", root: emptyHash, update: "up_pending_fixture" },
       graph: snapshotJSON({ root: emptyHash, objects: new Map([[emptyHash, empty]]) }), sourcePath: null, document: null,
       candidate: snapshotJSON({ root: directoryHash, objects: new Map([[directoryHash, directory], [hash, bytes]]) }),
-      update: encodeCandidateUpdateJSON({ change, candidate: directoryHash, trace: null, resolves: [], deltas: [],
+      update: encodeCandidateUpdateJSON({ at: TEST_TIME, change, candidate: directoryHash, trace: null, resolves: [], deltas: [],
         objects: [{ hash: directoryHash, bytes: directory }, { hash, bytes }].sort((a, b) => a.hash.localeCompare(b.hash)) }) });
     try {
       expect(await (await loopbackReads()).object(scope, hash)).toEqual(bytes);

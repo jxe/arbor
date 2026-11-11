@@ -8,6 +8,8 @@ import { decodeProtocolDirectory, type ProtocolClient, type SourceOperation } fr
 import { directorySeed, directorySeedSwift, directorySeedSwiftPath } from "../../../tools/directory-seed.ts";
 import { hostTree } from "../../helpers/tree-config.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 // People 001 phase 1: the directory tree Story creates and keeps from code.
 const token = "directory-owner";
@@ -57,7 +59,7 @@ test("the seed activates a private directory under the profile, and Story's deri
       values: { id: `${tree}-Mac`, tree, device: "Mac" }, at } as SourceOperation,
   ];
   const result = (await owner.submitUpdates(tree, { base: descriptor.update, updates: [
-    { change: crypto.randomUUID(), candidate: null, trace: [{ operations }], resolves: [], deltas: [], objects: [] },
+    { at: TEST_TIME, change: crypto.randomUUID(), candidate: null, trace: [{ operations }], resolves: [], deltas: [], objects: [] },
   ] })).results[0]!;
   expect(result.outcome).toBe("accepted");
 
@@ -77,7 +79,7 @@ test("two devices adding the same tie on one base make one row and no decision",
   const tree = await hostTree(owner, { root: seed.root, objects: seed.objects }, { parent: { tree: profile, name: "directory-twice", kind: "person" } });
   const base = (await owner.descriptor(tree)).tree.update;
   const people = decodeProtocolDirectory(seed.objects.get(seed.root)!).entries.find((e) => e.name === "people")!.directory!;
-  const add = (at: string) => owner.submitUpdates(tree, { base, updates: [{ change: crypto.randomUUID(), candidate: null, resolves: [], deltas: [], objects: [],
+  const add = (at: string) => owner.submitUpdates(tree, { base, updates: [{ at: TEST_TIME, change: crypto.randomUUID(), candidate: null, resolves: [], deltas: [], objects: [],
     trace: [{ operations: [{ key: "op-0", kind: "rowCreate", collection: { material: { kind: "basis", path: "/people", object: people } }, model: "Tie",
       row: JSON.stringify([["id", "Community-tr_ada-tr_canopy"]]), at,
       values: { id: "Community-tr_ada-tr_canopy", person: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", group: "tr_cccccccccccccccccccccccccc", kind: "Community", name: "Ada" } } as SourceOperation] }] }] });

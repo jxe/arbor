@@ -20,6 +20,7 @@ import { serveHost } from "@ovst/overstoryd";
 import { cancelInvitation, createInvitation, editTreeFile, pendingInvitations, renewInvitation } from "@ovst/client";
 import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { deviceClient, newTestDevice, testAccount } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 const ownerToken = "invitations-owner";
 const memberToken = "invitations-member";
@@ -66,7 +67,7 @@ async function claim(link: string): Promise<string> {
     publicKey: identity.publicKey,
     signature: identity.sign(challenge),
     device: { id: device.device, label: "Invited Mac", key: device.key },
-    configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device.device, label: "Invited Mac", key: device.key }))),
+    configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device.device, label: "Invited Mac", key: device.key }), directoryStamper(undefined, 0))),
     inviteCode,
   });
   return identity.profileTree;

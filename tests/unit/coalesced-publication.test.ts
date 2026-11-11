@@ -12,7 +12,7 @@ const vectors = JSON.parse(await readFile(new URL("../../docs/overstory-spec/con
 }> };
 function records(value: typeof vectors.cases[number]): LocalChange[] {
   const bytes = new TextEncoder().encode(value.source), file = hashObject(bytes);
-  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", file}]}), root = hashObject(directory);
+  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", file, created: 0, modified: 0}]}), root = hashObject(directory);
   let graph: TreeSnapshot = {root, objects: new Map([[file, bytes], [root, directory]])}, source = value.source;
   const result: LocalChange[] = [];
   for (const [index, step] of value.steps.entries()) {
@@ -263,7 +263,7 @@ test("typing in a page's body composes over the body", async () => {
   const {parsePage, encodeProtocolPage} = await import("@ovst/protocol");
   let source = "---\ntitle: Note\n---\nHello\n";
   const page = encodeProtocolPage(parsePage(new TextEncoder().encode(source))!), pageHash = hashObject(page);
-  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", page: pageHash}]}), root = hashObject(directory);
+  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", page: pageHash, created: 0, modified: 0 }]}), root = hashObject(directory);
   let graph: TreeSnapshot = {root, objects: new Map([[pageHash, page], [root, directory]])};
   const local: LocalChange[] = [];
   for (const [i, c] of [..." world"].entries()) {

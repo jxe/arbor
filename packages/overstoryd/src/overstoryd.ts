@@ -2565,6 +2565,7 @@ export class HostDaemon implements AsyncDisposable {
         previous: head.hash,
         root,
         change: request.change,
+        at: entryTimeOf(request.at),
         trace: request.trace,
         resolves: guards,
         decisions,
@@ -2978,6 +2979,7 @@ export class HostDaemon implements AsyncDisposable {
     root: ObjectHash,
     change: string,
     staged: Map<ObjectHash, Uint8Array>,
+    at = Date.now(),
   ): Promise<{ hash: ObjectHash; conflicted: boolean }> {
     let previous: ObjectHash | null = null, decisions: LogDecision[] = [], evidence: unknown;
     if (from) {
@@ -2987,7 +2989,7 @@ export class HostDaemon implements AsyncDisposable {
         const rules = this.rules();
         const { answer, objects } = await this.mergeTool.ask({
           base: head.hash, head: head.hash,
-          candidate: { root, change, at: Date.now(), trace: null, resolves: [] },
+          candidate: { root, change, at, trace: null, resolves: [] },
           rules: { ...rules, config: { ...(rules.config as object), conflictProjection: "incoming" } },
         }, staged, [head.entry.root]);
         if (answer.root !== root) throw new ServerFaultError("The merge sidecar did not accept overstoryd's own root");
@@ -2997,7 +2999,7 @@ export class HostDaemon implements AsyncDisposable {
       }
     }
     return this.history.write({
-      format: LOG_ENTRY_FORMAT, tree, previous, root, change, trace: null, resolves: [], decisions,
+      format: LOG_ENTRY_FORMAT, tree, previous, root, change, at, trace: null, resolves: [], decisions,
       ...(evidence !== undefined && evidence !== null ? { evidence } : {}),
     }, [...staged].map(([hash, bytes]) => ({ hash, bytes })));
   }

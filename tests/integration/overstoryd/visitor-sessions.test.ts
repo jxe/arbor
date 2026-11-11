@@ -21,6 +21,7 @@ import {
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { editTreeConfig, hostTree } from "../../helpers/tree-config.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 /**
  * Visitor sessions (accounts §5.6): Dana's home is A. B's community has never
@@ -118,7 +119,7 @@ beforeAll(async () => {
     account: `${home}/~dana`, profileTree: dana.profileTree, configurationTree, challenge,
     publicKey: dana.publicKey, signature: dana.sign(accountChallengeBytes(challenge)),
     device: { id: macID, label: "Dana's Mac", key: mac.key },
-    configuration: activationElement(snapshotTreeConfig({ ...config, access: [...config.access, { who: "everyone", allow: ["read"] }] })),
+    configuration: activationElement(snapshotTreeConfig({ ...config, access: [...config.access, { who: "everyone", allow: ["read"] }] }, directoryStamper(undefined, 0))),
   });
   const macAtA = await homeSession(a.url, dana.profileTree, macID, mac);
   await macAtA.submitUpdate(dana.profileTree, null, await snapshotOf({ "_index.md": "---\ntype: person\ndisplayName: Dana\n---\n" }));

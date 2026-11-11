@@ -47,16 +47,16 @@ beforeAll(async () => {
   const romeIndex = add("romeIndex", text("# Rome\n"));
   const photo = add("photo", new Uint8Array([1, 2, 3]));
   const notes = add("notes", text("Notes\n"));
-  const rome = add("rome", encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file: romeIndex }] }));
+  const rome = add("rome", encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file: romeIndex, created: 0, modified: 0 }] }));
   const trips = add("trips", encodeProtocolDirectory({ type: "directory", entries: sorted([
-    { name: "Paris.md", file: paris },
+    { name: "Paris.md", file: paris, created: 0, modified: 0 },
     { name: "Rome", directory: rome },
-    { name: "_index.md", file: tripsIndex },
-    { name: "photo.bin", file: photo },
+    { name: "_index.md", file: tripsIndex, created: 0, modified: 0 },
+    { name: "photo.bin", file: photo, created: 0, modified: 0 },
   ]) }));
   const directory = encodeProtocolDirectory({
     ...top,
-    entries: sorted([...top.entries, { name: "Trips", directory: trips }, { name: "Notes.md", file: notes }]),
+    entries: sorted([...top.entries, { name: "Trips", directory: trips }, { name: "Notes.md", file: notes, created: 0, modified: 0 }]),
   });
   root = add("root", directory);
   await client.submitUpdate(community, head.tree.update, { root, objects });
@@ -179,7 +179,7 @@ describe("payload-free watch", () => {
     const top = decodeProtocolDirectory(await client.object(community, root));
     const directory = encodeProtocolDirectory({
       ...top,
-      entries: top.entries.map((entry) => entry.name === "Notes.md" ? { name: "Notes.md", file: hashObject(changed) } : entry),
+      entries: top.entries.map((entry) => entry.name === "Notes.md" ? { name: "Notes.md", file: hashObject(changed), created: 0, modified: 0 } : entry),
     });
     await client.submitUpdate(community, update, {
       root: hashObject(directory),

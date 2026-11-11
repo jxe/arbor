@@ -21,6 +21,7 @@ import {
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { editTreeConfig, hostTree, readTreeConfig } from "../../helpers/tree-config.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 /**
  * Security 007 and 011: B's community reserves ~alice by the locator of her
@@ -170,7 +171,7 @@ beforeAll(async () => {
     account: `${origin}/~alice`, profileTree: alice.profileTree, configurationTree, challenge,
     publicKey: alice.publicKey, signature: alice.sign(accountChallengeBytes(challenge)),
     device: { id: macID, label: "Alice's Mac", key: mac.key },
-    configuration: activationElement(snapshotTreeConfig(publicProfile(initialPersonConfig(alice.profileTree, { id: macID, label: "Alice's Mac", key: mac.key })))),
+    configuration: activationElement(snapshotTreeConfig(publicProfile(initialPersonConfig(alice.profileTree, { id: macID, label: "Alice's Mac", key: mac.key })), directoryStamper(undefined, 0))),
   });
   const macAtA = await openSession(a.url, alice.profileTree, macID, mac);
   // Her profile is readable by anyone, so another host can resolve /~alice.
@@ -296,7 +297,7 @@ describe("sessions and trees on a placement host", () => {
 
     await expect(editTreeConfig(phoneAtB, notes, "tree", (values) => ({ ...values, access: [...values.access, { who: { profile: bob.profileTree }, allow: ["read"] }] })))
       .rejects.toThrow("administrator device");
-    await expect(phoneAtB.declareTree(generateOverstoryID("tr"), snapshotTreeConfig({ access: [{ who: { profile: alice.profileTree }, allow: ["admin"] }], mounts: {} })))
+    await expect(phoneAtB.declareTree(generateOverstoryID("tr"), snapshotTreeConfig({ access: [{ who: { profile: alice.profileTree }, allow: ["admin"] }], mounts: {} }, directoryStamper(undefined, 0))))
       .rejects.toThrow("administrator device");
     await editTreeConfig(macAtB, notes, "tree", (values) => ({ ...values, access: values.access.filter((rule) => rule.who !== "everyone") }));
     expect((await readTreeConfig(macAtB, notes, "tree")).values.access).toEqual([{ who: { profile: alice.profileTree }, allow: ["admin"] }]);

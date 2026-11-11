@@ -12,6 +12,8 @@ import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
   type CandidateUpdate, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { deviceClient, testAccount } from "../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 const count = Number(process.env.FILES ?? 200);
 const dir = await mkdtemp(`${tmpdir()}/story-snapshot-cost-`);
@@ -34,7 +36,7 @@ function change(basis: ObjectHash, entries: Record<string, Omit<ProtocolDirector
 function snapshot(candidate: ObjectHash): CandidateUpdate {
   const fresh = [...objects].filter(([hash]) => !sent.has(hash));
   for (const [hash] of fresh) sent.add(hash);
-  return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: fresh.map(([hash, bytes]) => ({ hash, bytes })) };
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: fresh.map(([hash, bytes]) => ({ hash, bytes })) };
 }
 const tree = (await client.account()).account.community.id;
 const head = await client.descriptor(tree);
@@ -68,9 +70,9 @@ await time("traced fast-forward", 20, async (index) => {
   const path = `/page-${(index + 7) % count}.md`;
   const source = decodeProtocolDirectory(objects.get(root)!).entries.find((e) => e.name === path.slice(1))!.file!;
   const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path, object: source }, range: [0, 1] as [number, number] }, text: "#" }];
-  const executed = await executeExactSourceEdits(root, operations, async (hash) => objects.get(hash)!);
+  const executed = await executeExactSourceEdits(root, operations, async (hash) => objects.get(hash)!, TEST_AT);
   for (const [hash, bytes] of executed.generated) { objects.set(hash, bytes); sent.add(hash); }
-  ({ id: update, root } = await submit({ change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: root, after: executed.root, operations }],
+  ({ id: update, root } = await submit({ at: TEST_TIME, change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: root, after: executed.root, operations }],
     resolves: [], deltas: [], objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })) }));
 });
 {

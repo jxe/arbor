@@ -94,6 +94,8 @@ export interface LogEntry {
   /** The accepted projection. */
   root: ObjectHash;
   change: string;
+  /** The update's `at` in Unix ms, which a replay stamps the candidate's own changes with. */
+  at: number;
   /** The authored frames; null for a snapshot. */
   trace: Frame[] | null;
   /** Decision keys this update resolved. */
@@ -122,6 +124,7 @@ const logEntrySchema = z
     previous: hash.nullable(),
     root: hash,
     change: token,
+    at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     trace,
     resolves: z.array(token),
     decisions: logDecisions,

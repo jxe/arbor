@@ -69,6 +69,9 @@ export interface IntentRequest {
   incoming: {
     change: string;
     object: ObjectHash;
+    /** The update's `at` in Unix ms, which stamps the entries it changes.
+     * Absent where the engine only imports roots as they stand. */
+    at?: number;
     /** The authored frame chain. An empty chain carries no evidence: a bare
      * resolution, or snapshot semantics. */
     trace: Frame[];

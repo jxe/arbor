@@ -9,6 +9,8 @@ import { decodeProtocolDirectory, storySyncHeaders, type SourceOperation } from 
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deviceClient, deviceSession, testAccount, testDevice } from "../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
   const process = Bun.spawn(command, {
@@ -116,9 +118,9 @@ try {
       const objects = new Map(snapshot.objects);
       async function replacement(text: string) {
         const operations: SourceOperation[] = [{ key: "replace", kind: "editSource", source: { material: { kind: "basis", path: "/page.md", object: file } }, text }];
-        const result = await executeExactSourceEdits(basis.root, operations, async hash => objects.get(hash)!);
+        const result = await executeExactSourceEdits(basis.root, operations, async hash => objects.get(hash)!, TEST_AT);
         for (const object of result.generated) objects.set(...object);
-        return { change: crypto.randomUUID(), candidate: result.root, trace: [{ before: basis.root, after: result.root, operations }], resolves: [], objects: [...result.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
+        return { at: TEST_TIME, change: crypto.randomUUID(), candidate: result.root, trace: [{ before: basis.root, after: result.root, operations }], resolves: [], objects: [...result.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
       }
       await owner.submitUpdates(tree, { base: basis.update, updates: [await replacement("First retained choice\n")] });
       const conflict = (await owner.submitUpdates(tree, { base: basis.update, updates: [await replacement("Hidden retained choice\n")] })).results[0]!.update;

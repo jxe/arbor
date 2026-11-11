@@ -34,7 +34,7 @@ test("graph changes read only changed paths regardless of unrelated tree size", 
     const f = fixture();
     const entries = Array.from({ length: count }, (_, i) => ({
       name: `n-${i}`,
-      directory: f.dir([{ name: "file", file: f.file(`text-${i}`) }]),
+      directory: f.dir([{ name: "file", file: f.file(`text-${i}`), created: 0, modified: 0 }]),
     }));
     const before = f.dir(entries),
       basis = await validateGraphChange(
@@ -46,7 +46,7 @@ test("graph changes read only changed paths regardless of unrelated tree size", 
     const changed = f.file("edited");
     entries[0] = {
       name: "n-0",
-      directory: f.dir([{ name: "file", file: changed }]),
+      directory: f.dir([{ name: "file", file: changed, created: 0, modified: 0 }]),
     };
     const after = f.dir(entries);
     f.reads.length = 0;
@@ -72,7 +72,7 @@ test("graph changes read only changed paths regardless of unrelated tree size", 
 test("incremental graph validation preserves shared-object and kind checks", async () => {
   const f = fixture(),
     file = f.file("hello"),
-    sub = f.dir([{ name: "a", file }]);
+    sub = f.dir([{ name: "a", file, created: 0, modified: 0 }]);
   const root = f.dir([
     { name: "a", directory: sub },
     { name: "b", directory: sub },
@@ -86,13 +86,13 @@ test("incremental graph validation preserves shared-object and kind checks", asy
   expect(basis.objects.size).toBe(3);
   const conflict = f.dir([
     { name: "a", directory: sub },
-    { name: "b", file: sub },
+    { name: "b", file: sub, created: 0, modified: 0 },
   ]);
   await expect(
     validateGraphChange(conflict, f.load, new Map(), noCollection, basis),
   ).rejects.toThrow("kind conflict");
   // Different roles across versions are legal when the new graph is consistent.
-  const retyped = f.dir([{ name: "a", file: sub }]);
+  const retyped = f.dir([{ name: "a", file: sub, created: 0, modified: 0 }]);
   const newProof = await validateGraphChange(
     retyped,
     f.load,
@@ -105,7 +105,7 @@ test("incremental graph validation preserves shared-object and kind checks", asy
 test("new missing objects and corrupt overlays are rejected despite an accepted basis", async () => {
   const f = fixture(),
     file = f.file("hello"),
-    root = f.dir([{ name: "a", file }]);
+    root = f.dir([{ name: "a", file, created: 0, modified: 0 }]);
   const basis = await validateGraphChange(
     root,
     f.load,
@@ -125,7 +125,7 @@ test("new missing objects and corrupt overlays are rejected despite an accepted 
   f.objects.delete(missing);
   await expect(
     validateGraphChange(
-      f.dir([{ name: "a", file: missing }]),
+      f.dir([{ name: "a", file: missing, created: 0, modified: 0 }]),
       f.load,
       new Map(),
       noCollection,

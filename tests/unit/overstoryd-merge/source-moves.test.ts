@@ -4,6 +4,7 @@ import { engineDiagnostics, mergeIntent } from "../../../packages/overstoryd-mer
 import type { IntentEvaluation } from "../../../packages/overstoryd-merge/src/engine-contract.ts";
 import type { IntentRequest } from "../../../packages/overstoryd-merge/src/intent-model.ts";
 import { Fixture } from "./fixture.ts";
+const TEST_AT = 0;
 
 // The byte executor (`arrangeSources`, which overstoryd's own fast path runs) and
 // the merge engine (which the sidecar replays and merges with) must agree on
@@ -142,7 +143,7 @@ test.each(shapes)("overstoryd and the engine's exact-basis path accept $name wit
   const basis = await head(f, shape.text);
   const candidate = f.tree({ "a.md": shape.expected });
   const request = f.request(basis, candidate, operations(f, shape), "arranged");
-  const plain = await checkPlainTrace(request.incoming.trace!, async hash => f.objects.get(hash)!);
+  const plain = await checkPlainTrace(request.incoming.trace!, async hash => f.objects.get(hash)!, TEST_AT);
   expect(plain).toMatchObject({ plain: true, touched: ["/a.md"] });
   const result = await differential(f, request);
   expect(engineDiagnostics.path).toBe(1);
@@ -214,7 +215,7 @@ async function moveToDocument(f: Fixture, chained: boolean) {
 test.each([false, true])("Move to Document takes both fast paths (chained %p)", async (chained) => {
   const f = new Fixture();
   const { transfer, a, b } = await moveToDocument(f, chained);
-  const plain = await checkPlainTrace(transfer.incoming.trace!, async hash => f.objects.get(hash)!);
+  const plain = await checkPlainTrace(transfer.incoming.trace!, async hash => f.objects.get(hash)!, TEST_AT);
   expect(plain).toMatchObject({ plain: true });
   expect([...(plain as { touched: string[] }).touched].sort()).toEqual(["/a.md", "/b.md"]);
   const result = await differential(f, transfer);

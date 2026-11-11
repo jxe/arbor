@@ -848,7 +848,7 @@ test("nested TreeIDs stay opaque through directory copies and retained state rel
     boundary = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
     nested = f.dir([
       { name: "mount", tree: boundary },
-      { name: "a.txt", file: f.put("old") },
+      { name: "a.txt", file: f.put("old"), created: 0, modified: 0 },
     ]),
     base = f.dir([{ name: "folder", directory: nested }]);
   const source: MaterialRef = {
@@ -1858,6 +1858,7 @@ test("a frame that does not reproduce its result is invalid", async () => {
     current: { object: base },
     incoming: {
       change: "edit",
+      at: 0,
       object: candidate,
       trace: [
         // Claims the first edit changes nothing, which its operation denies.

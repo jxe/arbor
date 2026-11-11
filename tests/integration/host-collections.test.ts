@@ -376,7 +376,7 @@ describe.serial("rows on the host", () => {
       const text = new TextDecoder().decode(snapshot.objects.get(index.file!)!);
       const named = new TextEncoder().encode(text.replace(/^displayName: .*$/m, "displayName: Olive Owner"));
       const file = hashObject(named);
-      const directory = encodeProtocolDirectory({ ...root, entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file } : entry) });
+      const directory = encodeProtocolDirectory({ ...root, entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file, created: 0, modified: 0 } : entry) });
       await owner.submitUpdate(profile, current.tree.update, { root: hashObject(directory), objects: new Map([...snapshot.objects, [file, named], [hashObject(directory), directory]]) } as never);
       expect((await nextResult(stream)).value).toEqual({ id, owner: { id: profile, name: "Olive Owner", handle: "owner" } });
     } finally {
@@ -436,7 +436,7 @@ describe.serial("rows on the host", () => {
         const root = decodeProtocolDirectory(rootBytes);
         const note = new TextEncoder().encode("elsewhere\n");
         const noteHash = hashObject(note);
-        const next = encodeProtocolDirectory({ ...root, entries: [...root.entries.filter((entry) => entry.name !== "note.md"), { name: "note.md", file: noteHash }].sort((x, y) => x.name < y.name ? -1 : 1) });
+        const next = encodeProtocolDirectory({ ...root, entries: [...root.entries.filter((entry) => entry.name !== "note.md"), { name: "note.md", file: noteHash, created: 0, modified: 0 }].sort((x, y) => x.name < y.name ? -1 : 1) });
         const nextHash = hashObject(next);
         // The device's own update, not the sidecar's: outside its execution authority.
         const other = await host.overstoryd.execution.run(undefined, () => submit(id, { base: head.tree.update, updates: [{ change: `note-${Date.now()}`, candidate: nextHash, trace: null, resolves: [], deltas: [],

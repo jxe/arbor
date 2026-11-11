@@ -17,7 +17,7 @@ interface Vectors {
 }
 
 const vectors = JSON.parse(readFileSync(join(import.meta.dir, "../../docs/overstory-spec/conformance/presented-views.json"), "utf8")) as Vectors;
-const NOW = "2026-11-08T00:00:00.000Z";
+const NOW = Date.parse("2026-11-08T00:00:00.000Z");
 const directories: string[] = [];
 const engines: SQLiteQueryEngine[] = [];
 

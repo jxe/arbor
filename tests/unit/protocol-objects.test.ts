@@ -231,7 +231,7 @@ describe("canonical tree objects", () => {
     // A collection's rows are never files the tree describes.
     expect(() => decodeProtocolDirectory(encodeCanonicalCBOR({
       type: "directory",
-      entries: [{ name: "_store.json", file: hash }, { name: "schema.usl", file: hash }],
+      entries: [{ name: "_store.json", file: hash, created: 0, modified: 0 }, { name: "schema.usl", file: hash, created: 0, modified: 0 }],
       childrenSource: { version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl", schemaFingerprint: hash, childSetHash: hash },
     }))).toThrow("Unknown wire object");
   });
@@ -248,7 +248,7 @@ describe("canonical tree objects", () => {
         type: "directory",
         entries: [
           { name: "nested", tree: "tr_child" },
-          expect.objectContaining({ name: "note.md", file: expect.stringMatching(/^sha256:/) }),
+          expect.objectContaining({ name: "note.md", file: expect.stringMatching(/^sha256:/), created: 0, modified: 0 }),
         ],
       });
       expect(snapshot.objects.size).toBe(2);
@@ -335,7 +335,7 @@ describe("canonical tree objects", () => {
       const objects = new Map(clean.objects);
       const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
       const top = decodeProtocolDirectory(objects.get(clean.root)!);
-      const legacy = put(encodeProtocolDirectory({ ...top, entries: [{ name: ".DS_Store", file: put(new TextEncoder().encode("old finder")) }, ...top.entries] }));
+      const legacy = put(encodeProtocolDirectory({ ...top, entries: [{ name: ".DS_Store", file: put(new TextEncoder().encode("old finder")), created: 0, modified: 0 }, ...top.entries] }));
       const load = async (hash: string) => objects.get(hash)!;
 
       await writeFile(join(destination, ".DS_Store"), "local finder");

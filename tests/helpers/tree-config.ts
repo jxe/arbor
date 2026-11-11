@@ -8,6 +8,7 @@ import {
   type TreeConfigValues,
   type TreeSnapshot,
 } from "@ovst/protocol";
+import { directoryStamper } from "@ovst/protocol";
 
 /** A tree's accepted configuration values, read as one of its administrators. */
 export async function readTreeConfig(client: ProtocolClient, tree: string, kind: TreeConfigKind): Promise<{ values: TreeConfigValues; update: string }> {
@@ -24,7 +25,7 @@ export async function editTreeConfig(
 ) {
   const { tree: descriptor, snapshot } = await client.treeConfiguration(tree);
   const values = change(readTreeConfigGraph(snapshot, kind, tree));
-  return client.submitUpdate(descriptor.id, descriptor.update, snapshotTreeConfig(values));
+  return client.submitUpdate(descriptor.id, descriptor.update, snapshotTreeConfig(values, directoryStamper(undefined, 0)));
 }
 
 /**
@@ -50,7 +51,7 @@ export async function hostTree(
   await client.declareTree(tree, snapshotTreeConfig({
     access: [...admins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), ...(options.access ?? [])],
     mounts: {},
-  }));
+  }, directoryStamper(undefined, 0)));
   if (options.parent) {
     const { name } = options.parent;
     await editTreeConfig(client, options.parent.tree, options.parent.kind, (values) => ({ ...values, mounts: { ...values.mounts, [name]: tree } }));

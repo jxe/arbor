@@ -14,6 +14,7 @@ import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { reserveMembers } from "../../helpers/community-reservations.ts";
 import { deviceClient, newTestDevice, testAccount, testDevice } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 const ownerToken = "owner-device-credential";
 const aliceProfileTree = generateOverstoryID("tr");
@@ -117,7 +118,7 @@ describe("client-generated profile and account bootstrap", () => {
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
       device: { id: deviceID, label: "Invited Mac", key: invited.key },
-      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: deviceID, label: "Invited Mac", key: invited.key }))),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: deviceID, label: "Invited Mac", key: invited.key }), directoryStamper(undefined, 0))),
     };
     await expect(client.joinAccount({ ...request, inviteCode: "wrong-code" })).rejects.toThrow("Invitation code is invalid");
     expect(running.overstoryd.accountByHandle(handle)).toBeNull();
@@ -161,7 +162,7 @@ describe("client-generated profile and account bootstrap", () => {
     const snapshot = await owner.snapshot(community.id, head.tree.root);
     const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
     const bytes = new TextEncoder().encode(crlf.after.replaceAll("\r\n", "\n"));
-    const rootBytes = encodeProtocolDirectory({ type: "directory", entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes) } : entry) });
+    const rootBytes = encodeProtocolDirectory({ type: "directory", entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes), created: 0, modified: 0 } : entry) });
     await owner.submitUpdate(community.id, head.tree.update, { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [hashObject(bytes), bytes], [hashObject(rootBytes), rootBytes]]) }, { ifCurrent: head.tree.update });
   });
 
@@ -203,7 +204,7 @@ describe("client-generated profile and account bootstrap", () => {
     const administratorID = administratorDevice.device;
     const profile = await resolveSnapshot(await snapshotDirectory(await profileFolder("bob", "person")));
     const initial = initialPersonConfig(profileTree, { id: administratorID, label: "Bob's Mac", key: administratorDevice.key });
-    const configuration = activationElement(snapshotTreeConfig({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] }));
+    const configuration = activationElement(snapshotTreeConfig({ ...initial, access: [...initial.access, { who: "everyone", allow: ["read"] }] }, directoryStamper(undefined, 0)));
     const request = {
       profileTree,
       configurationTree,
@@ -214,10 +215,10 @@ describe("client-generated profile and account bootstrap", () => {
     const challenge = await client.createAccountChallenge({ account: `${origin}/~bob`, profileTree, configurationTree });
     const identityProof = { challenge, publicKey: bobIdentity.publicKey, signature: bobIdentity.sign(challenge) };
     // A person's configuration names that person as its only administrator.
-    const coAdministered = activationElement(snapshotTreeConfig({ ...initial, access: [...initial.access, { who: { profile: aliceProfileTree }, allow: ["admin"] }] }));
+    const coAdministered = activationElement(snapshotTreeConfig({ ...initial, access: [...initial.access, { who: { profile: aliceProfileTree }, allow: ["admin"] }] }, directoryStamper(undefined, 0)));
     await expect(new ProtocolClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: coAdministered }))
       .rejects.toThrow("no one else");
-    const mounting = activationElement(snapshotTreeConfig({ ...initial, mounts: { notes: generateOverstoryID("tr") } }));
+    const mounting = activationElement(snapshotTreeConfig({ ...initial, mounts: { notes: generateOverstoryID("tr") } }, directoryStamper(undefined, 0)));
     await expect(new ProtocolClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: mounting }))
       .rejects.toThrow("mounts nothing");
     // The configuration travels as an activation element; the retired `{ root, objects }` shape is refused.
@@ -252,7 +253,7 @@ describe("client-generated profile and account bootstrap", () => {
 
     // An ordinary device may not declare or activate trees.
     const phoneClient = await deviceClient(running.url, phoneDevice.name, { profileTree });
-    await expect(phoneClient.declareTree(generateOverstoryID("tr"), snapshotTreeConfig({ access: [{ who: { profile: profileTree }, allow: ["admin"] }], mounts: {} })))
+    await expect(phoneClient.declareTree(generateOverstoryID("tr"), snapshotTreeConfig({ access: [{ who: { profile: profileTree }, allow: ["admin"] }], mounts: {} }, directoryStamper(undefined, 0))))
       .rejects.toThrow("administrator device");
 
     const treeSource = join(sandbox, "bob-notes");
@@ -494,7 +495,7 @@ describe("self-certifying profile account proof", () => {
       const configurationTree = treeConfigurationID(profileTree);
       const guest = newTestDevice("guest");
       const deviceID = guest.device;
-      const configuration = activationElement(snapshotTreeConfig(initialPersonConfig(profileTree, { id: deviceID, label: "Guest's Mac", key: guest.key })));
+      const configuration = activationElement(snapshotTreeConfig(initialPersonConfig(profileTree, { id: deviceID, label: "Guest's Mac", key: guest.key }), directoryStamper(undefined, 0)));
       const anonymous = new ProtocolClient(target.url);
       const challenge = await anonymous.createAccountChallenge({ account: targetAccountLocator, profileTree, configurationTree });
 
@@ -552,14 +553,14 @@ test("ordinary anonymous create permission works without app and does not grant 
   const snapshot = await bob.snapshot(bobProfileTree, current.tree.root);
   const bytes = new TextEncoder().encode("created"), hash = hashObject(bytes);
   const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
-  const rootBytes = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: hash }] });
+  const rootBytes = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: hash, created: 0, modified: 0 }] });
   const candidate = { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [hash, bytes], [hashObject(rootBytes), rootBytes]]) };
   const anonymous = new ProtocolClient(running.url);
   const accepted = await anonymous.submitUpdate(bobProfileTree, current.tree.update, candidate, { ifCurrent: current.tree.update });
   expect(accepted.outcome).toBe("accepted");
   await expect(anonymous.descriptor(bobProfileTree)).rejects.toThrow();
   const changed = new TextEncoder().encode("overwritten"), changedHash = hashObject(changed);
-  const changedRoot = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: changedHash }] });
+  const changedRoot = encodeProtocolDirectory({ ...root, entries: [...root.entries, { name: "public-note.txt", file: changedHash, created: 0, modified: 0 }] });
   await expect(anonymous.submitUpdate(bobProfileTree, accepted.update.id, { root: hashObject(changedRoot), objects: new Map([...candidate.objects, [changedHash, changed], [hashObject(changedRoot), changedRoot]]) }, { ifCurrent: accepted.update.id })).rejects.toThrow();
   await editBob(bob, (values) => ({ ...values, access: [...values.access.filter((rule) => rule.who !== "everyone"), { who: "everyone", allow: ["read"] }] }));
 });
@@ -568,7 +569,7 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
   const client = await deviceClient(running.url, bobCredential, { profileTree: bobProfileTree });
   const config = treeConfigurationID(bobProfileTree);
   const { values } = await bobPerson(client);
-  const policy = (allow: any[]) => snapshotTreeConfig({ ...values, access: [...values.access.filter((rule) => !rule.app), { who: "everyone", app: "tr_supplies", allow }] });
+  const policy = (allow: any[]) => snapshotTreeConfig({ ...values, access: [...values.access.filter((rule) => !rule.app), { who: "everyone", app: "tr_supplies", allow }] }, directoryStamper(undefined, 0));
   const head = await client.descriptor(config);
   const initial = await client.submitUpdate(config, head.tree.update, policy(["read", "create-child", "delete"]));
   const token = running.overstoryd.execution.issue({ code: "tr_supplies", version: "v1", caller: null, subject: "anonymous", expiresAt: Date.now() + 60000, active: () => true,
@@ -620,22 +621,22 @@ test("removing an app approval wins a concurrent expansion and re-adding needs r
   const foreign = generateOverstoryID("tr");
   const approved = { ...values, apps: { ...values.apps, tr_supplies: [{ resource: foreign, who: "me" as const, allow: ["read" as const] }] } };
   const head = await client.descriptor(config);
-  const base = await client.submitUpdate(config, head.tree.update, snapshotTreeConfig(approved));
+  const base = await client.submitUpdate(config, head.tree.update, snapshotTreeConfig(approved, directoryStamper(undefined, 0)));
   const expanded = { ...approved, apps: { ...approved.apps, tr_supplies: [{ resource: foreign, who: "me" as const, allow: ["write" as const] }] } };
-  await client.submitUpdate(config, base.update.id, snapshotTreeConfig(expanded));
+  await client.submitUpdate(config, base.update.id, snapshotTreeConfig(expanded, directoryStamper(undefined, 0)));
   const { tr_supplies: _removed, ...remaining } = approved.apps;
   const deleted = { ...approved, apps: remaining };
-  const merged = await client.submitUpdate(config, base.update.id, snapshotTreeConfig(deleted));
+  const merged = await client.submitUpdate(config, base.update.id, snapshotTreeConfig(deleted, directoryStamper(undefined, 0)));
   expect(merged.update.conflicted).toBe(true);
   const effective = readTreeConfigGraph(await client.snapshot(config, merged.update.root), "person", bobProfileTree);
   expect(effective.apps!.tr_supplies ?? []).toEqual([]);
-  await expect(client.submitUpdate(config, merged.update.id, snapshotTreeConfig(expanded))).rejects.toThrow(/guarded resolution/);
+  await expect(client.submitUpdate(config, merged.update.id, snapshotTreeConfig(expanded, directoryStamper(undefined, 0)))).rejects.toThrow(/guarded resolution/);
   const conflicts = await client.conflicts(config, merged.update.id, merged.update.root);
   const resolves = conflicts.decisions.map(d => ({ state: merged.update.id, conflict: d.id, alternatives: d.alternatives.map(a => a.id) }));
   const { sources: _sources, ...effectiveValues } = effective;
-  const confirmed = await client.submitUpdate(config, merged.update.id, snapshotTreeConfig(effectiveValues), { ifCurrent: merged.update.id, resolves });
+  const confirmed = await client.submitUpdate(config, merged.update.id, snapshotTreeConfig(effectiveValues, directoryStamper(undefined, 0)), { ifCurrent: merged.update.id, resolves });
   expect(confirmed.update.conflicted).toBe(false);
-  const readded = await client.submitUpdate(config, confirmed.update.id, snapshotTreeConfig(approved), { ifCurrent: confirmed.update.id });
+  const readded = await client.submitUpdate(config, confirmed.update.id, snapshotTreeConfig(approved, directoryStamper(undefined, 0)), { ifCurrent: confirmed.update.id });
   expect(readded.update.conflicted).toBe(false);
 });
 
@@ -644,17 +645,17 @@ test("the old account files are not a valid tree configuration, and an edit cann
   const config = treeConfigurationID(bobProfileTree);
   const head = await client.descriptor(config);
   const { values } = await bobPerson(client);
-  const valid = snapshotTreeConfig(values);
+  const valid = snapshotTreeConfig(values, directoryStamper(undefined, 0));
   const legacy = snapshotTreeConfigFiles({
     ...Object.fromEntries(decodeProtocolDirectory(valid.objects.get(valid.root)!).entries.map((entry) => [entry.name, new TextDecoder().decode(valid.objects.get(entry.file!)!)])),
     ["trees.yaml" as "access.yaml"]: "{}\n",
-  });
+  }, directoryStamper(undefined, 0));
   await expect(client.submitUpdate(config, head.tree.update, legacy)).rejects.toThrow();
   const noAdministrator = snapshotTreeConfigFiles({
     "access.yaml": "- who: everyone\n  allow: [read]\n",
     "mounts.yaml": "{}\n",
     "devices.yaml": new TextDecoder().decode(valid.objects.get(decodeProtocolDirectory(valid.objects.get(valid.root)!).entries.find((entry) => entry.name === "devices.yaml")!.file!)!),
-  });
+  }, directoryStamper(undefined, 0));
   await expect(client.submitUpdate(config, head.tree.update, noAdministrator)).rejects.toThrow();
   expect((await client.descriptor(config)).tree.update).toBe(head.tree.update);
 });
@@ -712,7 +713,7 @@ describe("membership does not administer the host", () => {
       signature: identity.sign(challenge),
       ...(inviteCode ? { inviteCode } : {}),
       device: { id: device.device, label: `${handle}'s Mac`, key: device.key },
-      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device.device, label: `${handle}'s Mac`, key: device.key }))),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device.device, label: `${handle}'s Mac`, key: device.key }), directoryStamper(undefined, 0))),
     });
     return deviceClient(host.url, device.name, { profileTree: identity.profileTree });
   }
@@ -724,7 +725,7 @@ describe("membership does not administer the host", () => {
     const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
     const index = root.entries.find((entry) => entry.name === "_index.md")!.file!;
     const bytes = new TextEncoder().encode(rewrite(new TextDecoder().decode(snapshot.objects.get(index)!)));
-    const rootBytes = encodeProtocolDirectory({ type: "directory", entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes) } : entry) });
+    const rootBytes = encodeProtocolDirectory({ type: "directory", entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes), created: 0, modified: 0 } : entry) });
     return { head, candidate: { root: hashObject(rootBytes), objects: new Map([...snapshot.objects, [hashObject(bytes), bytes], [hashObject(rootBytes), rootBytes]]) } };
   }
 

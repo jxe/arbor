@@ -11,6 +11,8 @@ import { MergeTool, mergeStagingRoot } from "../../../packages/overstoryd/src/me
 import { mergeProtocolTrees } from "@ovst/tree-merge";
 import { initialPersonConfig, snapshotTreeConfig } from "@ovst/protocol";
 import fixtures from "../../fixtures/overstoryd/merge.json";
+import { directoryStamper } from "@ovst/protocol";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 let directory: string, store: ObjectStore, tool: MergeTool;
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "story-merge-tool-")); store = new ObjectStore(join(directory, "objects")); tool = new MergeTool(directory); });
@@ -25,7 +27,7 @@ async function expectNoStaging() {
 const encoded = (s: string) => new TextEncoder().encode(s);
 function snapshot(source: string, name = "note.md"): TreeSnapshot {
   const bytes = encoded(source), file = hashObject(bytes);
-  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name, file }] });
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name, file, created: 0, modified: 0 }] });
   const root = hashObject(rootBytes);
   return { root, objects: new Map([[file, bytes], [root, rootBytes]]) };
 }
@@ -39,11 +41,11 @@ async function entry(value: Omit<LogEntry, "format" | "tree" | "trace" | "resolv
 /** A tree whose history is `base` then `current`, and a snapshot of `incoming` authored on `base`. */
 async function prepare(base: TreeSnapshot, current: TreeSnapshot, incoming: TreeSnapshot, id = "tree-default") {
   await store.store([...base.objects, ...current.objects].map(([hash, bytes]) => ({ hash, bytes })));
-  const first = await entry({ previous: null, root: base.root, change: "base" });
-  const head = current.root === base.root ? first : await entry({ previous: first, root: current.root, change: "current" });
+  const first = await entry({ previous: null, root: base.root, at: 0, change: "base" });
+  const head = current.root === base.root ? first : await entry({ previous: first, root: current.root, at: 0, change: "current" });
   const question: MergeQuestion = {
     base: first, head,
-    candidate: { root: incoming.root, change: "incoming", trace: null, resolves: [] },
+    candidate: { root: incoming.root, at: TEST_AT, change: "incoming", trace: null, resolves: [] },
     rules: { id, revision: 1 },
   };
   return { question, inputs: incoming.objects };
@@ -70,7 +72,7 @@ test.each(fixtures.markdownCases)("a snapshot question keeps the tree merge's ou
 
 test("unknown rules are a typed refusal", async () => {
   const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-  const config = snapshotTreeConfig(initialPersonConfig(profile, { id: admin, label: "Mac" }));
+  const config = snapshotTreeConfig(initialPersonConfig(profile, { id: admin, label: "Mac" }), directoryStamper(undefined, 0));
   const { question, inputs } = await prepare(config, config, config, "tree-config-v1");
   const refusal = await tool.ask(question, inputs).then(() => null, (error: unknown) => error);
   expect(refusal).toBeInstanceOf(MergeRefusal);

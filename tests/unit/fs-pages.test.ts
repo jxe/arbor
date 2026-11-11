@@ -13,6 +13,7 @@ import {
   treeHoldsPages,
   type ObjectHash,
 } from "@ovst/protocol";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 
@@ -54,7 +55,7 @@ describe("Markdown as pages on disk", () => {
       const objects = new Map<ObjectHash, Uint8Array>();
       const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
       const treeOf = (status: string) => put(encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md",
-        page: put(encodeProtocolPage({ type: "page", id: "p1", properties: [["title", "A"], ["status", status]], body: encoder.encode("Body\n") })) }] }));
+        page: put(encodeProtocolPage({ type: "page", id: "p1", properties: [["title", "A"], ["status", status]], body: encoder.encode("Body\n") })), created: 0, modified: 0 }] }));
       const load = async (hash: ObjectHash) => objects.get(hash)!;
       // A file that already reads as the page is left as written.
       await materializeTree(root, treeOf("draft"), load);
@@ -76,13 +77,13 @@ describe("Markdown as pages on disk", () => {
       await writeFile(join(root, "a.md"), "---\ntitle: B\ntags: [y, z]\n---\nBody\n");
       const after = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], undefined, undefined, undefined, true));
       const read = async (hash: ObjectHash) => after.objects.get(hash) ?? before.objects.get(hash)!;
-      const operations = await deriveRowOperations(before.root, after.root, read);
+      const operations = (await deriveRowOperations(before.root, after.root, read, TEST_AT))?.operations;
       expect(operations?.map((op) => [op.kind, op.kind === "rowCreate" || op.kind === "rowDelete" ? null : op.field])).toEqual([
         ["set", "title"], ["disconnect", "tags"], ["connect", "tags"],
       ]);
       await writeFile(join(root, "a.md"), "---\ntitle: B\ntags: [y, z]\n---\nBody changed\n");
       const edited = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], undefined, undefined, undefined, true));
-      expect(await deriveRowOperations(before.root, edited.root, async (hash) => edited.objects.get(hash) ?? before.objects.get(hash)!)).toBeNull();
+      expect(await deriveRowOperations(before.root, edited.root, async (hash) => edited.objects.get(hash) ?? before.objects.get(hash)!, TEST_AT)).toBeNull();
       expect(decoder.decode(decodeProtocolPage(edited.objects.get(decodeProtocolDirectory(edited.objects.get(edited.root)!).entries[0]!.page!)!).body)).toBe("Body changed\n");
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
 import { generateOverstoryID, snapshotTreeConfig, type ProtocolClient, type ResourceAccessRule } from "@ovst/protocol";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 const token = "declare-turns-owner";
 let sandbox: string;
@@ -35,7 +36,7 @@ test("two declarations of one TreeID take turns: one is accepted and the other r
   const declare = (readable: boolean) => {
     const access: ResourceAccessRule[] = [{ who: { profile }, allow: ["admin"] }];
     if (readable) access.push({ who: "everyone", allow: ["read"] });
-    return owner.declareTree(tree, snapshotTreeConfig({ access, mounts: {} }));
+    return owner.declareTree(tree, snapshotTreeConfig({ access, mounts: {} }, directoryStamper(undefined, 0)));
   };
   const [first, second] = await Promise.allSettled([declare(false), declare(true)]);
   const settled = [first, second];

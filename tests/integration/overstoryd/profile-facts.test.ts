@@ -34,7 +34,7 @@ async function edit(tree: string, files: Record<string, string | null>) {
     if (text === null) continue;
     const bytes = encoder.encode(text), hash = hashObject(bytes);
     objects.set(hash, bytes);
-    entries.push({ name, file: hash } as ProtocolDirectoryEntry);
+    entries.push({ name, file: hash, created: 0, modified: 0 } as ProtocolDirectoryEntry);
   }
   entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   const bytes = encodeProtocolDirectory({ type: "directory", entries }), next = hashObject(bytes);
@@ -77,7 +77,7 @@ beforeAll(async () => {
   const account = (await owner.account()).account;
   const snapshotOf = (text: string) => {
     const bytes = encoder.encode(text), file = hashObject(bytes);
-    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file }] }), root = hashObject(directory);
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file, created: 0, modified: 0 }] }), root = hashObject(directory);
     return { root, objects: new Map([[file, bytes], [root, directory]]) };
   };
   const parent = { tree: account.profileTree!, kind: "person" as const };

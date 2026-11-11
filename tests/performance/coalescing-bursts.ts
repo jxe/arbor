@@ -28,7 +28,7 @@ const lineEnd = (source: string, line: number) => source.indexOf("\n", offsetOfL
 
 export function recordsFor(source: string, steps: Step[], path = "/note.md"): LocalChange[] {
   const bytes = encoder.encode(source), file = hashObject(bytes);
-  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: path.slice(1), file }] }), root = hashObject(directory);
+  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: path.slice(1), file, created: 0, modified: 0 }] }), root = hashObject(directory);
   let graph: TreeSnapshot = { root, objects: new Map([[file, bytes], [root, directory]]) };
   const result: LocalChange[] = [];
   for (const [index, step] of steps.entries()) {

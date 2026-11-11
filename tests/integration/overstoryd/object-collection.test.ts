@@ -10,6 +10,8 @@ import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashO
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 const DAY = 24 * 60 * 60 * 1000;
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient, store: ObjectStore;
@@ -41,7 +43,7 @@ function change(basis: string, entries: Record<string, Omit<ProtocolDirectoryEnt
   return directory(value);
 }
 function snapshot(candidate: string, omit: string[] = []): CandidateUpdate {
-  return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
     objects: [...objects].filter(([hash]) => !omit.includes(hash)).map(([hash, bytes]) => ({ hash, bytes })) };
 }
 async function submit(update: CandidateUpdate, basis = base) {
@@ -88,7 +90,7 @@ afterEach(async () => {
 test("collection deletes only old unreferenced objects and leaves an intact, replayable history", async () => {
   // Dead objects: a body and a directory no accepted update names.
   const junk = bytesOf("never accepted");
-  const junkBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "x", file: junk.hash }] });
+  const junkBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "x", file: junk.hash, created: 0, modified: 0 }] });
   const junkDirectory = { hash: hashObject(junkBytes), bytes: junkBytes };
   // A document version whose body no retained root holds any more, as after migration 016.
   const oldBody = bytesOf("---\nid: note\n---\nSquashed\n");

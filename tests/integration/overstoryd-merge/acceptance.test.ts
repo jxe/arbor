@@ -6,6 +6,8 @@ import { serveHost } from "@ovst/overstoryd";
 import { ProtocolClient, ProtocolHTTPError, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate, type ProtocolDirectoryEntry } from "@ovst/protocol";
 import { writeFile } from "node:fs/promises";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 async function scenario(run: (context: {
   start: (mergeTool?: { command: string[]; timeoutMs: number }) => Promise<void>;
@@ -37,9 +39,9 @@ function editor(objects: Map<string, Uint8Array>) {
   return (root: string, text: string, name = "note.md"): CandidateUpdate => {
     const bytes = new TextEncoder().encode(text), file = hashObject(bytes); objects.set(file, bytes);
     const value = decodeProtocolDirectory(objects.get(root)!);
-    value.entries = [...value.entries.filter(entry => entry.name !== name), { name, file }].sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+    value.entries = [...value.entries.filter(entry => entry.name !== name), { name, file, created: 0, modified: 0 }].sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
     const source = encodeProtocolDirectory(value), candidate = hashObject(source); objects.set(candidate, source);
-    return { change: crypto.randomUUID(), candidate, objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })), trace: null, resolves: [], deltas: [] };
+    return { at: TEST_TIME, change: crypto.randomUUID(), candidate, objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })), trace: null, resolves: [], deltas: [] };
   };
 }
 
@@ -116,13 +118,13 @@ test("an edit after a kept root choice leaves the deletion it declined unapplied
     const entries = (root: string) => decodeProtocolDirectory(objects.get(root)!).entries;
     const file = (root: string, name: string) => (entries(root).find(entry => entry.name === name) as { file: string }).file;
     const update = (candidate: string, trace: CandidateUpdate["trace"]): CandidateUpdate =>
-      ({ change: crypto.randomUUID(), candidate, trace, resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) });
+      ({ at: TEST_TIME, change: crypto.randomUUID(), candidate, trace, resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) });
     const snapshot = (root: string, name: string, value: ProtocolDirectoryEntry) =>
       update(directory([...entries(root).filter(entry => entry.name !== name), value]), null);
     const traced = (root: string, name: string, find: string, replacement: string) => {
       const object = file(root, name), source = Buffer.from(objects.get(object)!), at = source.indexOf(find);
       const next = put(Buffer.concat([source.subarray(0, at), Buffer.from(replacement), source.subarray(at + Buffer.byteLength(find))]));
-      const candidate = directory([...entries(root).filter(entry => entry.name !== name), { name, file: next }]);
+      const candidate = directory([...entries(root).filter(entry => entry.name !== name), { name, file: next, created: 0, modified: 0 }]);
       return update(candidate, [{ before: root, after: candidate, operations: [{ key: "edit", kind: "editSource",
         source: { material: { kind: "basis", path: `/${name}`, object }, range: [at, at + Buffer.byteLength(find)] }, text: replacement }] }]);
     };
@@ -135,14 +137,14 @@ test("an edit after a kept root choice leaves the deletion it declined unapplied
     const block = "- Once Rebecca is here\n  - Run\n  - Tips for each of the cleaners €40\n  - Groceries\n\n";
     const head = (await (await client()).descriptor(tree)).tree;
     const kindBase = await submit(head.update, update(directory([...entries(head.root),
-      { name: "Assets", file: put(new TextEncoder().encode("Assets is a file for now.\n")) },
-      { name: "Errands.md", file: put(new TextEncoder().encode(`# Errands\n\n${block}Call the landlord.\n`)) },
-      { name: "List.md", file: put(new TextEncoder().encode("- Milk\n- Eggs from the farm stand\n")) },
+      { name: "Assets", file: put(new TextEncoder().encode("Assets is a file for now.\n")), created: 0, modified: 0 },
+      { name: "Errands.md", file: put(new TextEncoder().encode(`# Errands\n\n${block}Call the landlord.\n`)), created: 0, modified: 0 },
+      { name: "List.md", file: put(new TextEncoder().encode("- Milk\n- Eggs from the farm stand\n")), created: 0, modified: 0 },
     ]), null));
     // An entry-kind choice: a file edited on one side, a folder on the other.
-    await submit(kindBase.id, snapshot(kindBase.root, "Assets", { name: "Assets", file: put(new TextEncoder().encode("Assets, edited.\n")) }));
+    await submit(kindBase.id, snapshot(kindBase.root, "Assets", { name: "Assets", file: put(new TextEncoder().encode("Assets, edited.\n")), created: 0, modified: 0 }));
     const kind = await submit(kindBase.id, snapshot(kindBase.root, "Assets",
-      { name: "Assets", directory: directory([{ name: "logo.txt", file: put(new TextEncoder().encode("logo\n")) }]) }));
+      { name: "Assets", directory: directory([{ name: "logo.txt", file: put(new TextEncoder().encode("logo\n")), created: 0, modified: 0 }]) }));
     // A delete/edit of the same block, each traced from the same head.
     const edited = await submit(kind.id, traced(kind.root, "Errands.md", "€40", "€50"));
     const kept = await submit(kind.id, traced(kind.root, "Errands.md", block, ""));
