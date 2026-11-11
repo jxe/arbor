@@ -134,7 +134,7 @@ use "views/practices.vad" (view as Practices)
 ````
 
 The server has enabled hosting for the tree, so it checks the file and binds
-`Practice` to `(tr_…, /practices, schema fingerprint)` ([handles](4.1-apps.md#1-handles-and-code-versions)).
+`Practice` to `(tr_…, /practices, schema fingerprint)` ([handles](1.5-vad.md#6-handles-and-code-versions)).
 The plan comes from the source alone: the `Link` expands once per published
 practice ([expansion](1.5-vad.md#35-expansion), [the language](1.5-vad.md)).
 A visitor's browser receives the page with the view drawn as HTML. Story opens
@@ -142,7 +142,7 @@ A visitor's browser receives the page with the view drawn as HTML. Story opens
 receives the plan's rows as `result`, then `ready`, and draws the view natively.
 When Joe edits the CSV, the tree advances, the host sees which rows the plan
 read changed, and a new `result` with a new `outputHash` follows
-([apps §2](4.1-apps.md#2-evaluate-and-stream-views)).
+([reading and watching §4](1.2-reading-and-watching.md#4-views)).
 
 ## 8. Run a mutation
 
@@ -162,7 +162,7 @@ insert as one guarded update of row operations. The receipt's `affected` names
 that accepted update, and Alice's watch sees an ordinary `tree.update` frame;
 Joe's Mac rewrites the CSV. A retry with the same `mutationID` returns the
 original receipt and does nothing twice ([mutations](1.5-vad.md#4-mutations),
-[apps §3](4.1-apps.md#3-execute-named-mutations), [actions](1.5-vad.md#310-actions-forms-and-events)).
+[updates and merging §4](1.3-updates-and-merging.md#4-mutations), [actions](1.5-vad.md#310-actions-forms-and-events)).
 
 ## 9. Rename the canonical URL
 

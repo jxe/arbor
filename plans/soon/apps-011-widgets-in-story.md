@@ -7,7 +7,7 @@ other people wait for Apps 010.
 **Why and when:** Joe wants to embed small apps in Story pages, drawn natively, not in a web
 view and not with React (Joe, 2026-11-05, in the apps discussion). Since 2026-11-11 they are
 written in the declarative view language, UVL, in `.view` files, not TSX
-([apps](../../docs/overstory-spec/4.1-apps.md)). This is the third of the three apps plans Joe split on 2026-11-06. It absorbs
+([reading and watching §4](../../docs/overstory-spec/1.2-reading-and-watching.md#4-views)). This is the third of the three apps plans Joe split on 2026-11-06. It absorbs
 Apps 001 (the Supplies site) and Apps 003 (compiler and editor tooling). Those deleted plans
 are in git history, and the parts that still apply are below.
 
@@ -83,7 +83,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   - Story waits up to about 100 ms so all of an evaluation's streams are at one tree version.
 - Views on a placed tree are evaluated against Story Sync's local SQLite. Otherwise
   Story asks the host for the view's `rows` answer
-  ([apps §2](../../docs/overstory-spec/4.1-apps.md#2-evaluate-and-stream-views))
+  ([reading and watching §4](../../docs/overstory-spec/1.2-reading-and-watching.md#4-views))
   and evaluates the view itself, so state changes stay on the device.
 
 ## 3. The SwiftUI renderer

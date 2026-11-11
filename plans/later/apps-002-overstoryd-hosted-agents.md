@@ -189,7 +189,7 @@ The same authored agent and overstoryd runner render through local Story for the
 
 ## Text moved from the spec (2026-11-11)
 
-Joe moved these undecided designs out of [apps](../../docs/overstory-spec/4.1-apps.md) on 2026-11-11, since they aren't built. They come back into the spec when this plan decides them. Old section numbers are from that chapter before the move.
+Joe moved these undecided designs out of [reading and watching §4](../../docs/overstory-spec/1.2-reading-and-watching.md#4-views) on 2026-11-11, since they aren't built. They come back into the spec when this plan decides them. Old section numbers are from that chapter before the move.
 
 ### From §13 Agents
 
@@ -208,7 +208,7 @@ Every runtime may expose Overstory's built-in read, navigate, search, backlinks,
 node-query, and mutation operations. The node-query surface includes schema-
 governed collection and relational capabilities when the addressed source
 provides them. An agent may additionally name compiled
-[app](../../docs/overstory-spec/4.1-apps.md#1-handles-and-code-versions) query and mutation handles. Each
+[app](../../docs/overstory-spec/1.5-vad.md#6-handles-and-code-versions) query and mutation handles. Each
 tool has a typed input/output boundary and retains tree/path provenance in its
 results.
 

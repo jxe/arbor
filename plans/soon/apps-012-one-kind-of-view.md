@@ -9,7 +9,7 @@ Story's side.
 The spec describes the target:
 - [VAD](../../docs/overstory-spec/1.5-vad.md#3-views)
   makes a `~views` entry a **declared view**.
-- [apps §2](../../docs/overstory-spec/4.1-apps.md#2-evaluate-and-stream-views)
+- [reading and watching §4](../../docs/overstory-spec/1.2-reading-and-watching.md#4-views)
   names both kinds with one `HandleRef`: for a declared view, the collection's `schema.usl`,
   a label, and the schema file's hash.
 

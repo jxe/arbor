@@ -2,8 +2,8 @@
 
 **Why and when:** Joe decided on 2026-11-11 that views and mutations are written in a
 declarative language, now VAD, in `.vad` files, and TypeScript support for both is dropped. The spec
-describes the target ([apps](../../docs/overstory-spec/4.1-apps.md),
-syntax in [the grammar](../../docs/overstory-spec/1.5-vad.md#7-grammar)). The
+describes the target ([reading and watching §4](../../docs/overstory-spec/1.2-reading-and-watching.md#4-views),
+syntax in [the grammar](../../docs/overstory-spec/1.5-vad.md#8-grammar)). The
 reasons, from the thread "Review the Overstory spec with Joe":
 
 - A view's plan comes from its source, so tracing, stand-in rows, dual evaluation and

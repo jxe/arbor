@@ -40,9 +40,9 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 | 03 locators | [locators](../overstory-spec/1.6-locators.md) |
 | 04 accounts and devices | [accounts and devices](../overstory-spec/3.1-accounts-and-devices.md); §4 local placements moved to [placements on disk §7](../overstory-spec/2.2-placements-on-disk.md#7-local-placements); placement accounts, invitations as placements, published device keys and visitor sessions moved to [federation](../overstory-spec/3.3-federation.md) |
 | 05 access control | [access control](../overstory-spec/3.2-access-control.md) |
-| 06 child backings | [collections](../overstory-spec/1.4-collections.md) (§1–2.3, 2.5), [placements on disk §4–6](../overstory-spec/2.2-placements-on-disk.md) (projections, SQLite, migration), Postgres moved to [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md), [apps](../overstory-spec/4.1-apps.md) (§5–6) |
-| 07 executable documents | [apps](../overstory-spec/4.1-apps.md) |
-| 08 authoring API | [apps](../overstory-spec/4.1-apps.md) |
+| 06 child backings | [collections](../overstory-spec/1.4-collections.md) (§1–2.3, 2.5), [placements on disk §4–6](../overstory-spec/2.2-placements-on-disk.md) (projections, SQLite, migration), Postgres moved to [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md), [reading and watching §4](../overstory-spec/1.2-reading-and-watching.md#4-views) (§5–6) |
+| 07 executable documents | [reading and watching §4](../overstory-spec/1.2-reading-and-watching.md#4-views) |
+| 08 authoring API | [reading and watching §4](../overstory-spec/1.2-reading-and-watching.md#4-views) |
 | 09 client synchronization | [working trees](../overstory-spec/2.1-working-trees.md) |
 | 10 source intent | [updates and merging §2–3](../overstory-spec/1.3-updates-and-merging.md) |
 | 11 schema language | [VAD](../overstory-spec/1.5-vad.md) |
