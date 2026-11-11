@@ -128,7 +128,7 @@ and draws it in his page with a view block ([view blocks](4.1-apps-and-views.md#
 
 ````md
 ```view
-use "views/practices.view" as Practices
+use "views/practices.view" (view as Practices)
 <Practices />
 ```
 ````

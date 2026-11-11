@@ -227,7 +227,7 @@ To use it, draw it from a `view` block in any page:
 
 ````md
 ```view
-use "views/reading-room.view" as ReadingRoom
+use "views/reading-room.view" (view as ReadingRoom)
 <ReadingRoom status="draft" />
 ```
 ````
