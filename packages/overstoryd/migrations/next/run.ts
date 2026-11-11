@@ -29,7 +29,8 @@ export interface NextBatchReport extends BatchReport {
   /** IDs shorter than the spec allows, listed before anything changes. */
   shortIds?: { trees: Array<{ id: string; namedBy: string[] }>; devices: Array<{ id: string; label: string; revoked: boolean }> };
   protocol003?: Protocol003Report;
-  roots?: Record<string, string>;
+  /** Each tree's new root, as `tools/verify.ts` reads a report. */
+  trees?: Array<{ id: string; root: string }>;
 }
 
 export async function migrateNextBatch(dataRoot: string): Promise<NextBatchReport> {
@@ -47,7 +48,7 @@ export async function migrateNextBatch(dataRoot: string): Promise<NextBatchRepor
   const { plans, report } = await planProtocol003(root);
   const batch = runBatch(root, steps(plans), finish);
   for (const path of STALE) await rm(join(root, path), { recursive: true, force: true });
-  return { ...batch, shortIds, protocol003: report, roots: Object.fromEntries(plans.map((plan) => [plan.tree, plan.root])) };
+  return { ...batch, shortIds, protocol003: report, trees: plans.map((plan) => ({ id: plan.tree, root: plan.root })) };
 }
 
 if (import.meta.main) {

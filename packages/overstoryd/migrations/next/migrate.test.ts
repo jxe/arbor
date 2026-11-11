@@ -107,6 +107,7 @@ test("each tree starts again at one update holding its head with entry times, pa
   const root = join(sandbox, "migrated");
   await cp(schema32, root, { recursive: true });
   const report = await migrateNextBatch(root);
+  const roots = Object.fromEntries(report.trees!.map((tree) => [tree.id, tree.root]));
   expect(report).toMatchObject({ migrated: true, from: 32, to: 34, steps: ["033-device-clients", "034-protocol-003"] });
   expect(report.protocol003).toEqual({
     trees: 4, droppedUpdates: 6, converted: { pages: 2, mdx: 1, collections: 1 }, conflicted: ["t_two"], undated: [],
@@ -122,13 +123,13 @@ test("each tree starts again at one update holding its head with entry times, pa
     ["t_one", null, 0, 3000, "protocol-003"], ["t_two", null, 0, 1500, "protocol-003"],
   ]);
   for (const update of updates) {
-    expect(update.root).toBe(report.roots![update.tree_id]!);
+    expect(update.root).toBe(roots[update.tree_id]!);
     expect((db.query("SELECT ref FROM trees WHERE id = ?").get(update.tree_id) as { ref: string }).ref).toBe(update.root);
     const entry = decodeLogEntry(await store.read(update.entry));
     expect(entry).toMatchObject({ tree: update.tree_id, previous: null, root: update.root, trace: null, decisions: [] });
   }
 
-  const one = decodeProtocolDirectory(await store.read(report.roots!.t_one!)).entries;
+  const one = decodeProtocolDirectory(await store.read(roots.t_one!)).entries;
   const byName = Object.fromEntries(one.map((entry) => [entry.name, entry]));
   // notes.md: a page, dated from document_versions; a.txt changed at 2000;
   // c.txt moved from dir/b.txt, keeping its times; x.mdx is a file now.
@@ -139,7 +140,7 @@ test("each tree starts again at one update holding its head with entry times, pa
   expect(byName["x.mdx"]).toMatchObject({ created: 3000, modified: 3000 });
   expect(new TextDecoder().decode(await store.read(byName["x.mdx"]!.file!))).toBe(new TextDecoder().decode(canonicalPageFile(decodeProtocolPage(encodeProtocolPage(parsePage(enc.encode("# MDX\n"))!)))));
 
-  const two = decodeProtocolDirectory(await store.read(report.roots!.t_two!));
+  const two = decodeProtocolDirectory(await store.read(roots.t_two!));
   expect(two.entries.find((e) => e.name === "_index.md")).toMatchObject({ created: 700, modified: 700 });
   const events = decodeProtocolDirectory(await store.read(two.entries.find((e) => e.name === "events")!.directory!));
   const table = decodeProtocolTable(await store.read(events.collection!.tables[0]!.table));
@@ -159,8 +160,8 @@ test("each tree starts again at one update holding its head with entry times, pa
   // Today's build opens the migrated root and serves its heads.
   const host = await HostDaemon.open(root);
   try {
-    const snapshot = await host.snapshotForRoot("t_one", report.roots!.t_one! as ObjectHash);
-    expect(snapshot?.root).toBe(report.roots!.t_one!);
+    const snapshot = await host.snapshotForRoot("t_one", roots.t_one! as ObjectHash);
+    expect(snapshot?.root).toBe(roots.t_one!);
   } finally { await host[Symbol.asyncDispose](); }
 });
 

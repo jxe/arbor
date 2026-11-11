@@ -22,7 +22,7 @@ The live schema is 32. Two steps are pending; this batch is Protocol 003's flag 
 `run.ts <data-root>` lists TreeIDs and DeviceIDs shorter than the spec allows
 (`shortIds`), writes every tree's new head to the object store, then runs both
 steps in one transaction and the product's schema and data checks. Its report
-names each tree's new root (`roots`), how many updates were dropped, what was
+names each tree's new root (`trees`, as `tools/verify.ts` reads it), how many updates were dropped, what was
 converted, and any tree whose head had decisions open (`conflicted`: the fresh
 entry has none). Rehearse it on a copy of `/data` with a cold start of the new
 build afterwards, timing the provenance backfill of every first entry.
