@@ -977,34 +977,33 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   async claimPairing(input: {
-    id: string;
-    secret: string;
+    code: string;
     deviceID: string;
     key: string;
     label: string;
   }): Promise<{ device: ServerDevice; confirmationCode: string }> {
-    const { id, secret, label } = input;
+    const { label } = input;
     const safeLabel = label.trim();
     if (!safeLabel || safeLabel.length > 100) throw new Error("Device label is required and must be at most 100 characters");
     if (!isGeneratedOverstoryID(input.deviceID, "dv")) throw new Error("Pairing requires a client-generated 128-bit DeviceID");
     parseDeviceKey(input.key);
-    const pairing = this.accounts.pairing(id);
-    const secretMatches = pairing?.secretMatches(secret) ?? false;
+    const pairing = this.accounts.pairingByCode(input.code);
     if (pairing?.claimedAt && pairing.claimedDevice === input.deviceID) {
       const replay = this.accounts.deviceBinding(input.deviceID, pairing.accountID);
-      if (replay && replay.publicKey === input.key && replay.label === safeLabel && secretMatches) {
+      if (replay && replay.publicKey === input.key && replay.label === safeLabel) {
         return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
       }
     }
     if (this.accounts.deviceExists(input.deviceID)) {
       throw new Error(`Retired DeviceID cannot be reused: ${input.deviceID}`);
     }
-    if (!pairing || !pairing.accountEnabled || pairing.claimedAt || pairing.expiresAt <= Date.now() || !secretMatches) {
+    if (!pairing || !pairing.accountEnabled || pairing.claimedAt || pairing.expiresAt <= Date.now()) {
       throw new Error("Pairing is invalid, expired, or already used");
     }
     const account = this.account(pairing.accountID)!;
     const now = Date.now();
     // A recovery pairing's device becomes the account's only one, an administrator (accounts §5.3).
+    const { id } = pairing;
     const recovery = isRecoveryPairing(id);
     const accepted = await this.advanceConfig(account.id, `pairing:${id}`, (values) => {
       if (values.devices?.[input.deviceID]) throw new Error("DeviceID is already active");

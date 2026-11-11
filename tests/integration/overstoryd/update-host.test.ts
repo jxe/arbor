@@ -721,7 +721,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const offer = await client.createPairing();
       const peerDevice = newTestDevice("peer");
       const peerID = peerDevice.device;
-      const claimed = await client.claimPairing(offer.id, offer.secret, { id: peerID, label: "Peer laptop", key: peerDevice.key });
+      const claimed = await client.claimPairing(offer.code, { id: peerID, label: "Peer laptop", key: peerDevice.key });
       expect(claimed.device).toMatchObject({ id: peerID, label: "Peer laptop", revokedAt: null });
       expect(JSON.stringify(claimed)).not.toContain(peerDevice.seed);
       const peerCredential = await deviceSession(running.url, peerDevice.name, testDevice(token).profileTree);
@@ -762,7 +762,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         { headers: { authorization: `Bearer ${peerCredential}` } },
       )).status).toBe(401);
       const retired = await client.createPairing();
-      await expect(client.claimPairing(retired.id, retired.secret, {
+      await expect(client.claimPairing(retired.code, {
         id: peerID,
         label: "Peer again",
         key: newTestDevice("peer-again").key,

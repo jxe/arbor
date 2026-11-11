@@ -35,14 +35,14 @@ test("overstoryd recover prints a recovery pairing beside a running server, and 
   const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   expect(stderr).toBe("");
   expect(exit).toBe(0);
-  const payload = JSON.parse(stdout.trim().split("\n").at(-1)!) as { version: number; origin: string; pairing: { id: string; secret: string } };
+  const payload = JSON.parse(stdout.trim().split("\n").at(-1)!) as { version: number; origin: string; pairing: { code: string } };
   expect(payload).toMatchObject({ version: 1, origin: new URL(running.url).origin });
 
   const { publicKey } = generateKeyPairSync("ed25519");
   const key = `ed25519:${Buffer.from(publicKey.export({ format: "der", type: "spki" })).subarray(12).toString("base64url")}`;
   const device = generateOverstoryID("dv");
   const owner = await deviceClient(running.url, token);
-  await new ProtocolClient(running.url).claimPairing(payload.pairing.id, payload.pairing.secret, { id: device, label: "Recovered laptop", key });
+  await new ProtocolClient(running.url).claimPairing(payload.pairing.code, { id: device, label: "Recovered laptop", key });
   // The old credential is revoked with every other device.
   await expect(owner.account()).rejects.toThrow("unauthenticated");
   const unknown = Bun.spawn(["bun", "packages/overstoryd/src/cli.ts", "recover", "nobody", "--data", join(sandbox, "overstoryd"), "--url", running.url], {

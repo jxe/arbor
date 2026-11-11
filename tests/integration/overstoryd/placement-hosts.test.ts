@@ -175,7 +175,7 @@ beforeAll(async () => {
   // Her profile is readable by anyone, so another host can resolve /~alice.
   await macAtA.submitUpdate(alice.profileTree, null, await snapshotOf({ "_index.md": "---\ntype: person\ndisplayName: Alice\n---\n" }));
   const offer = await macAtA.createPairing();
-  await new ProtocolClient(a.url).claimPairing(offer.id, offer.secret, { id: phoneID, label: "Alice's phone", key: phone.key });
+  await new ProtocolClient(a.url).claimPairing(offer.code, { id: phoneID, label: "Alice's phone", key: phone.key });
 
   // B reserves ~bob for a profile of its own; ~alice comes below.
   await reserve(b.url, "placement-owner-b", { bob: bob.profileTree });
@@ -577,7 +577,6 @@ describe("accepting an invitation as a placement (accounts §1.4)", () => {
     // The old route is gone.
     const legacy = await fetch(`${c.url}/.overstory/placements`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
     expect(legacy.status).toBe(404);
-    expect(((await legacy.json()) as { placementRoot: { id: string } }).placementRoot.id).toBe(placed.placementRoot.id);
     const macAtC = await openSession(c.url, alice.profileTree, macID, mac);
     expect((await macAtC.placementAccount()).account.placementRoot.id).toBe(placed.placementRoot.id);
   });

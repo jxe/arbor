@@ -1089,7 +1089,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
     const encoded = code ? buildAgentLink(only!.canonicalURL, code) : encodeCloudBundle(payload);
     const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
     const pairing = await wire.createPairing();
-    await new ProtocolClient(selected.connection.record.origin).claimPairing(pairing.id, pairing.secret, {
+    await new ProtocolClient(selected.connection.record.origin).claimPairing(pairing.code, {
       id: deviceID,
       label,
       key: deviceKeyFromSeed(deviceKeySeed),

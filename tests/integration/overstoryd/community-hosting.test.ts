@@ -243,9 +243,9 @@ describe("client-generated profile and account bootstrap", () => {
     const phoneDevice = newTestDevice("bob-phone");
     const phoneID = phoneDevice.device;
     const phone = { id: phoneID, label: "Bob's iPhone", key: phoneDevice.key };
-    const firstClaim = await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, phone);
+    const firstClaim = await new ProtocolClient(running.url).claimPairing(offer.code, phone);
     expect(firstClaim.device.id).toBe(phoneID);
-    expect(await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, phone)).toEqual(firstClaim);
+    expect(await new ProtocolClient(running.url).claimPairing(offer.code, phone)).toEqual(firstClaim);
     const { values } = await readTreeConfig(administrator, profileTree, "person");
     expect(values.devices![phoneID]).toEqual({ id: phoneID, label: "Bob's iPhone", administrator: false, key: phoneDevice.key });
 
@@ -379,7 +379,7 @@ describe("client-generated profile and account bootstrap", () => {
           throw new Error("Lost pairing response");
         });
         try {
-          await expect(paired.claimPairing({ version: 1, origin: new URL(running.url).origin, pairing: { id: offer.id, secret: offer.secret } }))
+          await expect(paired.claimPairing({ version: 1, origin: new URL(running.url).origin, pairing: { code: offer.code } }))
             .rejects.toThrow("Lost pairing response");
         } finally { lostPair.mockRestore(); }
         expect(await paired.pendingPairing()).toEqual({ origin: new URL(running.url).origin });

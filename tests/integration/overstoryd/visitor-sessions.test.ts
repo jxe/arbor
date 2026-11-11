@@ -121,7 +121,7 @@ beforeAll(async () => {
   const macAtA = await homeSession(a.url, dana.profileTree, macID, mac);
   await macAtA.submitUpdate(dana.profileTree, null, await snapshotOf({ "_index.md": "---\ntype: person\ndisplayName: Dana\n---\n" }));
   const offer = await macAtA.createPairing();
-  await new ProtocolClient(a.url).claimPairing(offer.id, offer.secret, { id: phoneID, label: "Dana's phone", key: phone.key });
+  await new ProtocolClient(a.url).claimPairing(offer.code, { id: phoneID, label: "Dana's phone", key: phone.key });
 
   // On B, the owner shares one tree with Dana by her locator at A, and keeps another private.
   owner = await deviceClient(b.url, "visitor-owner-b");

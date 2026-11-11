@@ -91,7 +91,7 @@ beforeAll(async () => {
   const peer = testDevice(tokenB);
   deviceB = peer.device;
   const pairing = await owner.createPairing();
-  await owner.claimPairing(pairing.id, pairing.secret, { id: deviceB, label: "Self-sync peer", key: peer.key });
+  await owner.claimPairing(pairing.code, { id: deviceB, label: "Self-sync peer", key: peer.key });
   await installAccountHome(stateA, owner, deviceA, testDevice(token).seed, { [treeA]: tree });
   await installAccountHome(stateB, await deviceClient(host.url, tokenB, { profileTree: profile }), deviceB, peer.seed, { [treeB]: tree });
 });

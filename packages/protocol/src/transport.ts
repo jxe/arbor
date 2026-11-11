@@ -346,15 +346,12 @@ export class ProtocolClient {
     return response.json();
   }
 
-  async claimPairing(
-    id: string,
-    secret: string,
-    device: DeviceEnrollment,
-  ): Promise<PairingClaimResult> {
-    const response = await this.checked(await this.request(`/.overstory/pairings/${encodeURIComponent(id)}/claim`, {
+  /** Claim a pairing by its code; the host finds the pairing by the code's digest (accounts §4). */
+  async claimPairing(code: string, device: DeviceEnrollment): Promise<PairingClaimResult> {
+    const response = await this.checked(await this.request("/.overstory/pairings/claim", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ secret, device }),
+      body: JSON.stringify({ code, device }),
     }));
     return response.json();
   }

@@ -310,10 +310,11 @@ describe("the reserved-address page", () => {
 });
 
 describe("the rate-limit key", () => {
-  const claim = (url: string, pairing: string, forwardedFor?: string) => fetch(`${url}/.overstory/pairings/${pairing}/claim`, {
+  // Each test's host is its own; `code` only labels the attempt.
+  const claim = (url: string, code: string, forwardedFor?: string) => fetch(`${url}/.overstory/pairings/claim`, {
     method: "PUT",
     headers: { "content-type": "application/json", ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}) },
-    body: "{}",
+    body: JSON.stringify({ code }),
   });
   async function limitedHost(trustedProxyHops?: number) {
     const dataRoot = await mkdtemp(join(sandbox, "limited-"));

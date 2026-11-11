@@ -640,22 +640,20 @@ export async function serveHost(options: {
           if (!body.challenge || typeof body.signature !== "string") throw new Error("A session requires the signed challenge and its signature");
           return json(await overstoryd.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
         }
-        const pairingClaim = /^\/\.overstory\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
-        if (pairingClaim && request.method === "PUT") {
-          const pairingID = decodeURIComponent(pairingClaim[1]!);
-          if (pairingClaims && !pairingClaims.allow(`${callerAddress(request, server)}:${pairingID}`))
+        // The code is the pairing's only name (accounts §4).
+        if (url.pathname === "/.overstory/pairings/claim" && request.method === "PUT") {
+          if (pairingClaims && !pairingClaims.allow(`${callerAddress(request, server)}:pairing`))
             return protocolError("rate-limited", "Too many pairing claims", 429, true);
           const body = await bodyFields(request) as {
-            secret?: unknown;
+            code?: unknown;
             device?: { id?: unknown; label?: unknown; key?: unknown };
           };
           if (
-            typeof body.secret !== "string" || typeof body.device?.id !== "string"
+            typeof body.code !== "string" || typeof body.device?.id !== "string"
             || typeof body.device.label !== "string" || typeof body.device.key !== "string"
-          ) throw new Error("Pairing claim requires secret, generated device identity, a device key, and label");
+          ) throw new Error("Pairing claim requires the pairing code, a generated device identity, a device key, and label");
           const claimed = await overstoryd.claimPairing({
-            id: pairingID,
-            secret: body.secret,
+            code: body.code,
             deviceID: body.device.id,
             key: body.device.key,
             label: body.device.label,

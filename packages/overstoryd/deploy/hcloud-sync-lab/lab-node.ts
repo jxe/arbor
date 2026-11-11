@@ -185,7 +185,7 @@ export async function pairDevice(
   const { account } = await owner.account();
   const device = generateOverstoryID("dv");
   const seed = generateDeviceKeySeed();
-  const claimed = await new ProtocolClient(origin).claimPairing(offer.id, offer.secret, { id: device, label, key: deviceKeyFromSeed(seed) });
+  const claimed = await new ProtocolClient(origin).claimPairing(offer.code, { id: device, label, key: deviceKeyFromSeed(seed) });
   if (claimed.device.id !== device) throw new Error("Pairing claimed a different DeviceID");
   if (administrator) {
     await editTreeConfig(owner, account.profileTree!, "person", (values) => ({

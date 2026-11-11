@@ -329,7 +329,7 @@ export async function recoverAccount(args: string[]): Promise<void> {
     console.log(`Recovery pairing for ~${handle}, valid until ${new Date(offer.expiresAt).toISOString()}.`);
     console.log("Claim it from the new device as a pairing code; it becomes the account's only device.");
     console.log(`Confirmation code: ${offer.confirmationCode}`);
-    console.log(JSON.stringify({ version: 1, origin: new URL(origin).origin, pairing: { id: offer.id, secret: offer.secret } }));
+    console.log(JSON.stringify({ version: 1, origin: new URL(origin).origin, pairing: { code: offer.code } }));
   } finally {
     db.close();
   }

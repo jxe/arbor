@@ -222,9 +222,9 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
 }
 
 /** A one-time device pairing offer; identical on the protocol and through Story Sync. */
+/** A pairing for the caller's account: `code` is its only name and its secret (accounts §4). */
 export interface PairingOffer {
-  id: string;
-  secret: string;
+  code: string;
   confirmationCode: string;
   expiresAt: number;
 }
