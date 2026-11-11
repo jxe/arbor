@@ -30,3 +30,7 @@ export const BEETLE_EXTENSION = ".beetle";
 export function formatDiagnostic(path: string, d: Diagnostic): string {
   return `${d.path ?? path}:${d.line}:${d.column}: ${d.code}: ${d.message}`;
 }
+export { compileProgram, type Program } from "./check.ts";
+export { Evaluator, BeetleError, Action, display, toJSON, toProp, type Value, type ViewNode, type EvalContext, type BoundRows } from "./eval.ts";
+export { runMutation, type MutationOptions, type MutationOutcome } from "./mutate.ts";
+export { Store, StoreSchema, Row, EnumValue, derivedID, type PersonFields } from "./store.ts";

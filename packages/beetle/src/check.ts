@@ -331,6 +331,8 @@ export class Checker {
   private readonly effectsMemo = new Map<string, { writes: Write[]; errors: ErrorCode[] }>();
   readonly planner: ElementPlanner;
   readonly isSchema: boolean;
+  /** Each bound schema's checked tables and field defaults, by logical path, for the evaluator. */
+  readonly schemas = new Map<string, { result: UslResult; defaults: Record<string, Record<string, Expr>> }>();
 
   constructor(readonly source: Loaded, readonly options: CheckOptions) {
     this.planner = new ElementPlanner(this);
@@ -373,6 +375,7 @@ export class Checker {
       const { usl, diagnostics, defaults } = uslFileOf(this.source.file, true);
       const result = checkUsl(usl);
       this.diagnostics.push(...diagnostics, ...result.diagnostics);
+      this.schemas.set(path, { result, defaults });
       for (const model of modelsOf(path, result, defaults)) this.addModel(model);
       return;
     }
@@ -384,6 +387,7 @@ export class Checker {
     if (!this.uses.includes(path)) this.uses.push(path);
     const { usl, diagnostics, defaults } = uslFileOf(parseView(text).file, true);
     const result = checkUsl(usl);
+    this.schemas.set(path, { result, defaults });
     const problems = [...diagnostics, ...result.diagnostics];
     if (problems.length) {
       this.error("schema-invalid", `${path} doesn't check (${problems[0]!.code}: ${problems[0]!.message})`, span);
@@ -1648,6 +1652,18 @@ export function walkElement(el: Element, visit: (e: Expr) => unknown): void {
 /** Checks a `.beetle` file, a collection's `schema.beetle`, or a page's view blocks. */
 export function checkView(text: string, options: CheckOptions): ViewCheck {
   return new Checker(load(options.path, text), options).run();
+}
+
+/** A checked file and what it binds: the views, rules, mutations and tables the evaluator runs. */
+export interface Program {
+  check: ViewCheck;
+  checker: Checker;
+}
+
+/** Checks a file and keeps what it binds, for evaluating its views and running its mutations. */
+export function compileProgram(text: string, options: CheckOptions): Program {
+  const checker = new Checker(load(options.path, text), options);
+  return { check: checker.run(), checker };
 }
 
 export type { PlanExpr, ElementPlan };
