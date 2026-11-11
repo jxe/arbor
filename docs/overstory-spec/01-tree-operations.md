@@ -1143,6 +1143,7 @@ type UpdateResult = {
   outcome: "unchanged" | "accepted";
   update: AcceptedUpdate;
   requestDigest: Hash;
+  candidate?: Hash;            // derived candidates only
   reconciliation?: TransitionPayload;
 };
 ```
@@ -1176,16 +1177,6 @@ and its `reconciliation` is the transition from the preceding result's
 present whenever they differ. The client never held the derived candidate's
 objects, so it applies the result as it applies a watch frame and drops the
 operations from its pending queue.
-
-```ts
-type UpdateResult = {
-  outcome: "unchanged" | "accepted";
-  update: AcceptedUpdate;
-  requestDigest: Hash;
-  candidate?: Hash;            // derived candidates only
-  reconciliation?: TransitionPayload;
-};
-```
 
 A rejected reconciliation uses the shared `OverstoryError` envelope with
 `details.kind: "server-update" | "tree-configuration"`. Its details include
