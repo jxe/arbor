@@ -45,8 +45,10 @@ the same time.
    to pages in the same pass. Rehearse on a copy of Joe's data with a cold start and real time
    limits.
 7. **Flag day** (Joe's go): back up `/data`, deploy, run the migration, release Story (Mac and
-   iPhone) and `@ovst/cli` together; Joe and Oliver update right away. In the same release,
-   remove every old form Protocol 001 lists.
+   iPhone) and `@ovst/cli` together; Joe and Oliver update right away. The same release
+   carries every move [Protocol 001](protocol-001-spec-review-route-changes.md) still lists
+   (flat watch frames, `AcceptedRef`, flat `Ref`, objects as bytes, no `observedThrough`, and
+   the rest) with no period of answering both forms, and deletes every old form.
 
 ## Settled
 

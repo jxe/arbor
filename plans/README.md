@@ -130,9 +130,9 @@ can be dictated in one go. A recording without commands stays one paragraph.
 ## Soon
 
 **[Protocol 001: retire the old routes the spec review replaced](soon/protocol-001-spec-review-route-changes.md).**
-Joe's spec review changes routes on both ends at once: overstoryd answers old and new forms,
-clients move and are released, then the old forms go. Left: removing the old forms after the
-next release.
+Joe's spec review changes routes and shapes on both ends. Left: the moves still marked "Not
+yet", which ship with the Protocol 003 flag day, host and clients together, deleting every
+old form.
 
 **[Protocol 003: times in directory entries, one date encoding, history dropped](soon/protocol-003-times-in-directory-entries.md).** Entries carry `created`/`modified` stamped from the update's `at`; row dates tagged like page dates; a flag-day migration drops history (Joe, 2026-11-11).
 

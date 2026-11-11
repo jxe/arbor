@@ -7,6 +7,11 @@ are released, and then the old form is removed (Joe, 2026-11-09). This plan coll
 changes so one release and one cleanup covers them all. Add each new one here as the
 review makes it.
 
+**2026-11-11 (Joe):** the moves still marked "Not yet" ship with the
+[Protocol 003](protocol-003-times-in-directory-entries.md) flag day instead, when every client
+updates at once. They need no period of answering both forms: host and clients switch to the
+new form together, and the old forms are deleted in the same change.
+
 ## The changes
 
 | Change | Spec | Old form, still answered | New form | Who moves |
@@ -19,6 +24,8 @@ review makes it.
 | One spelling for an accepted state: `update` and `root` | tree operations §1.1.3, §1.2.2, §1.2.3; source intent §5 | `previous` and `from` as `{ id, root }`; the conflict read's `?state=` and `state`; `state` in alternative references and resolution declarations | `{ update, root }` (`AcceptedRef`); `?update=` and `update` | Not yet: host answers and accepts both, then TS and Swift move and the vectors follow |
 | List reads name what they list | locators §5 | `{ snapshot: [...] }` from `GET /trees` and `account/directory` | `{ trees: [...] }`, `{ people: [...] }` | Not yet: host sends both keys, then TS and Swift move |
 | Locator resolutions drop `historical` | locators §5 | `historical: false` | absent | Not yet: host stops sending it once clients ignore it |
+| A watch frame is flat | tree operations §1.1.3 | `{ transition: { update, from?, requestDigest?, objects, deltas }, access, canonical }` | `{ update, from?, requestDigest?, objects?, deltas?, access, canonical }` | Not yet: with Protocol 003 |
+| Transfer arrays may be omitted | tree operations §1.1.3, §2.4 | `objects: []` and `deltas: []` always sent in frames and `reconciliation` | omitted means `[]` | Not yet: with Protocol 003 |
 | Entry times come with the content | tree operations §1.1.2a | `GET /trees/{id}/entry-metadata[?path=]` | `?times` on snapshot and path reads | overstoryd serves `?times`; TS, Story Sync and Swift moved (31e643fb). Superseded by [Protocol 003](protocol-003-times-in-directory-entries.md), which puts times in directory entries and removes both |
 | Update fields that default to empty may be omitted | tree operations §2.1 | `trace`, `resolves`, `objects`, `deltas` always sent | each may be omitted (`trace` → null, the rest → `[]`); the request digest is unchanged because it is computed over the filled-in values | Host accepts omissions; clients may stop sending empty fields |
 | References are told apart by their keys | tree operations §1.2.2; source intent | `{ material: { kind: "basis" \| "operation" \| "alternative", ... }, within?, range? }` | flat `{ path, object }`, `{ change, operation }` or `{ update, conflict, alternative }`, with `within?`/`range?` beside them | Not yet: host accepts both, then TS and Swift move and the vectors follow |
@@ -31,16 +38,17 @@ than moved.
 ## Steps
 
 Swift moved to `PUT /accounts` in dc76eab (Overstory and OverstoryClient tests and the Mac
-app build pass on Joe's Mac). The release is on [Joe's to-do](../joe.md).
+app build pass on Joe's Mac).
 
-1. **Clients stop reading `observedThrough`** for trees: about 120 uses across
+1. **With the Protocol 003 flag day,** move every "Not yet" row at once, host and clients
+   together: clients stop reading `observedThrough` for trees (about 120 uses across
    `packages/protocol` (`transport.ts`, `updates/json.ts`, `model/node-model.ts`),
    `packages/working-tree`, `packages/story-sync`, `packages/cli`, and Swift
-   (`ProtocolModels`, `ProtocolClient`, `TreeSession`, `UpdateCoordinator`, `StoryAppModel`).
-   Views keep their own `observedThrough` (executable documents §12), which is a different
-   thing. Move the conformance vectors in the same change.
-2. **Remove the old forms** once that release is out (and `observedThrough` from overstoryd's
-   tree answers): the `/.overstory/placements`, `/.overstory/directory` and `entry-metadata` routes (with `ProtocolClient.entryMetadata` in TS and Swift and the `entry_metadata` table, which only that route and the entry-time index's first-root seeds read), the unprefixed device-keys and
-   domain-check paths, `LEGACY_DOMAIN_CHECK_PATH`, and the tests'
-   "old path" checks. There is one host and it updates on push, so only released clients
-   need the old forms (Joe, 2026-11-09).
+   (`ProtocolModels`, `ProtocolClient`, `TreeSession`, `UpdateCoordinator`, `StoryAppModel`);
+   views keep their own `observedThrough` (executable documents §12), which is a different
+   thing), and the host stops sending it. Move the conformance vectors in the same change.
+2. **Remove every old form in the same release:** the `/.overstory/placements`,
+   `/.overstory/directory` and `entry-metadata` routes (with `ProtocolClient.entryMetadata` in
+   TS and Swift and the `entry_metadata` table), the unprefixed device-keys and domain-check
+   paths, `LEGACY_DOMAIN_CHECK_PATH`, and the tests' "old path" checks. Every client updates
+   at the flag day, so nothing older needs them.

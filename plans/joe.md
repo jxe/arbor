@@ -111,9 +111,10 @@ Built 2026-11-07 ([status](../status.md#trees-at-your-own-domain--2026-11-07)).
 
 ## Releases and publishing
 
-- [ ] **The next Story release** (Mac, iPhone, npm CLI) carries the spec review's new routes
-  ([Protocol 001](soon/protocol-001-spec-review-route-changes.md)), including page dates read
-  from `?times`; once it is out and adopted, a session removes the old routes.
+- [ ] **The Protocol 003 flag day** ([plan](soon/protocol-003-times-in-directory-entries.md)):
+  your go to migrate the live host (history dropped), then the Story release (Mac, iPhone, npm
+  CLI) that carries it and every [Protocol 001](soon/protocol-001-spec-review-route-changes.md)
+  move; you and Oliver update right away.
 
 ### Sharing 004: Railway template
 

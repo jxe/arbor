@@ -185,7 +185,7 @@ with `after={update}` (§1.1.3), so the read and the watch meet without a gap.
 Throughout the protocol a member that points at an accepted update (`update`
 here, in an update answer's `head` and in `AcceptedRef`, and the `base`,
 `ifCurrent` and `after` that name one) holds its id. Only where the accepted
-update itself is the payload, an update result's and a watch transition's
+update itself is the payload, an update result's and a watch frame's
 `update`, is it the whole `AcceptedUpdate` record (§1.1.3).
 Hosted trees have, in addition, a canonical path, endpoint, and might be nested
 inside a parent tree. `canonical.url`, when present, is the tree's canonical URL at a
@@ -413,7 +413,7 @@ GET /.overstory/trees/{TreeID}/watch?after={update}
 The request carries `Accept: text/event-stream`. `after` is the only resume
 point: it names the accepted update the client last applied, and without it the
 watch starts at the tree's current head. With `objects=none` the
-host sends every frame with empty `objects` and `deltas`: a client that holds
+host sends every frame without `objects` or `deltas`: a client that holds
 only part of the tree (one that reads page by page, §1.2.4) learns the new
 `update` and root and refetches only what it holds. Any other `objects` value
 is `400 invalid-request`. A host ignores `Last-Event-ID`; a
@@ -427,28 +427,24 @@ this portable tree stream. `resync-required` is the terminal control event
 described below.
 
 A frame's SSE `id` is the accepted update it brings the client to
-(`transition.update.id`) and its `event` is its kind; the
-`data` is the change alone, and says nothing the URL, the `id` or the
-transition already says:
+(`update.id`) and its `event` is its kind; the
+`data` is the change alone, and says nothing the URL or the `id` already
+says:
 
 ```ts
 // id: AcceptedUpdate["id"]
 // event: tree.update
-type TreeUpdate = {
-  transition: AcceptedTransition;
+type TreeUpdate = TransitionPayload & {
+  update: AcceptedUpdate;
+  from?: AcceptedRef;
+  requestDigest?: Hash;
   access: "read" | "write";
   canonical: RemoteTreeDescriptor["canonical"];
 };
 
-type AcceptedTransition = TransitionPayload & {
-  update: AcceptedUpdate;
-  from?: AcceptedRef;
-  requestDigest?: Hash;
-};
-
 type TransitionPayload = {
-  objects: ObjectBytes[];
-  deltas: ObjectDelta[];
+  objects?: ObjectBytes[];               // omitted: []
+  deltas?: ObjectDelta[];                // omitted: []
 };
 
 type ObjectDelta = {
@@ -488,9 +484,9 @@ may carry the file as a compact delta and the smaller directory as a complete
 object. After verification, both results are ordinary content-addressed
 objects; how they travelled has no effect on the candidate tree.
 
-Both arrays are required and either may be empty. Every supplied result hash
-appears exactly once across them. A transition that needs no new objects is
-`{ objects: [], deltas: [] }`.
+Either array may be omitted, meaning empty, as in an update (§2.1); a sender
+never sends `null` for one. Every supplied result hash appears exactly once
+across them. A transition that needs no new objects carries neither.
 
 An `ObjectDelta` names an available object as `base` and the object it will
 produce as `result`. Its ordered instructions build the result's complete
@@ -514,15 +510,14 @@ or both. Its transport basis is `from` when present, otherwise `update.previous`
 updates. `update.previous` always remains the actual historical predecessor;
 coalescing delivery does not rewrite accepted history.
 
-A frame carries exactly one transition. Its transport basis must match the
+A frame carries exactly one transition: its `update`, `from` and payload. Its transport basis must match the
 client's confirmed accepted identity and root, and its `update.tree` must be
 the watched tree. A mismatched basis requires resynchronization, not a
 successful root-only check. The payload must suffice to reconstruct the
 destination graph from its transport basis without fetching or applying
 intermediate transitions. The tree's new descriptor is the client's own
-(`id`, `kind`) with the frame's `access` and `canonical` and the
-transition's `update.id`, `update.root` and `update.conflicted`; nothing in a
-frame restates them.
+(`id`, `kind`) with the frame's `access`, `canonical`, `update.id`,
+`update.root` and `update.conflicted`; nothing in a frame restates them.
 
 On reconnect, authorities should normally coalesce a retained backlog into one
 net transition to the captured current accepted state. Intermediate updates,
@@ -537,7 +532,7 @@ applied. A frame whose transport basis is not the client's confirmed update
 is not applied (above), so an overlapping replay cannot apply old transitions
 to a newer head.
 
-For `tree.update`, a transition's `requestDigest` is present only when the stream is authenticated as the device (or execution token) that submitted that accepted request, whichever of its sessions it uses. This allows watchers to identify the revision that includes an update they sent.
+A frame's `requestDigest` is present only when the stream is authenticated as the device (or execution token) that submitted that accepted request, whichever of its sessions it uses. This allows watchers to identify the revision that includes an update they sent.
 A digest on a net transition identifies the request for its destination accepted
 update, not every request accepted within the span. An absent or different digest
 therefore does not prove that a pending request was excluded. Clients preserve
