@@ -167,9 +167,9 @@ Rows only their authors edit, as access policy (`who: {property: authors}`, one
 `unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
 milestone 5.
 
-**[Apps 014: client plugins](later/apps-014-client-plugins.md).** A sketch: code that runs
-only on the viewer's device and writes only state tables. Sources (physics, clocks,
-sensors) feed session tables; plugin elements add new element types. After Apps 015.
+**[Apps 014: client plugins](later/apps-014-client-plugins.md).** A sketch: mutations
+written in code that write only session tables, run by `every` and `on key` lines, with
+views drawing the rows (a built-in `Canvas` for games). After Apps 015.
 
 **[Apps 016: pure plugins](later/apps-016-pure-plugins.md).** A sketch: value types,
 two-way relations and derived fields that run the same on host and device.
