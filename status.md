@@ -239,7 +239,7 @@ domains nowhere yet (Names 001 step 5).
 **Implemented** on main, deployed with it (overstoryd). A profile can now read at a host
 where it has no account. A device asks for a session challenge naming its home host;
 the host checks the device against the keys that home host publishes and opens a
-**visitor session** ([accounts and devices §4.5](docs/overstory-spec/3.1-accounts-and-devices.md#45-visitor-sessions)),
+**visitor session** ([federation §5](docs/overstory-spec/3.3-federation.md#5-visitor-sessions)),
 kept in memory only. A visitor reads (descriptors, snapshots, objects, watches, listings)
 what the host's rules grant its profile by a locator at that home host, through a group
 that names it so, or what anyone can read; it never writes, and every other route treats

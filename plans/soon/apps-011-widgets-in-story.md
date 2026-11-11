@@ -82,7 +82,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   - Story waits up to about 100 ms so all of a run's streams are at one tree version.
 - Views on a placed tree are planned and run against Story Sync's local SQLite. Otherwise
   Story asks the host for the view's `rows` answer
-  ([executable documents §12.1](../../docs/overstory-spec/4.1-executable-documents.md#121-evaluate-and-stream-views))
+  ([apps and views §12.1](../../docs/overstory-spec/4.1-apps-and-views.md#121-evaluate-and-stream-views))
   and runs the view itself, so state changes stay on the device.
 
 ## 3. The SwiftUI renderer
@@ -124,11 +124,11 @@ site, served by overstoryd and later from a host such as Vercel.
 ## Code to bring in line with the spec (Joe, 2026-11-11)
 
 The spec now addresses views by file path with the extension
-([executable documents §1](../../docs/overstory-spec/4.1-executable-documents.md#1-views-and-their-addresses)):
+([apps and views §1](../../docs/overstory-spec/4.1-apps-and-views.md#1-views-and-their-addresses)):
 a file's default `view` export is its one linkable view, and the same spelling is used to
 import, embed, link and `GET` it. `.mdx` is gone, and the React document model
 (`overstory/react`, `useQuery`, extensionless `.tsx` routing) is gone from
-[the authoring API](../../docs/overstory-spec/4.1-executable-documents.md#16-authoring-api). Still to do in code:
+[the authoring API](../../docs/overstory-spec/4.1-apps-and-views.md#16-authoring-api). Still to do in code:
 
 - `.mdx` files are plain file entries, not pages: `packages/protocol/src/pages.ts`,
   `path-read.ts` (`x.mdx`, `_index.mdx`), Swift `ProtocolPage.swift` and `ProtocolPathRead.swift`,

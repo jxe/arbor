@@ -38,11 +38,11 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 | 01 tree operations | [data model](../overstory-spec/1.1-data-model.md) (the model, objects, entry times, CBOR) and [reading and watching](../overstory-spec/1.2-reading-and-watching.md) (reads, watch, encodings) and [updates and merging §1, §3](../overstory-spec/1.3-updates-and-merging.md) (updates); §1.3 canonical-URL reads moved to [locators §6](../overstory-spec/1.6-locators.md#6-reading-at-the-canonical-url), §3 editor round trip to [working trees](../overstory-spec/2.1-working-trees.md) |
 | 02 directory format | [data model §8–12](../overstory-spec/1.1-data-model.md) (bodies, pages, pages with children, recognized and reserved names), [placements on disk](../overstory-spec/2.2-placements-on-disk.md) (frontmatter on disk, membership), old §4 is data model §10 |
 | 03 locators | [locators](../overstory-spec/1.6-locators.md) |
-| 04 accounts and devices | [accounts and devices](../overstory-spec/3.1-accounts-and-devices.md); §4 local placements moved to [placements on disk §7](../overstory-spec/2.2-placements-on-disk.md#7-local-placements) |
+| 04 accounts and devices | [accounts and devices](../overstory-spec/3.1-accounts-and-devices.md); §4 local placements moved to [placements on disk §7](../overstory-spec/2.2-placements-on-disk.md#7-local-placements); placement accounts, invitations as placements, published device keys and visitor sessions moved to [federation](../overstory-spec/3.3-federation.md) |
 | 05 access control | [access control](../overstory-spec/3.2-access-control.md) |
-| 06 child backings | [collections](../overstory-spec/1.4-collections.md) (§1–2.3, 2.5), [placements on disk §4–6](../overstory-spec/2.2-placements-on-disk.md) (projections, SQLite, migration), Postgres moved to [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md), [executable documents](../overstory-spec/4.1-executable-documents.md) (§5–6) |
-| 07 executable documents | [executable documents](../overstory-spec/4.1-executable-documents.md) |
-| 08 authoring API | [executable documents](../overstory-spec/4.1-executable-documents.md#16-authoring-api) |
+| 06 child backings | [collections](../overstory-spec/1.4-collections.md) (§1–2.3, 2.5), [placements on disk §4–6](../overstory-spec/2.2-placements-on-disk.md) (projections, SQLite, migration), Postgres moved to [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md), [apps and views](../overstory-spec/4.1-apps-and-views.md) (§5–6) |
+| 07 executable documents | [apps and views](../overstory-spec/4.1-apps-and-views.md) |
+| 08 authoring API | [apps and views](../overstory-spec/4.1-apps-and-views.md#16-authoring-api) |
 | 09 client synchronization | [working trees](../overstory-spec/2.1-working-trees.md) |
 | 10 source intent | [updates and merging §2–3](../overstory-spec/1.3-updates-and-merging.md) |
 | 11 schema language | [schema language](../overstory-spec/1.5-schema-language.md) |

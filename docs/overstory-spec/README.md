@@ -18,9 +18,10 @@ file names carry the layer: `1.2-reading-and-watching.md` is layer 1, chapter 2.
 2. **Clients.** How a client holds a tree, and edits one it may write: the
    three ways to hold a tree, the update machine and change log, and
    placements on disk.
-3. **Accounts and access.** Who the callers are and what they may do:
-   accounts and devices, and access control.
-4. **Apps.** Executable documents: views, mutations and agents, with their
+3. **Accounts, access and federation.** Who the callers are and what they
+   may do: accounts and devices, access control, and acting at hosts other
+   than a profile's home.
+4. **Apps.** Apps and views: views, mutations and agents, with their
    authoring API.
 
 A host conforms to layers 1 and 3; a Story-compatible client conforms to
@@ -75,9 +76,10 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | | [locators](1.6-locators.md) | References by TreeID, path and stable key; canonical names and domains; finding trees; reading at the canonical URL |
 | 2. Clients | [working trees](2.1-working-trees.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The three ways to hold a tree (Browse, Replica, alongside Story Sync), and the update machine a working tree runs: the change log, one prepared request in flight, one successor, validated apply, held rejections, exact ambiguous recovery, and editor capture |
 | | [placements on disk](2.2-placements-on-disk.md) | How a placement writes a tree into a folder: page frontmatter, tree membership and ignore files, and collections as CSV, JSON, Markdown rows or SQLite; local placements |
-| 3. Accounts and access | [accounts and devices](3.1-accounts-and-devices.md) | Profile identity, host accounts, placement accounts, tree configurations, device pairing and sessions, and declaring, activating and mounting trees |
+| 3. Accounts, access and federation | [accounts and devices](3.1-accounts-and-devices.md) | Profile identity, host accounts, tree configurations, device pairing and sessions, and declaring, activating and mounting trees |
 | | [access control](3.2-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
-| 4. Apps | [executable documents](4.1-executable-documents.md) | Views, mutations and agents in `.ts`/`.tsx` files and Markdown: addresses, queries, mutations, identity, hosting, confinement, consent, transcripts, data disclosure, and the `overstory/data` and `overstory/ui` authoring API |
+| | [federation](3.3-federation.md) | Home and placement hosts, placement accounts, invitations accepted as placements, published device keys, and visitor sessions |
+| 4. Apps | [apps and views](4.1-apps-and-views.md) | Views, mutations and agents in `.ts`/`.tsx` files and Markdown: addresses, queries, mutations, identity, hosting, confinement, consent, transcripts, data disclosure, and the `overstory/data` and `overstory/ui` authoring API |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for
@@ -106,8 +108,8 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 | `POST /.overstory/trees/{TreeID}/updates` | [updates and merging §1](1.3-updates-and-merging.md#1-the-update-request) |
 | `GET /.overstory/trees/{TreeID}/watch` | [reading and watching §1.1.3](1.2-reading-and-watching.md#113-watching) |
 | `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}[/messages]` | [presence §3.3](1.2-reading-and-watching.md#33-routes) |
-| `QUERY /.overstory/trees/{TreeID}/views` | [executable documents §12.1](4.1-executable-documents.md#121-evaluate-and-stream-views) |
-| `POST /.overstory/trees/{TreeID}/mutate` | [executable documents §12.2](4.1-executable-documents.md#122-execute-named-mutations) |
+| `QUERY /.overstory/trees/{TreeID}/views` | [apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views) |
+| `POST /.overstory/trees/{TreeID}/mutate` | [apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations) |
 | `GET /.overstory/trees/{TreeID}/access` | [access control §4](3.2-access-control.md#4-reading-access) |
 | `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` (a new home, or with `profile` a member) | [accounts and devices §1.1–1.4](3.1-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.overstory/pairings`, `PUT /.overstory/pairings/{PairingID}/claim` | [accounts and devices §4](3.1-accounts-and-devices.md#4-device-pairing) |
@@ -118,7 +120,7 @@ needs them:
 
 | Route | Defined in |
 |---|---|
-| `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` | [accounts and devices §4.3](3.1-accounts-and-devices.md#43-published-device-keys) |
+| `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` | [federation §4](3.3-federation.md#4-published-device-keys) |
 | `GET https://{domain}/.overstory/peer/domain-check` | [locators §5.1](1.6-locators.md#51-trees-at-a-persons-domain) |
 
 A host also reads another host's public trees (a remote group's members) with
@@ -152,7 +154,7 @@ The protocol carries tree identity and revisions, including each account's priva
 An execution runtime resolves authored source locators by the ordinary
 [resolution rules](1.6-locators.md#4-resolution-rules) and obtains each host-backed
 source's accepted state through the ordinary [current-tree read](1.2-reading-and-watching.md#111-reading-the-current-tree)
-under its execution token; there is no separate binding route. [executable documents](4.1-executable-documents.md#8-host-and-server-boundaries)
+under its execution token; there is no separate binding route. [apps and views](4.1-apps-and-views.md#8-host-and-server-boundaries)
 defines execution authority use; [reference sidecar documentation](../architecture/overstoryd/execution-sidecar.md)
 owns HTTP forwarding and provider bindings. Implementations
 may extract the runtime without preserving the unused legacy query/mutation APIs.
@@ -165,11 +167,11 @@ inline mention links here; accepted implementation work is indexed under
 [spec extensions](../../plans/spec-extensions/README.md).
 
 1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([accounts and devices](3.1-accounts-and-devices.md#32-invariants)).
-2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](4.1-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](4.1-executable-documents.md#4-queries)).
-3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](4.1-executable-documents.md#5-mutations)).
-4. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](4.1-executable-documents.md#131-agent-files)).
+2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([apps and views §12.3](4.1-apps-and-views.md#123-relationship-to-tree-synchronization), [apps and views](4.1-apps-and-views.md#4-queries)).
+3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([apps and views](4.1-apps-and-views.md#5-mutations)).
+4. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([apps and views](4.1-apps-and-views.md#131-agent-files)).
 5. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
-6. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([executable documents](4.1-executable-documents.md#4-queries)).
+6. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([apps and views](4.1-apps-and-views.md#4-queries)).
 7. **A capability field that may reference a `system:` address** without making it a content locator ([locators](1.6-locators.md#1-forms)).
 8. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([updates and merging §3.1](1.3-updates-and-merging.md#31-exact-state-preconditions), [access control §4](3.2-access-control.md#4-reading-access)).
 9. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.

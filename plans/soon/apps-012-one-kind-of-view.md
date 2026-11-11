@@ -7,9 +7,9 @@ is the built-in list view, served through the same route as an authored view. Wh
 Story's side.
 
 The spec describes the target:
-- [executable documents §4.1](../../docs/overstory-spec/4.1-executable-documents.md#41-views)
+- [apps and views §4.1](../../docs/overstory-spec/4.1-apps-and-views.md#41-views)
   makes a `~views` entry a **declared view**.
-- [executable documents §12.1](../../docs/overstory-spec/4.1-executable-documents.md#121-evaluate-and-stream-views)
+- [apps and views §12.1](../../docs/overstory-spec/4.1-apps-and-views.md#121-evaluate-and-stream-views)
   names both kinds with one `HandleRef`: for a declared view, the collection's `schema.usl`,
   a label, and the schema file's hash.
 

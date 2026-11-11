@@ -8,8 +8,8 @@
 [005](../../status.md#views-on-the-host-and-declared-views--2026-11-08); coordinates [011](../soon/apps-011-widgets-in-story.md).**
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another
-overstoryd execution engine. Portable semantics live in [executable documents](../../docs/overstory-spec/4.1-executable-documents.md)
-and [executable documents](../../docs/overstory-spec/4.1-executable-documents.md#16-authoring-api). The illustrative syntax there
+overstoryd execution engine. Portable semantics live in [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md)
+and [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md#16-authoring-api). The illustrative syntax there
 is a design starting point, not an implemented compiler claim.
 
 ## First deliverable: freeze concrete authoring

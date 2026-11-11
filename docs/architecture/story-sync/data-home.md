@@ -69,7 +69,7 @@ bounded.
 this data home places for it, keyed by canonical absolute path. A folder's
 value is the placed TreeID when the tree is on the profile's home host, or a
 mapping naming the placement host
-([accounts and devices §1.3](../../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts))
+([federation §2](../../overstory-spec/3.3-federation.md#2-placement-accounts))
 when it is on one of the profile's placement accounts:
 
 ```yaml
@@ -89,7 +89,7 @@ profile may only read, at any host, and Story Sync never publishes its edits
 (they wait, shown as a conflict) however much the host would allow. Its `host`
 needs no placement connection: Story Sync reads it with the profile's account
 there if it has one, else a visitor session
-([accounts and devices §4.5](../../overstory-spec/3.1-accounts-and-devices.md#45-visitor-sessions))
+([federation §5](../../overstory-spec/3.3-federation.md#5-visitor-sessions))
 opened with this device's key and cached under
 `accounts/<ConfigurationTreeID>/visitors/`, else as anyone; a host that refuses
 a visitor session is read as anyone for five minutes before it is asked again.
@@ -264,7 +264,7 @@ bearer credential was once stored, is ignored.
 A profile has one home account, whose connection record lives in
 `.state/accounts/<ConfigurationTreeID>/` as before, and at most one
 placement account per other host
-([accounts and devices §1.3](../../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts)).
+([federation §2](../../overstory-spec/3.3-federation.md#2-placement-accounts)).
 Each placement connection is `connection.json` and `session.json` in
 `accounts/<ConfigurationTreeID>/placements/host-<hash>/`, where `<hash>` is
 the first 24 hex digits of the SHA-256 of the placement host's origin, so the

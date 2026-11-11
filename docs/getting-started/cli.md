@@ -89,7 +89,7 @@ story place https://garden.example/~joe/handbook ~/Documents/handbook
 
 A URL on another host selects your placement account there, once that
 host's community has reserved your profile by its URL at your home host
-(such as `https://garden.example/~joe`; [accounts and devices §1.3](../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts)).
+(such as `https://garden.example/~joe`; [federation §2](../overstory-spec/3.3-federation.md#2-placement-accounts)).
 The first `story place` onto the host connects this device to that account
 with its own device key; without a reservation it says what to ask the
 host's administrators to reserve. Both forms then create or place the tree on that host,
@@ -113,7 +113,7 @@ With `--read-only`, the URL may be at any host, including one where your
 profile has no account: the folder follows the tree and never sends your
 edits. Story Sync reads it with your account there if you have one, else as a
 visitor whom that host checks against the device keys your home host
-publishes ([accounts and devices §4.5](../overstory-spec/3.1-accounts-and-devices.md#45-visitor-sessions)),
+publishes ([federation §5](../overstory-spec/3.3-federation.md#5-visitor-sessions)),
 else as anyone. A visitor reads what the host's rules grant your profile by
 its URL at your home host (such as `https://garden.example/~joe`), plus
 whatever is public.
@@ -402,7 +402,7 @@ new device with it as usual; that device becomes the profile's only one.
 
 `story me accounts` lists this installation's home account and the profile's
 placement accounts, each with the folders placed on it. A placement account
-([accounts and devices §1.3](../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts))
+([federation §2](../overstory-spec/3.3-federation.md#2-placement-accounts))
 is made by the other host, not claimed: its community reserves your profile
 by its URL at your home host, which gives you a placement root at the
 account's address, and that host accepts every device your home host lists.

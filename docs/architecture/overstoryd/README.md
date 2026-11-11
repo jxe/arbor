@@ -129,7 +129,7 @@ configurations have their shape, and the tests for each refused case, are in
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'
   DeviceIDs, keys and administrator flags, never labels.
 - **Placement role.** overstoryd is also a placement host
-  ([accounts and devices §1.3, §1.3](../../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts)).
+  ([federation §2, §1.3](../../overstory-spec/3.3-federation.md#2-placement-accounts)).
   A placement account is an `accounts` row whose `home_host` names the
   profile's home origin (NULL for a home account, schema 27 (`packages/overstoryd/migrations/027-placement-accounts/README.md` at `66a76f5`)).
   There is no placement claim: a community member naming a profile by its

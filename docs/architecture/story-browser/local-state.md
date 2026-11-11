@@ -84,7 +84,7 @@ iOS it is a Secure Enclave P-256 key (a software key in the simulator), kept
 as a tagged value in the account's Keychain slot, and
 `AccountStoredCredentialProvider` opens hour-long sessions with it. A slot
 holding anything else is not used.
-A placement account ([accounts and devices §1.3](../../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts))
+A placement account ([federation §2](../../overstory-spec/3.3-federation.md#2-placement-accounts))
 is a connection per (profile, placement host) that holds no key: every device
 signs in there with its own home device key, because the placement host
 accepts the devices the home host lists. The account panel lists an account's

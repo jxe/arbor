@@ -45,6 +45,9 @@ the same time.
    their `Date` fields to tags using their schema. Trees still holding Markdown as files convert
    to pages in the same pass. Rehearse on a copy of Joe's data with a cold start and real time
    limits.
+   The spec no longer allows TreeIDs and DeviceIDs shorter than the 26-character form (Joe,
+   2026-11-11): the tool lists any live ones first; devices with one are re-paired, and a tree
+   with one is Joe's call before the flag day.
 7. **Flag day** (Joe's go): back up `/data`, deploy, run the migration, release Story (Mac and
    iPhone) and `@ovst/cli` together; Joe and Oliver update right away. The same release
    carries every move [Protocol 001](protocol-001-spec-review-route-changes.md) still lists

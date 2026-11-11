@@ -10,7 +10,7 @@ types are in [`@ovst/exec-protocol`](../../../packages/exec-protocol/src/index.t
 sidecar is [`@ovst/overstoryd-exec`](../../../packages/overstoryd-exec/src/sidecar.ts). A
 host runs it only when `OVERSTORYD_ACTIVATIONS` names modules to run; otherwise the views
 and mutate routes answer `unsupported-operation`. Portable contracts are in
-[executable documents](../../overstory-spec/4.1-executable-documents.md#8-host-and-server-boundaries)
+[apps and views](../../overstory-spec/4.1-apps-and-views.md#8-host-and-server-boundaries)
 and [execution tokens](../../overstory-spec/3.2-access-control.md#21-execution-tokens).
 
 ## Who owns what

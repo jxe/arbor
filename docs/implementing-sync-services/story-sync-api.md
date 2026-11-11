@@ -279,7 +279,7 @@ store), and reuses the `session.json` beside it while it is usable, writing a
 newly opened session back so the others reuse it too. A tree placed on a
 placement host names that host as its descriptor's `canonical.endpoint`; the
 session there is opened with the same key from the placement connection
-([accounts and devices §1.3](../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts)).
+([federation §2](../overstory-spec/3.3-federation.md#2-placement-accounts)).
 The former `GET /v1/credential` route went with Clients 003 step 3.
 
 ## 4. Identity, account bootstrap, and declined changes
@@ -342,7 +342,7 @@ Pairing codes and device credentials must never be logged.
 
 `POST /v1/bootstrap/placements` accepts `{ host }` and connects the data
 home's profile to its placement account at `host`
-([accounts and devices §1.3](../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts)),
+([federation §2](../overstory-spec/3.3-federation.md#2-placement-accounts)),
 which the host's community created by reserving the profile's URL at its
 home host, exactly as `story place` does on first use
 (`connectPlacementAccount` in `@ovst/client`): the device opens a
