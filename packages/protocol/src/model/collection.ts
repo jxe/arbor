@@ -5,7 +5,8 @@
 // always give the same objects and the same logical hash, whatever file or
 // database a placement projects them into.
 
-import { canonicalCBORHash, decodeCanonicalCBOR, encodeCanonicalCBOR } from "./cbor.ts";
+import { CBORTag, canonicalCBORHash, decodeCanonicalCBOR, encodeCanonicalCBOR } from "./cbor.ts";
+import { isPageTimestamp as isRowDate } from "../pages.ts";
 import type { Hash } from "./identifiers.ts";
 import type { JSONValue } from "./node-model.ts";
 import { compareUTF8 } from "./utf8.ts";
@@ -15,8 +16,9 @@ import { sha256 } from "./hash.ts";
 export interface LogicalRow {
   key: [string, JSONValue][];
   fields: Record<string, JSONValue>;
-  created: string;
-  modified: string;
+  /** Unix milliseconds in UTC, like a file or page entry's times (collections §2). */
+  created: number;
+  modified: number;
 }
 
 export interface ProtocolRows {
@@ -45,7 +47,6 @@ export const CHUNK_BOUNDARY = 128;
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Uint8Array);
 
@@ -56,7 +57,8 @@ function exactKeys(value: Record<string, unknown>, keys: string[], label: string
 
 /** A row's stable key: the canonical JSON of its key pairs (spec 03 §2). */
 export function logicalRowKey(row: Pick<LogicalRow, "key">): string {
-  return JSON.stringify(row.key);
+  // A Date key field is tagged in a rows object; its key JSON is the plain text.
+  return JSON.stringify(row.key, (_name, value) => value instanceof CBORTag ? value.value : value);
 }
 
 /** Canonical stable-key order (spec 06 §1.2). */
@@ -115,6 +117,11 @@ export function chunkLogicalRows(rows: LogicalRow[]): LogicalRow[][] {
 
 function checkJSONValue(value: unknown, label: string, depth = 0): asserts value is JSONValue {
   if (depth > 32) throw new TypeError(`${label} nests too deep`);
+  // A Date field's value: tag 1004 around a date, tag 0 around a UTC date-time (collections §2).
+  if (value instanceof CBORTag) {
+    if (!isRowDate(value)) throw new TypeError(`${label} is not a date or a UTC date-time`);
+    return;
+  }
   if (value === null || typeof value === "boolean" || typeof value === "string") return;
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new TypeError(`${label} must be finite`);
@@ -155,10 +162,9 @@ export function decodeLogicalRow(value: unknown, label = "row"): LogicalRow {
     checkJSONValue(field, `${label}.fields.${name}`);
   }
   for (const [name, time] of [["created", created], ["modified", modified]] as const) {
-    if (typeof time !== "string" || !TIME.test(time) || Number.isNaN(Date.parse(time))) {
-      throw new TypeError(`${label}.${name} must be an RFC 3339 UTC date-time with milliseconds`);
-    }
+    if (typeof time !== "number" || !Number.isSafeInteger(time)) throw new TypeError(`${label}.${name} must be Unix milliseconds`);
   }
+  if ((created as number) > (modified as number)) throw new TypeError(`${label}.created is later than its modified`);
   return value as unknown as LogicalRow;
 }
 
@@ -176,7 +182,7 @@ const ROWS_TAIL = Uint8Array.of(...encodeCanonicalCBOR("type"), ...encodeCanonic
 
 /** A `rows` object: canonical, each row well formed, and in stable-key order without a key twice. */
 export function decodeProtocolRows(bytes: Uint8Array): ProtocolRows {
-  const value = decodeCanonicalCBOR(bytes);
+  const value = decodeCanonicalCBOR(bytes, { tags: [0, 1004] });
   if (!isRecord(value) || value.type !== "rows") throw new TypeError("Not a rows object");
   exactKeys(value, ["type", "rows"], "rows object");
   if (!Array.isArray(value.rows)) throw new TypeError("rows object rows must be an array");

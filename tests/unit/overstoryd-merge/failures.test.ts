@@ -84,13 +84,13 @@ function sidecar(f: Fixture, delay = 0) {
 function entries(f: Fixture, second: Partial<LogEntry>) {
   const { base, candidate, request } = edit(f);
   const entry = (value: Partial<LogEntry>) => f.put(encodeLogEntry({
-    format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null, root: base, change: "base",
+    format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null, root: base, change: "base", at: 0,
     trace: null, resolves: [], decisions: [], ...value,
   }));
   const first = entry({});
   const head = entry({ previous: first, root: candidate, change: "first", trace: request.incoming.trace, ...second });
   return { head, candidate, question: {
-    base: head, head, candidate: { root: candidate, change: "next", trace: null, resolves: [] },
+    base: head, head, candidate: { root: candidate, change: "next", at: 0, trace: null, resolves: [] },
     rules: { id: "tree-default", revision: 1 },
   } };
 }

@@ -18,18 +18,11 @@ public enum LocalFolderPreview {
     /// The update ID recorded for a preview. It is never sent anywhere.
     public static let update = "local-folder-preview"
 
-    /// `dates` are the host's page dates as last reported, by body entry
-    /// path; they date the pages they name, so the preview's sidebar matches
-    /// the confirmed tree's, and file times date the rest.
-    public static func workingTree(tree: TreeID, folder: URL, dates: [String: Date] = [:]) async throws -> WorkingTree {
-        var nodes = try nodes(in: folder)
-        if !dates.isEmpty {
-            for index in nodes.indices {
-                if let entry = nodes[index].bodyEntryPath, let date = dates[entry] {
-                    nodes[index].metadata.modifiedAt = date
-                }
-            }
-        }
+    /// Files date their pages: Story Sync writes each with its entry's
+    /// `modified` time (data model §6), so the preview's sidebar matches the
+    /// confirmed tree's.
+    public static func workingTree(tree: TreeID, folder: URL) async throws -> WorkingTree {
+        let nodes = try nodes(in: folder)
         let workingTree = try await WorkingTree.inMemory(tree: tree)
         try await workingTree.initializeFromPreview(nodes)
         return workingTree
@@ -39,6 +32,14 @@ public enum LocalFolderPreview {
         let manager = FileManager.default
         let policy = IgnorePolicy(root: folder)
         var nodes: [WorkingTreeSystemNode] = []
+        // A scan dates each entry by its file's modification time, never later
+        // than now (data model §6); with no tree before it, every entry is new.
+        let now = ProtocolEntryTime.milliseconds(Date())
+        func times(_ content: String, _ date: Date?) -> WorkingTreeEntryTimes {
+            let stamp = min(date.map(ProtocolEntryTime.milliseconds) ?? now, now)
+            return WorkingTreeEntryTimes(content: content, created: stamp, modified: stamp)
+        }
+        func modified(_ url: URL?) -> Date? { url.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate } }
 
         func childPath(_ name: String, parent: String) -> String {
             parent == "/" ? "/\(name)" : "\(parent)/\(name)"
@@ -77,13 +78,16 @@ public enum LocalFolderPreview {
             let bodyURL = index != nil ? indexURL : siblingMarkdownSource != nil
                 ? directory.deletingLastPathComponent().appending(path: directory.lastPathComponent + ".md")
                 : nil
-            let bodyModified = bodyURL.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+            let bodyModified = modified(bodyURL)
+            let siblingURL = directory.deletingLastPathComponent().appending(path: directory.lastPathComponent + ".md")
             nodes.append(WorkingTreeSystemNode(
                 path: path,
                 metadata: EntryMetadata(modifiedAt: bodyModified),
                 content: .directory(source: source),
                 directoryBodyPlacement: index == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
-                shadowedSiblingMarkdownSource: index != nil ? siblingMarkdownSource : nil
+                shadowedSiblingMarkdownSource: index != nil ? siblingMarkdownSource : nil,
+                times: source.map { times(WorkingTreeEntryTimes.content(of: $0), bodyModified) },
+                shadowedTimes: index != nil ? siblingMarkdownSource.map { times(WorkingTreeEntryTimes.content(of: $0), modified(siblingURL)) } : nil
             ))
             for url in files where url.lastPathComponent != "_index.md" {
                 let name = url.lastPathComponent
@@ -95,16 +99,19 @@ public enum LocalFolderPreview {
                     nodes.append(WorkingTreeSystemNode(
                         path: childPath(logicalName, parent: path),
                         metadata: EntryMetadata(modifiedAt: values?.contentModificationDate),
-                        content: .markdown(source: source)
+                        content: .markdown(source: source),
+                        times: times(WorkingTreeEntryTimes.content(of: source), values?.contentModificationDate)
                     ))
                 } else {
+                    let standIn = standInHash(for: url, size: values?.fileSize, modified: values?.contentModificationDate)
                     nodes.append(WorkingTreeSystemNode(
                         path: childPath(name, parent: path),
                         content: .file(ref: .hash(
-                            standInHash(for: url, size: values?.fileSize, modified: values?.contentModificationDate),
+                            standIn,
                             size: values?.fileSize,
                             mediaType: SnapshotBridge.inferredMediaType(for: name)
-                        ))
+                        )),
+                        times: times(standIn, values?.contentModificationDate)
                     ))
                 }
             }

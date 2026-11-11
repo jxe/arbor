@@ -10,6 +10,8 @@ import { serveHost } from "@ovst/overstoryd";
 import { decodeProtocolDirectory, encodeProtocolDirectory, encodeProtocolPage, hashObject, executeExactSourceEdits, parsePage,
   type ObjectHash, type ProtocolDirectory, type SourceOperation } from "@ovst/protocol";
 import { deviceClient, testAccount } from "../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 const bodyKB = Number(process.env.BODY_KB ?? 64), siblings = Number(process.env.SIBLINGS ?? 60), n = Number(process.env.N ?? 40);
 const dir = await mkdtemp(`${tmpdir()}/story-page-cost-`);
@@ -30,21 +32,21 @@ for (let index = 0; lines.join("\n").length < bodyKB * 1024; index++)
 const body = lines.join("\n") + "\n";
 const value: ProtocolDirectory = decodeProtocolDirectory(objects.get(root)!);
 // Markdown files first, then the conversion to the pages they read as (spec 02 §3).
-value.entries.push({ name: "console.md", file: put(encoder.encode(`---\ntitle: Console\n---\n${body}`)) });
-for (let index = 0; index < siblings; index++) value.entries.push({ name: `page-${index}.md`, file: put(encoder.encode(`Body ${index}\n`)) });
+value.entries.push({ name: "console.md", file: put(encoder.encode(`---\ntitle: Console\n---\n${body}`)), created: 0, modified: 0 });
+for (let index = 0; index < siblings; index++) value.entries.push({ name: `page-${index}.md`, file: put(encoder.encode(`Body ${index}\n`)), created: 0, modified: 0 });
 value.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 ({ id: update, root } = await submit(put(encodeProtocolDirectory(value)), null, [...objects].map(([hash, bytes]) => ({ hash, bytes }))));
-value.entries = value.entries.map((e) => e.file && (e.name === "console.md" || e.name.startsWith("page-")) ? { name: e.name, page: put(encodeProtocolPage(parsePage(objects.get(e.file)!)!)) } : e);
+value.entries = value.entries.map((e) => e.file && (e.name === "console.md" || e.name.startsWith("page-")) ? { name: e.name, page: put(encodeProtocolPage(parsePage(objects.get(e.file)!)!)), created: 0, modified: 0 } : e);
 ({ id: update, root } = await submit(put(encodeProtocolDirectory(value)), null, [...objects].map(([hash, bytes]) => ({ hash, bytes }))));
 
 async function submit(candidate: ObjectHash, trace: { before: ObjectHash; after: ObjectHash; operations: SourceOperation[] }[] | null, payload: { hash: ObjectHash; bytes: Uint8Array }[]) {
-  const accepted = (await client.submitUpdates(tree, { base: update, updates: [{ change: crypto.randomUUID(), candidate, trace, resolves: [], deltas: [], objects: payload }] })).results[0]!.update;
+  const accepted = (await client.submitUpdates(tree, { base: update, updates: [{ at: TEST_TIME, change: crypto.randomUUID(), candidate, trace, resolves: [], deltas: [], objects: payload }] })).results[0]!.update;
   return { id: accepted.id, root: accepted.root as ObjectHash };
 }
 const page = () => decodeProtocolDirectory(objects.get(root)!).entries.find((e) => e.name === "console.md")!.page!;
 const material = () => ({ kind: "basis" as const, path: "/console.md", object: page() });
 async function traced(operations: SourceOperation[]) {
-  const executed = await executeExactSourceEdits(root, operations, async (hash) => objects.get(hash)!);
+  const executed = await executeExactSourceEdits(root, operations, async (hash) => objects.get(hash)!, TEST_AT);
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
   ({ id: update, root } = await submit(executed.root, [{ before: root, after: executed.root, operations }], [...executed.generated].map(([hash, bytes]) => ({ hash, bytes }))));
 }

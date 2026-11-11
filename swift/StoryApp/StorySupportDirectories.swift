@@ -49,9 +49,6 @@ enum StorySupportDirectories {
     static let visitedTrees = root.appending(path: "Visits.json")
     static let directory = root.appending(path: "Directory.json")
     static let avatars = root.appending(path: "Avatars", directoryHint: .isDirectory)
-    /// The page dates each tree's host reported last, one file per tree, so a
-    /// launch can date the sidebar before the host answers again.
-    static let entryDates = root.appending(path: "Entry Dates", directoryHint: .isDirectory)
     /// The sidebar's page list as last loaded for each tree, one file per tree.
     static let sidebarLists = root.appending(path: "Sidebar Lists", directoryHint: .isDirectory)
     /// Per-tree working-tree state: the durable iOS tree, or on the Mac only the

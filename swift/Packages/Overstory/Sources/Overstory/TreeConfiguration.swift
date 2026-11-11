@@ -49,9 +49,10 @@ public extension ProtocolClient {
     /// Declare a tree: the null-base first snapshot of its configuration,
     /// addressed as `tr_x;overstory-config` and answered under the configuration's
     /// derived TreeID. The tree then awaits its own first snapshot.
-    func declareTree(_ tree: String, configuration: ProtocolSnapshot) async throws -> ProtocolUpdateResult {
+    /// `at` is no earlier than the times the configuration was stamped with.
+    func declareTree(_ tree: String, configuration: ProtocolSnapshot, at: String = ProtocolEntryTime.now()) async throws -> ProtocolUpdateResult {
         _ = try ProtocolObjectGraph.validate(configuration)
-        let update = ProtocolCandidateUpdate(candidate: configuration.root, objects: configuration.objects)
+        let update = ProtocolCandidateUpdate(candidate: configuration.root, at: at, objects: configuration.objects)
         let request = ProtocolUpdateRequest(base: nil, updates: [update])
         let submission = try self.prepared(
             tree: "\(tree);\(treeConfigurationParameter)",
@@ -63,9 +64,10 @@ public extension ProtocolClient {
 
     /// Activate a declared tree with its first snapshot: a null-base request
     /// whose one element is the snapshot (accounts §6).
-    func activateTree(_ tree: String, snapshot: ProtocolSnapshot, change: String = UUID().uuidString) async throws -> ProtocolUpdateResult {
+    /// `at` is no earlier than the times the snapshot was stamped with.
+    func activateTree(_ tree: String, snapshot: ProtocolSnapshot, change: String = UUID().uuidString, at: String = ProtocolEntryTime.now()) async throws -> ProtocolUpdateResult {
         _ = try ProtocolObjectGraph.validate(snapshot)
-        let update = ProtocolCandidateUpdate.activation(snapshot, change: change)
+        let update = ProtocolCandidateUpdate.activation(snapshot, change: change, at: at)
         let request = ProtocolUpdateRequest(base: nil, updates: [update])
         let submission = try self.prepared(
             tree: tree,
@@ -78,13 +80,13 @@ public extension ProtocolClient {
 
 public extension ProtocolSnapshot {
     /// This snapshot with its root directory's file `name` set to `bytes`,
-    /// added when the root has no such entry.
-    func settingRootFile(named name: String, to bytes: Data) throws -> ProtocolSnapshot {
-        if (try? rootFile(named: name)) != nil { return try replacingRootFile(named: name, with: bytes) }
+    /// added when the root has no such entry, stamped at `at` (Unix ms).
+    func settingRootFile(named name: String, to bytes: Data, at: Int) throws -> ProtocolSnapshot {
+        if (try? rootFile(named: name)) != nil { return try replacingRootFile(named: name, with: bytes, at: at) }
         let objects = try ProtocolObjectGraph.validate(self)
         guard case let .directory(entries, collection)? = objects[root] else { throw ProtocolValidationError.incompleteGraph("/") }
         let file = try ProtocolObjectCodec.object(.file(bytes))
-        let nextEntries = (entries + [ProtocolDirectoryEntry(name: name, file: file.hash)]).sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
+        let nextEntries = (entries + [ProtocolDirectoryEntry.stamped(.file, name: name, object: file.hash, previous: nil, at: at)]).sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
         let nextRoot = try ProtocolObjectCodec.object(.directory(nextEntries, collection: collection))
         return ProtocolSnapshot(root: nextRoot.hash, objects: self.objects.filter { $0.hash != root } + [
             ProtocolObjectEnvelope(hash: file.hash, bytes: file.bytes),

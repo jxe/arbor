@@ -31,6 +31,16 @@ enum WorkingTreeProtocolCodec {
 
         /// Markdown is a page entry once the tree holds pages (directory format §3).
         let pages = state.pages == true
+        /// `entry` with the times its node keeps. Every state the tree installs
+        /// or changes is stamped (`WorkingTree.stampEntryTimes`, the snapshot
+        /// bridge, a folder scan); a node never stamped, as in a state built by
+        /// hand, is dated 0.
+        func timed(_ entry: ProtocolDirectoryEntry, _ times: WorkingTreeEntryTimes?, at path: String) throws -> ProtocolDirectoryEntry {
+            var entry = entry
+            entry.created = times?.created ?? 0
+            entry.modified = times?.modified ?? 0
+            return entry
+        }
         func markdown(_ name: String, _ bytes: Data) -> ProtocolDirectoryEntry {
             ProtocolDirectoryEntry.markdown(name: name, bytes: bytes, pages: pages, store: store)
         }
@@ -83,7 +93,7 @@ enum WorkingTreeProtocolCodec {
             }
             var entries: [ProtocolDirectoryEntry] = []
             if let source = node.source, node.directoryBodyPlacement != .siblingMarkdown {
-                entries.append(markdown("_index.md", source: source, in: path))
+                entries.append(try timed(markdown("_index.md", source: source, in: path), node.times, at: WorkingTreeSemantics.child("_index.md", of: path)))
             }
             // Each name once, not twice per comparison.
             let children = (childrenByParent[path] ?? [])
@@ -103,17 +113,17 @@ enum WorkingTreeProtocolCodec {
                         entries.append(ProtocolDirectoryEntry(name: name, directory: try buildDirectory(at: child.path)))
                     }
                     if child.directoryBodyPlacement == .siblingMarkdown, let source = child.source {
-                        entries.append(markdown(name + ".md", source: source, in: path))
+                        entries.append(try timed(markdown(name + ".md", source: source, in: path), child.times, at: child.path + ".md"))
                     } else if let shadowed = child.shadowedSiblingMarkdownSource {
-                        entries.append(markdown(name + ".md", source: shadowed, in: path))
+                        entries.append(try timed(markdown(name + ".md", source: shadowed, in: path), child.shadowedTimes, at: child.path + ".md"))
                     }
                 case .markdown:
-                    entries.append(markdown(name + ".md", source: child.source ?? "", in: path))
+                    entries.append(try timed(markdown(name + ".md", source: child.source ?? "", in: path), child.times, at: child.path + ".md"))
                 case .file:
                     if case let .inline(bytes)? = child.ref, ProtocolPage.isPageName(name) {
-                        entries.append(markdown(name, bytes))
+                        entries.append(try timed(markdown(name, bytes), child.times, at: child.path))
                     } else {
-                        entries.append(ProtocolDirectoryEntry(name: name, file: reference(child.ref)))
+                        entries.append(try timed(ProtocolDirectoryEntry(name: name, file: reference(child.ref)), child.times, at: child.path))
                     }
                 case .boundary:
                     guard let tree = child.boundaryTree, !tree.isEmpty else {

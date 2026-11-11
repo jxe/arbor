@@ -1,11 +1,10 @@
 import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, isServerFault, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
-import { EntryTimesBehind } from "./updates/entry-times.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
-import { canonicalNodePath, isCollectionSchemaName, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
-import type { AccountChallenge, LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
+import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, DOMAIN_PROFILE_PATH, validateAccountChallenge } from "@ovst/protocol";
+import { isCollectionSchemaName, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
+import type { LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
 import {
@@ -23,7 +22,8 @@ import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
 import {
   decodeDerivableUpdateRequestJSON,
   isStatedUpdate,
-  encodeAcceptedTransitionJSON,
+  encodeAcceptedWatchChange,
+  encodeDecisionPage,
   type AcceptedTransition,
   type AcceptedUpdate,
   type ObjectHash,
@@ -33,7 +33,7 @@ import {
 import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, PAGE_ASSETS, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionRowMarkdown, protocolCollectionRowTitle, type ProtocolCollectionRow } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
-import { DOMAIN_CHECK_PATH, LEGACY_DOMAIN_CHECK_PATH, domainOrigin, type CustomDomains } from "./custom-domains.ts";
+import { DOMAIN_CHECK_PATH, domainOrigin, type CustomDomains } from "./custom-domains.ts";
 import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
 
 
@@ -61,6 +61,11 @@ function childListMarkdown(title: string, children: readonly PublicPageChild[]):
 
 function markdown(value: string): Response {
   return new Response(value, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
+}
+
+/** Whether a request body names every `required` member, any of `optional`, and nothing else. */
+function exactFields(body: Record<string, unknown>, required: readonly string[], optional: readonly string[]): boolean {
+  return required.every((key) => body[key] !== undefined) && Object.keys(body).every((key) => required.includes(key) || optional.includes(key));
 }
 
 function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -197,11 +202,7 @@ function descriptorWithUpdate(
  * frame's SSE `id` and the tree is the URL's.
  */
 function watchFrame(origin: string, tree: HostTree, transition: AcceptedTransition, access: ReadWriteAccess, domains?: CustomDomains) {
-  return {
-    transition: encodeAcceptedTransitionJSON(transition),
-    access,
-    canonical: descriptor(origin, tree, access, transition.update, false, domains).canonical,
-  };
+  return encodeAcceptedWatchChange({ transition, access, canonical: descriptor(origin, tree, access, transition.update, false, domains).canonical });
 }
 
 
@@ -214,7 +215,7 @@ function updateResponse(overstoryd: HostDaemon, treeID: string, value: StoredUpd
   if ("error" in value) return json(encodeUpdateConflictJSON(value), status, headers);
   const tree = overstoryd.get(treeID), update = tree ? overstoryd.currentUpdate(treeID) : null;
   if (!tree || !update) throw new Error(`An accepted update left no head for ${treeID}`);
-  const head: UpdateHead = { update: update.id, root: tree.ref as ObjectHash, conflicted: update.conflicted, observedThrough: overstoryd.observedThrough(treeID) };
+  const head: UpdateHead = { update: update.id, root: tree.ref as ObjectHash, conflicted: update.conflicted };
   return wire(encodeUpdateResponseJSON({ ...value, head }, encoding), encoding, status, headers);
 }
 
@@ -229,6 +230,7 @@ function accountDescriptor(origin: string, overstoryd: HostDaemon, account: Host
     handle: account.handle,
     profileTree: account.id,
     profileURL: profile ? overstoryLocator(origin, profile) : null,
+    homeHost: origin,
     community: descriptorWithUpdate(origin, overstoryd, community, overstoryd.canWrite(account, community) ? "write" : "read"),
     configuration: descriptorWithUpdate(origin, overstoryd, configuration, "write"),
     writableProfiles: overstoryd.writableProfiles(account).map((tree) => descriptorWithUpdate(origin, overstoryd, tree, "write")),
@@ -558,7 +560,7 @@ export async function serveHost(options: {
             headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
           });
         }
-        if (request.method === "GET" && (url.pathname === DOMAIN_CHECK_PATH || url.pathname === LEGACY_DOMAIN_CHECK_PATH)) {
+        if (request.method === "GET" && url.pathname === DOMAIN_CHECK_PATH) {
           return json({ host: overstoryd.customDomains.token });
         }
         if (request.method === "GET" && url.pathname === "/.overstory/health") {
@@ -597,94 +599,60 @@ export async function serveHost(options: {
         if (url.pathname === "/.overstory/pairings" && request.method === "POST") {
           return json(overstoryd.createPairing(requireAccount(authentication)), 201);
         }
-        // Host-to-host routes live under `/.overstory/peer/`; the old path is
-        // answered until plans/soon/protocol-001 removes it.
-        const publishedKeys = /^\/\.overstory\/(?:peer\/)?profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
+        // Host-to-host routes live under `/.overstory/peer/`.
+        const publishedKeys = /^\/\.overstory\/peer\/profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
         if (publishedKeys && request.method === "GET") {
           // Public: a placement host reads it without authenticating (accounts §5.4).
           return json(await overstoryd.publishedDeviceKeys(publishedKeys[1]!), 200, { "cache-control": "no-cache" });
         }
-        if (url.pathname === "/.overstory/device-sessions/challenges" && request.method === "POST") {
-          const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown; homeHost?: unknown };
-          // The profile may be left out at a device's home host, which knows whose device it is (accounts §5.1).
-          if ((body.profileTree !== undefined && typeof body.profileTree !== "string") || typeof body.device !== "string") throw new Error("A session challenge names a DeviceID, and a profile TreeID unless this is the device's home host");
-          if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree ?? body.device}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
-          if (body.homeHost !== undefined && (typeof body.homeHost !== "string" || typeof body.profileTree !== "string")) throw new Error("A visitor's session challenge names its profile TreeID and its home host's origin");
-          return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device, ...(typeof body.homeHost === "string" ? { homeHost: body.homeHost } : {}) }), 201);
+        // Every challenge comes from one route; its purpose is signed with it (accounts §1.2).
+        if (url.pathname === "/.overstory/challenges" && request.method === "POST") {
+          const body = await bodyFields(request) as Record<string, unknown>;
+          const optionalString = (value: unknown) => value === undefined || typeof value === "string";
+          if (body.purpose === "session") {
+            if (!exactFields(body, ["purpose", "device"], ["profileTree", "homeHost"])) throw new Error("A session challenge names purpose, device, profileTree and homeHost only");
+            // The profile may be left out at a device's home host, which knows whose device it is (accounts §4.1).
+            if (!optionalString(body.profileTree) || typeof body.device !== "string") throw new Error("A session challenge names a DeviceID, and a profile TreeID unless this is the device's home host");
+            if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree ?? body.device}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
+            if (body.homeHost !== undefined && (typeof body.homeHost !== "string" || typeof body.profileTree !== "string")) throw new Error("A visitor's session challenge names its profile TreeID and its home host's origin");
+            return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree as string | undefined, device: body.device, ...(typeof body.homeHost === "string" ? { homeHost: body.homeHost } : {}) }), 201);
+          }
+          if (body.purpose === "account" || body.purpose === "placement") {
+            const placement = body.purpose === "placement";
+            if (!exactFields(body, placement ? ["purpose", "profileTree", "inviteCode", "profile"] : ["purpose", "profileTree"], ["account", "inviteCode"])
+              || typeof body.profileTree !== "string" || !optionalString(body.account) || !optionalString(body.inviteCode) || !optionalString(body.profile)) {
+              throw new Error(placement ? "A placement challenge names profileTree, profile, account and inviteCode" : "An account challenge names profileTree, and optionally account and inviteCode");
+            }
+            return json(overstoryd.createAccountChallenge({
+              origin: publicOrigin,
+              purpose: body.purpose,
+              account: body.account as string | undefined,
+              profileTree: body.profileTree,
+              inviteCode: body.inviteCode as string | undefined,
+              profile: body.profile as string | undefined,
+            }), 201);
+          }
+          throw new Error("A challenge's purpose is account, placement or session");
         }
         if (url.pathname === "/.overstory/device-sessions" && request.method === "POST") {
           const body = await bodyFields(request) as { challenge?: unknown; signature?: unknown };
           if (!body.challenge || typeof body.signature !== "string") throw new Error("A session requires the signed challenge and its signature");
           return json(await overstoryd.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
         }
-        if (url.pathname === "/.overstory/account-challenges" && request.method === "POST") {
-          const body = await bodyFields(request) as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown; profile?: unknown };
-          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
-            || (body.profile !== undefined && typeof body.profile !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
-            throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL");
-          }
-          return json(overstoryd.createAccountChallenge({
-            origin: publicOrigin,
-            account: body.account,
-            profileTree: body.profileTree,
-            configurationTree: body.configurationTree,
-            inviteCode: body.inviteCode as string | undefined,
-            profile: body.profile as string | undefined,
-          }), 201);
-        }
-        /** An invitation accepted by a profile homed at another host (accounts §1.4). */
-        const acceptAsPlacement = async (fields: unknown) => {
-          const body = fields as {
-            account?: unknown;
-            profile?: unknown;
-            profileTree?: unknown;
-            configurationTree?: unknown;
-            inviteCode?: unknown;
-            challenge?: AccountChallenge;
-            publicKey?: unknown;
-            signature?: unknown;
-          };
-          let accountURL: URL | undefined;
-          try { if (typeof body.account === "string") accountURL = new URL(body.account); } catch {}
-          if (
-            accountURL?.origin !== publicOrigin || typeof body.profile !== "string" || typeof body.profileTree !== "string"
-            || typeof body.configurationTree !== "string" || typeof body.inviteCode !== "string" || !body.challenge
-            || typeof body.publicKey !== "string" || typeof body.signature !== "string"
-          ) throw new Error("Accepting an invitation as a placement requires the account, the profile's locator, its code, and the signed challenge");
-          const placed = await overstoryd.acceptInvitationAsPlacement({
-            accountLocator: body.account as string,
-            origin: publicOrigin,
-            profile: body.profile,
-            profileTree: body.profileTree,
-            configurationTree: body.configurationTree,
-            challenge: body.challenge,
-            publicKey: body.publicKey,
-            signature: body.signature,
-            inviteCode: body.inviteCode,
-          });
-          return placed;
-        };
-        // The old route, kept until clients send `PUT /accounts` with `profile`
-        // (plans/soon/protocol-001-spec-review-route-changes.md).
-        if (url.pathname === "/.overstory/placements" && request.method === "PUT") {
-          return json(accountDescriptor(publicOrigin, overstoryd, await acceptAsPlacement(await bodyFields(request))), 201);
-        }
-        const pairingClaim = /^\/\.overstory\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
-        if (pairingClaim && request.method === "PUT") {
-          const pairingID = decodeURIComponent(pairingClaim[1]!);
-          if (pairingClaims && !pairingClaims.allow(`${callerAddress(request, server)}:${pairingID}`))
+        // The code is the pairing's only name (accounts §4).
+        if (url.pathname === "/.overstory/pairings/claim" && request.method === "PUT") {
+          if (pairingClaims && !pairingClaims.allow(`${callerAddress(request, server)}:pairing`))
             return protocolError("rate-limited", "Too many pairing claims", 429, true);
           const body = await bodyFields(request) as {
-            secret?: unknown;
+            code?: unknown;
             device?: { id?: unknown; label?: unknown; key?: unknown };
           };
           if (
-            typeof body.secret !== "string" || typeof body.device?.id !== "string"
+            typeof body.code !== "string" || typeof body.device?.id !== "string"
             || typeof body.device.label !== "string" || typeof body.device.key !== "string"
-          ) throw new Error("Pairing claim requires secret, generated device identity, a device key, and label");
+          ) throw new Error("Pairing claim requires the pairing code, a generated device identity, a device key, and label");
           const claimed = await overstoryd.claimPairing({
-            id: pairingID,
-            secret: body.secret,
+            code: body.code,
             deviceID: body.device.id,
             key: body.device.key,
             label: body.device.label,
@@ -693,7 +661,7 @@ export async function serveHost(options: {
         }
         if (url.pathname === "/.overstory/trees") {
           if (request.method === "GET") {
-            return json({ snapshot: overstoryd.list()
+            return json({ trees: overstoryd.list()
               // A tree configuration is listed only for its own profile's account,
               // and a tree mounted nowhere only for its administrators.
               .filter((tree) => tree.kind === "tree-configuration" ? tree.governs === account?.id
@@ -706,52 +674,62 @@ export async function serveHost(options: {
           }
           return methodNotAllowed();
         }
-        // `/.overstory/directory` is the old path, answered until plans/soon/protocol-001 removes it.
-        if (url.pathname === "/.overstory/account/directory" || url.pathname === "/.overstory/directory") {
+        if (url.pathname === "/.overstory/account/directory") {
           if (request.method !== "GET") return methodNotAllowed();
           const authenticated = requireAccount(authentication);
           return json({
-            snapshot: buildDirectory(overstoryd, authenticated, publicOrigin),
+            people: buildDirectory(overstoryd, authenticated, publicOrigin),
           });
         }
         if (url.pathname === "/.overstory/accounts" && request.method === "PUT") {
           const { value, encoding } = await wireBody(request);
-          // Joining with a profile homed at another host: a membership here (accounts §1.4).
-          if ((value as { profile?: unknown }).profile !== undefined) {
-            const placed = await acceptAsPlacement(value);
-            return wire({ account: accountDescriptor(publicOrigin, overstoryd, placed) }, answerEncoding(request), 201);
-          }
+          // The body names no account, profile or configuration of its own:
+          // the host reads them from the signed challenge, whose purpose tells
+          // a claim from a placement (accounts §1.2, federation §3).
           const body = value as {
-            account?: unknown;
-            profileTree?: unknown;
-            configurationTree?: unknown;
-            challenge?: AccountChallenge;
+            challenge?: unknown;
             publicKey?: unknown;
             signature?: unknown;
             inviteCode?: unknown;
             device?: { id?: unknown; label?: unknown; key?: unknown };
             configuration?: unknown;
           };
-          let accountURL: URL | undefined;
-          try { if (typeof body.account === "string") accountURL = new URL(body.account); } catch {}
-          const reservation = accountURL?.origin === publicOrigin ? overstoryd.accountReservation(body.account as string) : null;
+          const challenge = validateAccountChallenge(body.challenge);
+          if (typeof body.publicKey !== "string" || typeof body.signature !== "string" || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")) {
+            throw new Error("Joining requires the signed challenge, the profile's public key and its signature");
+          }
+          if (challenge.purpose === "placement") {
+            if (!exactFields(body as Record<string, unknown>, ["challenge", "publicKey", "signature", "inviteCode"], [])) throw new Error("Accepting an invitation as a placement carries the challenge, key, signature and invitation code, and no device or configuration");
+            if (new URL(challenge.account).origin !== publicOrigin) throw new Error("The challenge names another host");
+            const placed = await overstoryd.acceptInvitationAsPlacement({
+              accountLocator: challenge.account,
+              origin: publicOrigin,
+              profile: challenge.profile!,
+              profileTree: challenge.profileTree,
+              configurationTree: challenge.configurationTree,
+              challenge,
+              publicKey: body.publicKey,
+              signature: body.signature,
+              inviteCode: body.inviteCode as string,
+            });
+            return wire({ account: accountDescriptor(publicOrigin, overstoryd, placed) }, answerEncoding(request), 201);
+          }
+          const reservation = new URL(challenge.account).origin === publicOrigin ? overstoryd.accountReservation(challenge.account) : null;
           if (
-            !reservation || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
-            || !body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string"
-            || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
+            !reservation || !exactFields(body as Record<string, unknown>, ["challenge", "publicKey", "signature", "device", "configuration"], ["inviteCode"])
             || typeof body.device?.id !== "string" || typeof body.device.label !== "string"
             || typeof body.device.key !== "string" || !body.configuration
-          ) throw new Error("Account join requires an exact community reservation, generated identities, a device key, and initial configuration");
-          if (reservation.profileTree && reservation.profileTree !== body.profileTree) {
+          ) throw new Error("Account join requires an exact community reservation, a generated device identity and key, and initial configuration");
+          if (reservation.profileTree && reservation.profileTree !== challenge.profileTree) {
             throw new Error("Account reservation names a different profile TreeID");
           }
           const result = await overstoryd.claimAccountWithConfiguration({
-            accountLocator: body.account as string,
+            accountLocator: challenge.account,
             handle: reservation.handle,
             origin: publicOrigin,
-            profileTree: body.profileTree,
-            configurationTree: body.configurationTree,
-            challenge: body.challenge,
+            profileTree: challenge.profileTree,
+            configurationTree: challenge.configurationTree,
+            challenge,
             publicKey: body.publicKey,
             signature: body.signature,
             inviteCode: body.inviteCode as string | undefined,
@@ -764,24 +742,6 @@ export async function serveHost(options: {
             account: accountDescriptor(publicOrigin, overstoryd, result.account),
             configuration: descriptorWithUpdate(publicOrigin, overstoryd, result.configuration, "write"),
           }, answerEncoding(request), 201);
-        }
-        const access = /^\/\.overstory\/trees\/([^/]+)\/access$/.exec(url.pathname);
-        if (access) {
-          const treeID = hostedReference(access[1]!).id;
-          if (request.method === "GET") {
-            // Only administrators read a tree's rules (access control §4),
-            // with each profile a rule names by TreeID shown by its locator.
-            const policy = overstoryd.resourcePolicy(requireAccount(authentication), treeID);
-            if (!policy) return protocolError("not-found", "Tree not found", 404);
-            const locators: Record<string, string> = {};
-            for (const profile of overstoryd.ruleProfiles(treeID)) {
-              const tree = isTreeID(profile) ? overstoryd.get(profile) : null;
-              const locator = tree ? overstoryLocator(publicOrigin, tree) : null;
-              if (locator) locators[profile] = locator;
-            }
-            return json({ policy, locators });
-          }
-          return methodNotAllowed();
         }
         const wellKnown = url.pathname === "/.well-known/overstory"
           ? "/"
@@ -797,8 +757,6 @@ export async function serveHost(options: {
           return json({
             ref: { tree: configuration.id, path: "/", stableKey: null },
             enclosingTree: descriptorWithUpdate(publicOrigin, overstoryd, configuration, level),
-            historical: false,
-            observedThrough: overstoryd.observedThrough(configuration.id),
           } satisfies LocatorResolution);
         }
         if (wellKnown !== null && request.method === "GET") {
@@ -809,26 +767,24 @@ export async function serveHost(options: {
           return json({
             ref: { tree: resolved.tree.id, path: resolved.path, stableKey: null },
             enclosingTree,
-            historical: false,
-            observedThrough: overstoryd.observedThrough(resolved.tree.id),
           } satisfies LocatorResolution);
         }
         const ref = /^\/\.overstory\/trees\/([^/]+)$/.exec(url.pathname);
         if (ref && request.method === "GET") {
           const { tree, level } = readableTree(ref[1]!);
           const current = descriptorWithUpdate(publicOrigin, overstoryd, tree, level);
-          return json({ tree: current, observedThrough: overstoryd.observedThrough(tree.id) });
+          return json({ tree: current });
         }
         const conflicts = /^\/\.overstory\/trees\/([^/]+)\/conflicts$/.exec(url.pathname);
         if (conflicts && request.method === "GET") {
           const tree = readableTree(conflicts[1]!).tree.id;
-          const state = url.searchParams.get("state"), after = url.searchParams.get("after"), selected = url.searchParams.get("conflict");
-          if (!state || ["state", "after", "conflict"].some(k => url.searchParams.getAll(k).length > 1) ||
+          const state = url.searchParams.get("update"), after = url.searchParams.get("after"), selected = url.searchParams.get("conflict");
+          if (!state || ["update", "after", "conflict"].some(k => url.searchParams.getAll(k).length > 1) ||
               (after !== null && (!after || selected !== null)) || selected === "") {
             return protocolError("invalid-request", "Invalid conflict inspection query", 400);
           }
           const page = await overstoryd.conflictPage(tree, state, after ?? undefined, selected ?? undefined);
-          return page ? json(page) : notFound("Accepted state not found");
+          return page ? json(encodeDecisionPage(page)) : notFound("Accepted state not found");
         }
         const acceptedSnapshot = /^\/\.overstory\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (acceptedSnapshot && request.method === "GET") {
@@ -837,10 +793,8 @@ export async function serveHost(options: {
           const snapshot = await overstoryd.snapshotForRoot(tree.id, root);
           if (!snapshot) return notFound("Snapshot not found");
           // The bundle is a deterministic encoding of the root's graph, so the
-          // root names it; hashing the body again would add nothing. Entry
-          // times are a function of the root too (§1.1.2a).
-          const times = url.searchParams.has("times") ? await overstoryd.entryTimesFor(tree.id, root, snapshot.objects) : undefined;
-          return new Response(encodeSnapshotBundle(snapshot, times) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, times ? `${root};times` : root) });
+          // root names it; hashing the body again would add nothing.
+          return new Response(encodeSnapshotBundle(snapshot) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, root) });
         }
         const pathRead = /^\/\.overstory\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})\/path(\/.*)?$/.exec(url.pathname);
         if (pathRead && request.method === "GET") {
@@ -853,20 +807,7 @@ export async function serveHost(options: {
           if (!objects) return notFound("Snapshot not found");
           // The root and the path name the body: it is as immutable as the snapshot.
           // The path is percent-encoded as in the URL, since a header holds only ASCII.
-          const times = url.searchParams.has("times") ? await overstoryd.entryTimesFor(tree.id, root, objects) : undefined;
-          return new Response(encodePathReadBundle(objects, times) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, `${root}${encodePathReadPath(path)}${times ? ";times" : ""}`) });
-        }
-        const metadata = /^\/\.overstory\/trees\/([^/]+)\/entry-metadata$/.exec(url.pathname);
-        if (metadata && request.method === "GET") {
-          const { tree } = readableTree(metadata[1]!);
-          const along = url.searchParams.get("path");
-          let path: string | undefined;
-          if (along !== null) {
-            try { path = canonicalNodePath(along); }
-            catch { return protocolError("invalid-request", "The path is not a valid logical path", 400); }
-          }
-          const value = overstoryd.entryMetadata(tree.id, path);
-          return value ? json(value) : notFound("Entry metadata not found");
+          return new Response(encodePathReadBundle(objects) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, `${root}${encodePathReadPath(path)}`) });
         }
         const updates = /^\/\.overstory\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
@@ -1342,7 +1283,7 @@ export async function serveHost(options: {
         if (error instanceof PermissionDeniedError) return protocolError("permission-denied", message, 403);
         if (error instanceof NotFoundError) return protocolError("not-found", message, 404);
         if (error instanceof ExpiredChallengeError) return protocolError("invalid-request", message, 400, false, { challenge: "expired" });
-        if (error instanceof ServerBusyError || error instanceof EntryTimesBehind) return protocolError("internal-error", message, 503, true);
+        if (error instanceof ServerBusyError) return protocolError("internal-error", message, 503, true);
         if (error instanceof PlacementAccountError) return protocolError("permission-denied", message, 403, false, { homeHost: error.homeHost });
         if (error instanceof HomeHostUnavailableError) return protocolError("internal-error", message, 503, true, { homeHost: error.homeHost });
         if (isServerFault(error)) {

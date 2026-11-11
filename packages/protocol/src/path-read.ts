@@ -1,6 +1,6 @@
 import { canonicalNodePath, normalizeTreePath } from "./model/logical-path.ts";
 import { decodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "./objects.ts";
-import { checkEntryTimes, decodeBundle, decodeSparseSnapshotBundle, encodeSparseSnapshotBundle, type EntryTimes } from "./snapshots.ts";
+import { decodeSparseSnapshotBundle, encodeSparseSnapshotBundle } from "./snapshots.ts";
 
 /**
  * Path reads (tree operations §1.2.4): the directory objects from an accepted
@@ -12,7 +12,7 @@ import { checkEntryTimes, decodeBundle, decodeSparseSnapshotBundle, encodeSparse
  * loopback) and every consumer, so it lives here once.
  */
 
-const INDEX_NAMES = ["_index.md", "_index.mdx"] as const;
+const INDEX_NAMES = ["_index.md"] as const;
 
 /** Whether an entry addresses an object (rather than a nested tree's boundary). */
 function entryObject(entry: ProtocolDirectoryEntry): { hash: ObjectHash; directory: boolean } | null {
@@ -27,17 +27,17 @@ export function pathReadComponents(path: string): string[] {
   const normalized = normalizeTreePath(path);
   // `x.md`, `x/` and `x/_index.md` are spellings of node `x` (locators §2);
   // a literal file such as `photo.bin` stays as it is.
-  const node = /(?:^|\/)_index\.mdx?$|\.mdx?$/.test(normalized) ? canonicalNodePath(normalized) : normalized;
+  const node = /(?:^|\/)_index\.md$|\.md$/.test(normalized) ? canonicalNodePath(normalized) : normalized;
   return node.split("/").filter(Boolean);
 }
 
 /**
  * The entries of `directory` that the last component `name` names: an entry
- * of that exact name, and the page bodies of node `name` (`name.md`,
- * `name.mdx`). A directory named `name` brings its own index page too.
+ * of that exact name, and the page body of node `name` (`name.md`). A
+ * directory named `name` brings its own index page too.
  */
 function namedEntries(directory: ProtocolDirectory, name: string): ProtocolDirectoryEntry[] {
-  const names = new Set([name, `${name}.md`, `${name}.mdx`]);
+  const names = new Set([name, `${name}.md`]);
   return directory.entries.filter((entry) => names.has(entry.name));
 }
 
@@ -51,7 +51,7 @@ function indexEntries(directory: ProtocolDirectory): ProtocolDirectoryEntry[] {
  * - every directory from the root down to the path's parent, as far as the
  *   path exists;
  * - for the last component, the objects of the entries it names (exact name,
- *   `.md`, `.mdx`), and when one of them is a directory, that directory's
+ *   `.md`), and when one of them is a directory, that directory's
  *   index page;
  * - for `/`, the root directory and its index page.
  *
@@ -118,8 +118,8 @@ export class PathReadMissingRoot extends Error {
 }
 
 /** The bundle a path read answers with: the snapshot bundle's exact shape (sparse). */
-export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>, times?: EntryTimes): Uint8Array {
-  return encodeSparseSnapshotBundle(objects, times);
+export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>): Uint8Array {
+  return encodeSparseSnapshotBundle(objects);
 }
 
 /**
@@ -129,15 +129,6 @@ export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>, times
  */
 export async function decodePathReadBundle(root: ObjectHash, path: string, bytes: Uint8Array): Promise<Map<ObjectHash, Uint8Array>> {
   return checkPathReadObjects(root, path, decodeSparseSnapshotBundle(bytes));
-}
-
-/** Decode and check a timed path read's bundle (`?times`): the objects as
- * `decodePathReadBundle` checks them, and times for exactly its directories' entries. */
-export async function decodeTimedPathReadBundle(root: ObjectHash, path: string, bytes: Uint8Array): Promise<{ objects: Map<ObjectHash, Uint8Array>; times: EntryTimes }> {
-  const { objects, times } = decodeBundle(bytes);
-  if (!times) throw new Error("Path read bundle has no times");
-  await checkPathReadObjects(root, path, objects);
-  return { objects, times: checkEntryTimes(root, objects, times) };
 }
 
 async function checkPathReadObjects(root: ObjectHash, path: string, supplied: Map<ObjectHash, Uint8Array>): Promise<Map<ObjectHash, Uint8Array>> {

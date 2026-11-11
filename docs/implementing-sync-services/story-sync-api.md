@@ -218,7 +218,6 @@ GET /.overstory/trees/{TreeID}
 GET /.overstory/trees/{TreeID}/snapshots/{root}
 GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{logical path}
 GET /.overstory/trees/{TreeID}/objects/{hash}
-GET /.overstory/trees/{TreeID}/entry-metadata
 GET /.overstory/trees/{TreeID}/watch?after={cursor}[&objects=none]
 ```
 
@@ -232,9 +231,8 @@ and every other host route still go to the host; any other method on
 
 - **Current tree.** The descriptor is the daemon's recorded accepted base for
   the placement: `root` and `update` are the last accepted root and update it
-  installed, `access`, `kind` and `canonical` the placement's, and
-  `observedThrough` the host watch cursor it recorded with them, which a
-  client watches the host (or this route) after. A tree with no local
+  installed, and `access`, `kind` and `canonical` the placement's; a client
+  watches the host (or this route) after `update`. A tree with no local
   placement is `404 not-found`; one that has not synchronized an accepted base
   yet is `409 conflict` with `details.kind: "unsynchronized"`. Story Sync's
   folder changes, held request and sync state are absent: they belong to the
@@ -260,9 +258,8 @@ and every other host route still go to the host; any other method on
   source, so a stale row can at worst produce a 404 or a slower answer, never
   wrong bytes. Objects carry `ETag: "<hash>"` and
   `Cache-Control: private, immutable, max-age=31536000`.
-- **Entry metadata and watch.** Read from the host through the placement's
-  account and passed through as the host answers them; a host refusal is this
-  route's answer.
+- **Watch.** Read from the host through the placement's account and passed
+  through as the host answers it; a host refusal is this route's answer.
 
 A client reading a tree that isn't placed here (a visit) asks the tree's host
 itself, with its own account session.

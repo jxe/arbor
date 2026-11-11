@@ -9,7 +9,7 @@ import {
 function snapshotResponse(delays: readonly number[]) {
   const object = new TextEncoder().encode("slow snapshot\n");
   const fileHash = hashObject(object);
-  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "payload.bin", file: fileHash }] });
+  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "payload.bin", file: fileHash, created: 0, modified: 0 }] });
   const root = hashObject(directory);
   const body = encodeSnapshotBundle({ root, objects: new Map([[root, directory], [fileHash, object]]) });
   const chunkSize = Math.ceil(body.byteLength / delays.length);

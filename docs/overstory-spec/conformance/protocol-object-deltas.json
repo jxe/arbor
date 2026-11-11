@@ -4,18 +4,22 @@
     "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "instructions": [
-      { "copy": { "offset": 0, "length": 1 } },
+      { "copy": [0, 1] },
       { "insert": "eA==" }
     ]
   },
   "invalid": [
+    {
+      "name": "copy as an offset/length object (the form before Protocol 003)",
+      "deltas": [{ "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "instructions": [{ "copy": { "offset": 0, "length": 1 } }] }]
+    },
     {
       "name": "empty instructions",
       "deltas": [{ "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "instructions": [] }]
     },
     {
       "name": "copy and insert in one instruction",
-      "deltas": [{ "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "instructions": [{ "copy": { "offset": 0, "length": 1 }, "insert": "eA==" }] }]
+      "deltas": [{ "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "instructions": [{ "copy": [0, 1], "insert": "eA==" }] }]
     },
     {
       "name": "neither copy nor insert",
@@ -23,7 +27,7 @@
     },
     {
       "name": "zero-length copy",
-      "deltas": [{ "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "instructions": [{ "copy": { "offset": 0, "length": 0 } }] }]
+      "deltas": [{ "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "instructions": [{ "copy": [0, 0] }] }]
     },
     {
       "name": "empty insert",
@@ -35,7 +39,7 @@
     },
     {
       "name": "unsafe offset",
-      "deltas": [{ "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "instructions": [{ "copy": { "offset": 9007199254740992, "length": 1 } }] }]
+      "deltas": [{ "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "instructions": [{ "copy": [9007199254740992, 1] }] }]
     },
     {
       "name": "duplicate result",

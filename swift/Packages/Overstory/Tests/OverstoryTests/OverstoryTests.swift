@@ -38,15 +38,15 @@ struct ProtocolObjectTests {
         let first = try ProtocolObjectCodec.object(.file(Data("before".utf8)))
         let second = try ProtocolObjectCodec.object(.file(Data("untouched".utf8)))
         let inner = try ProtocolObjectCodec.object(.file(Data("nested".utf8)))
-        let nested = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "inner.txt", file: inner.hash)]))
+        let nested = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "inner.txt", file: inner.hash, created: 0, modified: 0)]))
         let root = try ProtocolObjectCodec.object(.directory([
-            ProtocolDirectoryEntry(name: "first.txt", file: first.hash),
+            ProtocolDirectoryEntry(name: "first.txt", file: first.hash, created: 0, modified: 0),
             ProtocolDirectoryEntry(name: "nested", directory: nested.hash),
-            ProtocolDirectoryEntry(name: "second.txt", file: second.hash),
+            ProtocolDirectoryEntry(name: "second.txt", file: second.hash, created: 0, modified: 0),
         ]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [first, second, inner, nested, root].sorted { $0.hash < $1.hash })
 
-        let changed = try snapshot.replacingRootFile(named: "first.txt", with: Data("after".utf8))
+        let changed = try snapshot.replacingRootFile(named: "first.txt", with: Data("after".utf8), at: 1)
 
         #expect(try String(data: changed.rootFile(named: "first.txt"), encoding: .utf8) == "after")
         #expect(try String(data: changed.rootFile(named: "second.txt"), encoding: .utf8) == "untouched")
@@ -106,7 +106,10 @@ struct ProtocolObjectTests {
                         name: $0["name"] as! String,
                         file: $0["file"] as? String,
                         directory: $0["directory"] as? String,
-                        tree: $0["tree"] as? String
+                        tree: $0["tree"] as? String,
+                        page: $0["page"] as? String,
+                        created: $0["created"] as? Int,
+                        modified: $0["modified"] as? Int
                     )
                 }, collection: collection)
             }
@@ -122,7 +125,7 @@ struct ProtocolObjectTests {
         let data = try Data(contentsOf: fixtures.appending(path: "protocol-objects.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let vectors = try #require(fixture["invalid"] as? [[String: Any]])
-        #expect(vectors.count == 11)
+        #expect(vectors.count == 15)
         for vector in vectors {
             let base64 = try #require(vector["canonicalCborBase64"] as? String)
             let bytes = try #require(Data(base64Encoded: base64))
@@ -133,7 +136,7 @@ struct ProtocolObjectTests {
     @Test("Complete graph validation rejects missing and unreachable objects")
     func graphValidation() throws {
         let file = try ProtocolObjectCodec.object(.file(Data("hello".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let valid = ProtocolSnapshot(root: root.hash, objects: [root, file])
         #expect(try ProtocolObjectGraph.validate(valid).count == 2)
         #expect(throws: ProtocolValidationError.self) {
@@ -157,7 +160,7 @@ struct ProtocolObjectTests {
         let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
         let schema = try ProtocolObjectCodec.object(.file(Data("main table Game (id):\n".utf8)))
         let root = try ProtocolObjectCodec.object(.directory(
-            [.init(name: "schema.vad", file: schema.hash)],
+            [.init(name: "schema.vad", file: schema.hash, created: 0, modified: 0)],
             collection: ProtocolCollectionReference(modelFingerprint: schema.hash, tables: [.init(model: "Game", table: table.hash)])
         ))
         let objects = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, table, rows]))
@@ -178,10 +181,10 @@ struct ProtocolObjectTests {
     func sparseGraphValidation() throws {
         let file = try ProtocolObjectCodec.object(.file(Data("hello".utf8)))
         let image = try ProtocolObjectCodec.object(.file(Data([0xff, 0xd8, 0xff])))
-        let inner = try ProtocolObjectCodec.object(.directory([.init(name: "photo.jpg", file: image.hash)]))
+        let inner = try ProtocolObjectCodec.object(.directory([.init(name: "photo.jpg", file: image.hash, created: 0, modified: 0)]))
         let root = try ProtocolObjectCodec.object(.directory([
             .init(name: "album", directory: inner.hash),
-            .init(name: "note.md", file: file.hash),
+            .init(name: "note.md", file: file.hash, created: 0, modified: 0),
         ]))
         // Spine plus Markdown, file bytes absent.
         let sparse = ProtocolSnapshot(root: root.hash, objects: [root, inner, file])
@@ -238,7 +241,7 @@ struct ProtocolObjectTests {
     func fileKindComesFromEntry() throws {
         let bytes = try ProtocolObjectCodec.encode(.directory([]))
         let file = try ProtocolObjectCodec.object(.file(bytes))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "object.bin", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "object.bin", file: file.hash, created: 0, modified: 0)]))
         let graph = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, file]))
         #expect(graph[file.hash] == .file(bytes))
     }
@@ -264,32 +267,10 @@ struct ProtocolObjectTests {
         }
     }
 
-    @Test("Swift reads the shared timed snapshot bundle (?times)")
-    func timedSnapshotBundleVector() throws {
-        let data = try Data(contentsOf: fixtures.appending(path: "protocol-snapshot-bundles.json"))
-        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let vectors = try #require(fixture["timed"] as? [[String: Any]])
-        #expect(!vectors.isEmpty)
-        for vector in vectors {
-            let root = try #require(vector["root"] as? String)
-            let base64 = try #require(vector["canonicalCborBase64"] as? String)
-            let body = try #require(Data(base64Encoded: base64))
-            let expected = try #require(vector["times"] as? [String: NSNumber]).mapValues(\.doubleValue)
-            let read = try ProtocolSnapshotBundleCodec.decodeTimed(body, root: root)
-            #expect(read.times == expected)
-            #expect(read.snapshot.root == root)
-            // A timed body is not a plain snapshot bundle, and a plain one has no times.
-            #expect(throws: ProtocolValidationError.self) { _ = try ProtocolSnapshotBundleCodec.decode(body, root: root) }
-            #expect(throws: ProtocolValidationError.self) {
-                _ = try ProtocolSnapshotBundleCodec.decodeTimed(try ProtocolSnapshotBundleCodec.encode(read.snapshot), root: root)
-            }
-        }
-    }
-
     @Test("Swift rejects invalid immutable snapshot bundles")
     func invalidSnapshotBundles() throws {
         let file = try ProtocolObjectCodec.object(.file(Data("snapshot\n".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [root, file])
         let valid = try ProtocolSnapshotBundleCodec.encode(snapshot)
         #expect(throws: ProtocolValidationError.self) {
@@ -390,7 +371,7 @@ struct UpdateProtocolTests {
             #expect(updateRequestDigests(tree:tree,base:request.base,updates:request.updates) == expected.map { $0["digest"]! })
             if let base = request.base {
                 let u = request.updates[0]
-                let encoded = canonicalUpdateIntent(tree:tree,base:.init(root:u.candidate,update:base),candidate:u.candidate,change:u.change,trace:u.trace,resolves:u.resolves,ifCurrent:u.ifCurrent)
+                let encoded = canonicalUpdateIntent(tree:tree,base:.init(root:u.candidate,update:base),candidate:u.candidate,change:u.change,at:u.at,trace:u.trace,resolves:u.resolves,ifCurrent:u.ifCurrent)
                 #expect(encoded.base64EncodedString() == expected[0]["canonicalCBORBase64"])
             }
         }
@@ -458,6 +439,7 @@ struct UpdateProtocolTests {
         let request = ProtocolUpdateRequest(
             base: base,
             candidate: "sha256:" + String(repeating: "1", count: 64),
+            at: "2026-11-11T12:00:00.000Z",
             objects: [],
             deltas: [delta]
         )
@@ -466,11 +448,12 @@ struct UpdateProtocolTests {
         #expect(json["base"] as? String == "up_base")
         let updates = try #require(json["updates"] as? [[String: Any]])
         #expect((updates[0]["deltas"] as? [[String: Any]])?.count == 1)
-        let activation = try JSONEncoder().encode(ProtocolUpdateRequest(base: nil, candidate: request.candidate, objects: []))
+        let activation = try JSONEncoder().encode(ProtocolUpdateRequest(base: nil, candidate: request.candidate, at: "2026-11-11T12:00:00.000Z", objects: []))
         let activationJSON = try #require(JSONSerialization.jsonObject(with: activation) as? [String: Any])
         #expect(activationJSON["base"] is NSNull)
         let activationUpdates = try #require(activationJSON["updates"] as? [[String: Any]])
-        #expect((activationUpdates[0]["deltas"] as? [Any])?.isEmpty == true)
+        // Empty lists are left out (tree operations §2.1).
+        #expect(activationUpdates[0]["deltas"] == nil && activationUpdates[0]["objects"] == nil)
 
         let missingDeltas = try JSONSerialization.data(withJSONObject: [
             "base": base.update,
@@ -528,11 +511,11 @@ struct UpdateProtocolTests {
     @Test("Ordered accepted transitions apply object deltas through a merge")
     func acceptedTransitionReplay() throws {
         let baseFile = try ProtocolObjectCodec.object(.file(Data("abcdef".utf8)))
-        let baseRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: baseFile.hash)]))
+        let baseRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: baseFile.hash, created: 0, modified: 0)]))
         let firstFile = try ProtocolObjectCodec.object(.file(Data("abXYef".utf8)))
-        let firstRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: firstFile.hash)]))
+        let firstRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: firstFile.hash, created: 0, modified: 0)]))
         let finalFile = try ProtocolObjectCodec.object(.file(Data("abXYef!".utf8)))
-        let finalRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: finalFile.hash)]))
+        let finalRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: finalFile.hash, created: 0, modified: 0)]))
         let firstUpdate = ProtocolAcceptedUpdate(
             id: "2", tree: "tr_notes", root: firstRoot.hash,
             previous: .init(id: "1", root: baseRoot.hash), acceptedAt: 1
@@ -638,21 +621,25 @@ struct UpdateProtocolTests {
     @Test("Community-address and exact-account requests share the account-bound challenge")
     func accountChallengeFixtures() async throws {
         struct Case: Decodable { var name: String; var request: Request; var response: ProtocolAccountChallenge }
-        struct Request: Codable { var account: String?; var profileTree: String; var configurationTree: String; var inviteCode: String? }
+        struct Request: Codable { var purpose: String; var account: String?; var profileTree: String; var inviteCode: String?; var profile: String?; var configurationTree: String? }
         struct Fixture: Decodable { var cases: [Case] }
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtures.appending(path: "protocol-account-challenges.json")))
-        #expect(!fixture.cases.contains { $0.name == "placement" })
+        #expect(fixture.cases.contains { $0.name == "placement" })
         for item in fixture.cases {
             let response = try JSONEncoder().encode(item.response)
-            await HostURLProtocolStub.state.install { _, _ in (201, response) }
+            // One route for every challenge.
+            await HostURLProtocolStub.state.install { request, _ in request.url?.path == "/.overstory/challenges" ? (201, response) : (404, Data()) }
             let client = ProtocolClient(origin: URL(string: item.response.origin)!, session: protocolStubSession())
-            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree, configurationTree: item.request.configurationTree, inviteCode: item.request.inviteCode)
+            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree,
+                                                                    inviteCode: item.request.inviteCode, profile: item.request.profile)
             #expect(challenge == item.response)
             let captured = await HostURLProtocolStub.state.snapshot()
             let sent = try JSONDecoder().decode(Request.self, from: #require(captured.bodies.first))
             #expect(sent.account == item.request.account)
             #expect(sent.profileTree == item.request.profileTree)
             #expect(sent.inviteCode == item.request.inviteCode)
+            // One route, a purpose, and no configurationTree: the host derives it.
+            #expect(sent.purpose == item.request.purpose && sent.profile == item.request.profile && sent.configurationTree == nil)
         }
     }
 
@@ -670,7 +657,7 @@ struct UpdateProtocolTests {
             case ("GET", "/.overstory/account"): (200, Data(#"{"account":\#(placementAccount),"observedThrough":"up_1"}"#.utf8))
             case ("POST", "/.overstory/pairings"):
                 (403, Data(#"{"error":"permission-denied","message":"Pairing is the home host's","retryable":false,"details":{"homeHost":"https://home.example"}}"#.utf8))
-            case ("POST", "/.overstory/device-sessions/challenges"):
+            case ("POST", "/.overstory/challenges"):
                 (503, Data(#"{"error":"internal-error","message":"home unreachable","retryable":true,"details":{"homeHost":"https://home.example"}}"#.utf8))
             default: (404, Data(#"{"error":"not-found","message":"missing","retryable":false}"#.utf8))
             }
@@ -746,7 +733,7 @@ struct UpdateProtocolTests {
     @Test("Ambiguous transport retries the exact prepared request without a caller key")
     func exactRetry() async throws {
         let file = try ProtocolObjectCodec.object(.file(Data("retry".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [file, root])
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
         let client = ProtocolClient(
@@ -758,11 +745,12 @@ struct UpdateProtocolTests {
         let prepared = try await client.prepareUpdate(
             tree: "tr_retry",
             base: .init(root: baseHash, update: "up_base"),
-            snapshot: snapshot
+            snapshot: snapshot,
+            at: "2026-11-11T12:00:00.000Z"
         )
         let requestDigest = prepared.requestDigest
         let response = Data("""
-        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false,"observedThrough":"up_retry"}}
+        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"update":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -780,7 +768,7 @@ struct UpdateProtocolTests {
     @Test("A response that fails validation is not retried")
     func invalidResponseIsNotRetried() async throws {
         let file = try ProtocolObjectCodec.object(.file(Data("mismatch".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
         let otherDigest = "sha256:" + String(repeating: "2", count: 64)
         let client = ProtocolClient(
@@ -792,10 +780,11 @@ struct UpdateProtocolTests {
         let prepared = try await client.prepareUpdate(
             tree: "tr_retry",
             base: .init(root: baseHash, update: "up_base"),
-            snapshot: ProtocolSnapshot(root: root.hash, objects: [file, root])
+            snapshot: ProtocolSnapshot(root: root.hash, objects: [file, root]),
+            at: "2026-11-11T12:00:00.000Z"
         )
         let response = Data("""
-        {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false,"observedThrough":"up_retry"}}
+        {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"update":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, _ in (201, response) }
         await #expect(throws: ProtocolValidationError.invalidValue("Server response update-string identity mismatch")) {
@@ -826,7 +815,7 @@ struct UpdateProtocolTests {
         let base = "sha256:" + String(repeating: "0", count: 64)
         let remote = "sha256:" + String(repeating: "1", count: 64)
         let response = Data("""
-        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previous":{"id":"prior","root":"\(base)"},"conflicted":false,"acceptedAt":1787529600001,"subject":"dev_remote"},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"head":{"update":"up_remote","root":"\(remote)","conflicted":false},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, _ in (409, response) }
         let client = ProtocolClient(
@@ -838,13 +827,14 @@ struct UpdateProtocolTests {
         let prepared = try await client.prepareUpdate(
             tree: "tr_atlas",
             base: ProtocolUpdateBase(root: base, update: "up_base"),
-            snapshot: local
+            snapshot: local,
+            at: "2026-11-11T12:00:00.000Z"
         )
         do {
             _ = try await client.submitUpdate(prepared)
             Issue.record("Expected a typed conflict")
         } catch let error as ProtocolUpdateConflictError {
-            #expect(error.conflict.current.id == "up_remote")
+            #expect(error.conflict.head.update == "up_remote")
             #expect(error.conflict.conflicts.first?.reason == "binary-conflict")
         }
         #expect(await HostURLProtocolStub.state.snapshot().count == 1)
@@ -861,7 +851,7 @@ struct UpdateProtocolTests {
             "source": .object(["material": .object(["kind": .string("basis"), "path": .string("/page.md"), "object": .string(snapshot.root)]),
                                "range": .array([.integer(0), .integer(0)])]),
             "text": .string("x")])
-        let update = ProtocolCandidateUpdate(candidate: snapshot.root, change: "durable-change",
+        let update = ProtocolCandidateUpdate(candidate: snapshot.root, change: "durable-change", at: "2026-11-11T12:00:00.000Z",
             trace: [ProtocolTraceFrame(before: snapshot.root, after: snapshot.root, operations: [operation])],
             objects: snapshot.objects)
         let prepared = try await client.prepareUpdates(tree: "tr_test", base: .init(root: snapshot.root, update: "up_base"), updates: [update])
@@ -886,7 +876,7 @@ struct UpdateProtocolTests {
         {"device":{"id":"\(deviceID)","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null},"confirmationCode":"123456"}
         """.utf8)
         await HostURLProtocolStub.state.install { request, _ in
-            request.url?.path == "/.overstory/pairings/pair_1/claim"
+            request.url?.path == "/.overstory/pairings/claim"
                 && request.value(forHTTPHeaderField: "Authorization") == nil
                 ? (201, response)
                 : (401, Data(#"{"error":"unauthenticated","message":"unexpected credentials"}"#.utf8))
@@ -897,8 +887,7 @@ struct UpdateProtocolTests {
             session: protocolStubSession()
         )
         let claimed = try await client.claimPairing(
-            id: "pair_1",
-            secret: "secret",
+            code: "arp_code",
             device: ProtocolPairingDevice(id: deviceID, label: "iPad", key: key)
         )
         #expect(claimed.device.id == deviceID)
@@ -906,7 +895,7 @@ struct UpdateProtocolTests {
         let captured = await HostURLProtocolStub.state.snapshot()
         let body = try #require(captured.bodies.first)
         let fields = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        #expect(Set(fields.keys) == Set(["secret", "device"]))
+        #expect(Set(fields.keys) == Set(["code", "device"]))
     }
 
     @Test("Descriptors, snapshots, and objects use tree-scoped routes")
@@ -915,7 +904,7 @@ struct UpdateProtocolTests {
         let root = try #require(snapshot.objects.first { $0.hash == snapshot.root })
         let bundle = try ProtocolSnapshotBundleCodec.encode(snapshot)
         let descriptor = """
-        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://host.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1","conflicted":false},"observedThrough":"up_1"}
+        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://host.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1","conflicted":false}}
         """
         await HostURLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
@@ -934,7 +923,6 @@ struct UpdateProtocolTests {
         let accepted = try await client.snapshot(tree: "tr_atlas", root: ref.tree.root)
         let object = try await client.object(tree: "tr_atlas", hash: snapshot.root)
         #expect(ref.tree.update == "up_1")
-        #expect(ref.observedThrough == "up_1")
         #expect(accepted == snapshot.sorted())
         #expect(object == root.bytes)
     }
@@ -954,7 +942,7 @@ struct LiveProtocolTests {
         guard case .array(let decisions) = page.fields["decisions"] else { Issue.record("Missing decisions"); return }
         #expect(decisions.count == 1)
         let snapshot = try await client.snapshot(tree: tree, root: current.tree.root)
-        let prepared = try await client.prepareUpdate(tree: tree, base: ProtocolUpdateBase(root: current.tree.root, update: current.tree.update), snapshot: snapshot)
+        let prepared = try await client.prepareUpdate(tree: tree, base: ProtocolUpdateBase(root: current.tree.root, update: current.tree.update), snapshot: snapshot, at: "2026-11-11T12:00:00.000Z")
         let acknowledged = try await client.submitUpdate(prepared)
         switch acknowledged { case .accepted(let state), .unchanged(let state): #expect(state.conflicted) }
     }
@@ -974,7 +962,6 @@ struct LiveProtocolTests {
         #expect(configuration.id == treeConfigurationID(try #require(account.account.profileTree)))
         let ref = try await client.descriptor(tree: configuration.id)
         #expect(ref.tree.root == configuration.root)
-        #expect(!ref.observedThrough.isEmpty)
         let current = try await client.descriptor(tree: configuration.id)
         let snapshot = try await client.snapshot(tree: configuration.id, root: current.tree.root)
         #expect(current.tree.id == configuration.id)
@@ -985,8 +972,7 @@ struct LiveProtocolTests {
         let pairedKey = DeviceKeySecret.software(P256.Signing.PrivateKey().rawRepresentation)
         let deviceID = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
         let claim = try await client.claimPairing(
-            id: offer.id,
-            secret: offer.secret,
+            code: offer.code,
             device: ProtocolPairingDevice(id: deviceID, label: "Swift test device", key: try pairedKey.publicKey())
         )
         #expect(claim.device.id == deviceID)
@@ -994,7 +980,7 @@ struct LiveProtocolTests {
         let pairedSession = try await ProtocolClient(origin: origin, retryDelay: { _ in })
             .openDeviceSession(profileTree: try #require(account.account.profileTree), device: deviceID, key: pairedKey)
         let paired = ProtocolClient(origin: origin, credential: pairedSession.token, retryDelay: { _ in })
-        #expect(try await paired.trees().snapshot.contains { $0.id == configuration.id })
+        #expect(try await paired.trees().trees.contains { $0.id == configuration.id })
 
         let historyURL = origin.appending(path: ".overstory/trees/\(configuration.id)/updates")
         var request = URLRequest(url: historyURL)
@@ -1008,7 +994,7 @@ struct LiveProtocolTests {
 
     private func snapshot(fileBytes: Data) throws -> ProtocolSnapshot {
         let file = try ProtocolObjectCodec.object(.file(fileBytes))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "blob.bin", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "blob.bin", file: file.hash, created: 0, modified: 0)]))
         return ProtocolSnapshot(root: root.hash, objects: [file, root]).sorted()
     }
 }
@@ -1027,7 +1013,7 @@ private func protocolStubSession() -> URLSession {
 
 private func protocolTestSnapshot(_ value: String) throws -> ProtocolSnapshot {
     let file = try ProtocolObjectCodec.object(.file(Data(value.utf8)))
-    let root = try ProtocolObjectCodec.object(.directory([.init(name: "value.bin", file: file.hash)]))
+    let root = try ProtocolObjectCodec.object(.directory([.init(name: "value.bin", file: file.hash, created: 0, modified: 0)]))
     return ProtocolSnapshot(root: root.hash, objects: [file, root])
 }
 
@@ -1167,7 +1153,8 @@ struct ProtocolValueVectorTests {
         let update = frames[0], resync = frames[1]
         #expect(update.id == "1")
         let payload = try #require(JSONSerialization.jsonObject(with: Data(update.data.utf8)) as? [String: Any])
-        #expect(Set(payload.keys) == ["transition", "access", "canonical"])
+        // Flat: the transition's members beside access and canonical, no wrapper.
+        #expect(Set(payload.keys).isSuperset(of: ["update", "access", "canonical"]) && payload["transition"] == nil)
         // The frame is one the watch decoder accepts.
         let change = try JSONDecoder().decode(ProtocolTreeUpdateFrame.self, from: Data(update.data.utf8))
         #expect(try change.validated(tree: change.transition.update.tree).transition.update.id == "1")
@@ -1259,10 +1246,11 @@ struct ProtocolValueVectorTests {
     @Test("a roster keeps runners apart, newest last, and the results of the runs it sent")
     func presenceRosterRunners() {
         var roster = ProtocolPresenceRoster()
-        roster.apply(.ready(ProtocolPresenceReady(selfID: nil, stream: "pr_hidden", peers: [
+        // A hidden stream still names its own entry.
+        roster.apply(.ready(ProtocolPresenceReady(selfID: "pr_hidden", peers: [
             ProtocolPresencePeer(id: "pr_air", profile: "tr_me", name: "Joe", runner: "Joe's Air"),
         ])))
-        #expect(roster.streamID == "pr_hidden")
+        #expect(roster.selfID == "pr_hidden")
         #expect(roster.peers.isEmpty)
         roster.apply(.peer(ProtocolPresencePeer(id: "pr_studio", profile: "tr_me", name: "Joe", runner: "Studio")))
         #expect(roster.runners.map(\.id) == ["pr_air", "pr_studio"])
@@ -1289,8 +1277,8 @@ struct ProtocolValueVectorTests {
 private struct ExpectedLogicalRow: Decodable {
     var key: [[ProtocolReadValue]]
     var fields: [String: ProtocolReadValue]
-    var created: String
-    var modified: String
+    var created: Int
+    var modified: Int
 
     var row: ProtocolLogicalRow {
         ProtocolLogicalRow(

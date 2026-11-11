@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import vectors from "../../../docs/overstory-spec/conformance/protocol-accepted-state.json";
-import { decodeAcceptedUpdate, decodeDecisionPage, validateAcceptedChain } from "../../../packages/protocol/src/updates/accepted-contract.ts";
+import { decodeAcceptedUpdate, decodeDecisionPage, encodeDecisionPage, validateAcceptedChain } from "../../../packages/protocol/src/updates/accepted-contract.ts";
 import { decodeUpdateResponseJSON, encodeUpdateResponseJSON } from "../../../packages/protocol/src/updates/json.ts";
 import { decodeAuthoredRequestIntent } from "../../../packages/protocol/src/updates/authored-contract.ts";
 for (const c of vectors.cases) test(`target reads: ${c.name}`,()=>{
@@ -9,7 +9,7 @@ for (const c of vectors.cases) test(`target reads: ${c.name}`,()=>{
   const decode=()=>{
     switch(c.kind) {
       case "state":return decodeAcceptedUpdate(value);
-      case "inspection":return decodeDecisionPage(value);
+      case "inspection":return encodeDecisionPage(decodeDecisionPage(value));
       case "response":return encodeUpdateResponseJSON(decodeUpdateResponseJSON(value));
       case "chain":return validateAcceptedChain(value.tree,value.previous,value.updates,value.head);
       default:throw new Error("Unexpected fixture kind");
@@ -20,9 +20,9 @@ for (const c of vectors.cases) test(`target reads: ${c.name}`,()=>{
 });
 test("inspection context compares exact accepted-state bytes",()=>{
   const value:any=vectors.cases[2]!.value;
-  expect(()=>decodeDecisionPage(value,{tree:value.tree,state:"state-e\u0301",root:value.root})).toThrow();
+  expect(()=>decodeDecisionPage(value,{tree:value.tree,update:"state-e\u0301",root:value.root})).toThrow();
 });
 test("resolution declarations have no fixed decision or alternative count cap",()=>{
-  const resolves=Array.from({length:40},(_,i)=>({state:"u1",conflict:`d${i}`,alternatives:Array.from({length:1025},(_,j)=>`a${j}`)}));
-  expect(decodeAuthoredRequestIntent({base:"u1",updates:[{change:"c1",candidate:"sha256:"+"1".repeat(64),trace:[],resolves}]}).updates[0]!.resolves).toHaveLength(40);
+  const resolves=Array.from({length:40},(_,i)=>({update:"u1",conflict:`d${i}`,alternatives:Array.from({length:1025},(_,j)=>`a${j}`)}));
+  expect(decodeAuthoredRequestIntent({base:"u1",updates:[{change:"c1",at:"2026-11-11T00:00:00.000Z",candidate:"sha256:"+"1".repeat(64),trace:[],resolves}]}).updates[0]!.resolves).toHaveLength(40);
 });

@@ -10,7 +10,8 @@ import {
   overstoryPrivateRoot,
   decodeTreeSnapshotJSON,
   decodeProtocolDirectory,
-  encodeCandidateUpdateJSON,
+  type UpdateRequestJSON,
+  entryTimeOf,
   encodeProtocolDirectory,
   hashObject,
   decodeBase64,
@@ -44,6 +45,8 @@ import {
 import {
   equal,
   localChangeRequest,
+  localUpdate,
+  wireUpdate,
   snapshotJSON,
   UpdateCoordinator,
   UpdateValidationError,
@@ -217,7 +220,7 @@ export class FolderSync implements AcceptedTree {
   private declined?: { value: DeclinedFolder | undefined };
   private settling?: Promise<boolean>;
   /** The change the last preview prepared; the next scan of the same folder sends exactly it. */
-  private previewed?: LocalChange;
+  private previewed?: LocalChange & { scanned?: string };
   /** Objects of the scan that last became the folder's known root: its directories, for tracked lookups. */
   private recentObjects?: ReadonlyMap<ObjectHash, ProtocolObjectSource>;
   private readonly trackedObjects = new Map<ObjectHash, Uint8Array>();
@@ -572,10 +575,13 @@ export class FolderSync implements AcceptedTree {
       }
       const previewed = this.previewed;
       this.previewed = undefined;
-      const change = previewed && equal(previewed.basis, known.basis) && previewed.candidate.root === lazy.root
+      const prepared = previewed && equal(previewed.basis, known.basis) && previewed.scanned === lazy.root
         ? previewed : await this.prepare(known, lazy);
+      const { scanned: _scanned, ...change } = prepared as LocalChange & { scanned?: string };
       await this.log.retain(change, await this.coordinator.settledChanges());
-      await this.saveKnown({ root: lazy.root, basis: { kind: "authored", change: change.change } });
+      // Replayed operations may stamp the candidate differently from the
+      // scan; the folder holds the candidate's content either way.
+      await this.saveKnown({ root: change.candidate.root, basis: { kind: "authored", change: change.change } });
       this.recentObjects = lazy.objects;
       return true;
     });
@@ -607,28 +613,39 @@ export class FolderSync implements AcceptedTree {
       objects.set(next.hash as ObjectHash, bytes);
       pending.push(...protocolObjectReferences(next.kind, bytes));
     }
-    const candidate: TreeSnapshot = { root: lazy.root, objects };
+    // The scan stamped what it found no later than now (data model §6).
+    const at = new Date().toISOString();
+    // A change that only edits collection rows and page properties goes as
+    // the operations that replay to it, so the host merges it field by
+    // field. Replay stamps the entries they change with `at`, so its root,
+    // not the scan's, is the candidate.
+    const derived = await deriveRowOperations(graph.root as ObjectHash, lazy.root as ObjectHash, async (hash) => {
+      const bytes = objects.get(hash) ?? graph.objects.get(hash) ?? await lazy.objects.get(hash)?.bytes() ?? await this.host.objectBytes(hash);
+      if (!bytes) throw new UpdateValidationError(`Object is unavailable: ${hash}`);
+      return bytes;
+    }, entryTimeOf(at)).catch(() => null);
+    const root = derived?.root ?? lazy.root as ObjectHash;
+    if (derived) {
+      for (const [hash, bytes] of derived.generated) objects.set(hash, bytes);
+      // Only what the replayed root reaches stays in the candidate.
+      const reached = reachable(root, new Map([...graph.objects, ...objects]));
+      for (const hash of [...objects.keys()]) if (!reached.has(hash) && !graph.objects.has(hash)) objects.delete(hash);
+    }
+    const candidate: TreeSnapshot = { root, objects };
     const change = `folder-${crypto.randomUUID()}`;
     // Against an accepted basis each changed object may go as a delta from
     // the object at its path there, which the host retains. A chained
     // authored basis is not retained when the host preflights the request,
     // so its objects go whole.
     const payload = known.basis.kind === "accepted"
-      ? await transitionPayload(graph.root, lazy.root, new TreeReader(async (hash) => {
+      ? await transitionPayload(graph.root, root, new TreeReader(async (hash) => {
         const bytes = objects.get(hash) ?? graph.objects.get(hash) ?? await this.host.objectBytes(hash);
         if (!bytes) throw new UpdateValidationError(`Accepted object is unavailable: ${hash}`);
         return bytes;
       }, { verified: true }), { known: retained })
       : { objects: [...objects].filter(([hash]) => !graph.objects.has(hash)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
-    // A change that only edits collection rows goes as the row operations
-    // that replay to it exactly, so the host merges it field by field.
-    const operations = await deriveRowOperations(graph.root as ObjectHash, lazy.root as ObjectHash, async (hash) => {
-      const bytes = objects.get(hash) ?? graph.objects.get(hash) ?? await lazy.objects.get(hash)?.bytes() ?? await this.host.objectBytes(hash);
-      if (!bytes) throw new UpdateValidationError(`Object is unavailable: ${hash}`);
-      return bytes;
-    }).catch(() => null);
-    const update = encodeCandidateUpdateJSON({ change, candidate: lazy.root,
-      trace: operations ? [{ before: graph.root, after: lazy.root, operations }] : null, resolves: [],
+    const update = localUpdate({ change, at, candidate: root,
+      trace: derived ? [{ before: graph.root, after: root, operations: derived.operations }] : null, resolves: [],
       deltas: payload.deltas.sort((a, b) => a.result.localeCompare(b.result)),
       objects: payload.objects.sort((a, b) => a.hash.localeCompare(b.hash)) });
     return { change, tree: this.tree, basis: known.basis, graph: graphJSON ?? snapshotJSON(graph), sourcePath: null, document: null,
@@ -677,7 +694,7 @@ export class FolderSync implements AcceptedTree {
         }
         await this.write(current.tree.root, (hash) => load(hash as ObjectHash), null);
       }
-      await this.host.updateSyncMetadata({ ...placement, ref: current.tree.root, update: current.tree.update, cursor: current.observedThrough,
+      await this.host.updateSyncMetadata({ ...placement, ref: current.tree.root, update: current.tree.update, cursor: current.tree.update,
         conflicted: current.tree.conflicted, access: current.tree.access });
       await this.saveKnown({ root: current.tree.root, basis: { kind: "accepted", root: current.tree.root, update: current.tree.update } });
     });
@@ -707,7 +724,7 @@ export class FolderSync implements AcceptedTree {
       if (!placement?.update || `${placement.configurationTree}:${placement.endpoint}` !== key) throw moved;
       const watch = async function* (this: FolderSync): AsyncGenerator<WatchEvent> {
         const client = await this.host.client(placement);
-        const cursor = await this.coordinator.watchCursor() ?? (await client.descriptor(this.tree)).observedThrough;
+        const cursor = await this.coordinator.watchCursor() ?? (await client.descriptor(this.tree)).tree.update;
         try {
           for await (const event of client.watch(this.tree, cursor, { signal, onOpen: () => this.coordinator.setWatching(true) })) {
             // Observed inside the attempt, so a failure here reconnects like a lost stream.
@@ -779,7 +796,7 @@ export class FolderSync implements AcceptedTree {
    * held, the change a scan would append, assembled as the change log
    * assembles a request. Null when nothing is pending.
    */
-  async preview(): Promise<ReturnType<typeof localChangeRequest> | null> {
+  async preview(): Promise<{ base: { root: string; update: string }; request: UpdateRequestJSON } | null> {
     const placement = this.host.placement();
     if (!placement?.ref || !placement.update) return null;
     const change = await this.host.withWorkspaceIO(async () => {
@@ -787,13 +804,15 @@ export class FolderSync implements AcceptedTree {
       if (!known || placement.access !== "write") return undefined;
       const lazy = await this.publishable(await this.scanKnown(known), placement.ref!, false);
       if (lazy.root === known.root) return undefined;
-      return this.previewed = await this.prepare(known, lazy);
+      return this.previewed = { ...await this.prepare(known, lazy), scanned: lazy.root };
     });
     const records = await this.log.retained();
     const unsettled = new Set((await this.coordinator.pendingChanges()).map((record) => record.change));
     const settled = new Set(records.filter((record) => !unsettled.has(record.change)).map((record) => record.change));
     const through = change?.change ?? await this.log.nextPublication(settled);
-    return through ? localChangeRequest(change ? [...records, change] : records, through, settled) : null;
+    if (!through) return null;
+    const { base, request } = localChangeRequest(change ? [...records, change] : records, through, settled);
+    return { base, request: { base: request.base, updates: request.updates.map(wireUpdate) } };
   }
 
   // MARK: Operations

@@ -82,7 +82,7 @@ private actor PlacementHostState {
         requests.append(.init(method: method, url: url, authorization: request.value(forHTTPHeaderField: "Authorization"), body: body))
         let fields = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
         switch (method, url) {
-        case ("POST", "https://place.test/.overstory/device-sessions/challenges"):
+        case ("POST", "https://place.test/.overstory/challenges"):
             guard reserved else { return (404, Data(#"{"error":"not-found","message":"No such account","retryable":false}"#.utf8)) }
             if homeUnreachable {
                 return (503, Data(#"{"error":"internal-error","message":"home unreachable","retryable":true,"details":{"homeHost":"https://home.test"}}"#.utf8))
@@ -91,7 +91,7 @@ private actor PlacementHostState {
                 return (403, Data(#"{"error":"permission-denied","message":"ask the home host","retryable":false,"details":{"homeHost":"https://home.test"}}"#.utf8))
             }
             return (201, jsonData([
-                "version": 1, "purpose": "device-session", "id": "ax_bbbbbbbbbbbbbbbbbbbbbbbbbb", "origin": "https://place.test",
+                "version": 1, "purpose": "session", "id": "ax_bbbbbbbbbbbbbbbbbbbbbbbbbb", "origin": "https://place.test",
                 "profileTree": fields["profileTree"] ?? "", "device": fields["device"] ?? "", "nonce": String(repeating: "B", count: 43),
                 "issuedAt": 1_788_000_000_000, "expiresAt": 1_788_000_120_000,
             ]))
@@ -197,10 +197,11 @@ struct PlacementAccountTests {
         #expect(try await service.placements() == [connected.placement])
         let requests = await PlacementHostProtocol.state.requests
         // No claim: only a session this device's key opens, and the account it reads.
-        #expect(!requests.contains { $0.url.hasSuffix("/.overstory/account-challenges") || $0.method == "PUT" })
+        // A reserved placement asks only for a session challenge, and claims nothing.
+        #expect(!requests.contains { $0.method == "PUT" })
         #expect(requests.allSatisfy { !$0.url.hasPrefix("https://home.test") })
         #expect(requests.last { $0.url.hasSuffix("/.overstory/account") }?.authorization == "Bearer ars_place")
-        let sessionChallenge = try #require(requests.first { $0.url.hasSuffix("/device-sessions/challenges") })
+        let sessionChallenge = try #require(requests.first { $0.url.hasSuffix("/.overstory/challenges") })
         #expect((try JSONSerialization.jsonObject(with: sessionChallenge.body) as? [String: Any])?["device"] as? String == "dv_phone")
 
         // Connecting again finds the same account.

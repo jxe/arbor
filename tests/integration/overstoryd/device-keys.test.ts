@@ -13,11 +13,11 @@ import {
   personProfileTreeID,
   ProtocolClient,
   snapshotTreeConfig,
-  treeConfigurationID,
 } from "@ovst/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { editTreeConfig, readTreeConfig } from "../../helpers/tree-config.ts";
 import { deviceClient, signAsDevice, testAccount, testDevice } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 /** A device key pair as a client holds it: the `devices.yaml` key and a signer. */
 interface TestDeviceKey { key: string; sign(bytes: Uint8Array): string }
@@ -151,7 +151,7 @@ describe("key devices (accounts §5.1, §5.2)", () => {
     const phone = p256Key();
     const phoneID = generateOverstoryID("dv");
     const offer = await macClient.createPairing();
-    const claimed = await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, { id: phoneID, label: "Phone", key: phone.key });
+    const claimed = await new ProtocolClient(running.url).claimPairing(offer.code, { id: phoneID, label: "Phone", key: phone.key });
     expect(claimed.device.id).toBe(phoneID);
     expect((await readTreeConfig(macClient, profileTree, "person")).values.devices![phoneID]).toEqual({ id: phoneID, label: "Phone", administrator: false, key: phone.key });
 
@@ -210,8 +210,8 @@ describe("published device keys (accounts §5.4)", () => {
     const response = await fetch(`${running.url}/.overstory/peer/profiles/${ownerProfile()}/device-keys`);
     expect(response.headers.get("cache-control")).toBe("no-cache");
     expect(JSON.stringify(await response.json())).not.toContain("label");
-    // The old path answers the same until plans/soon/protocol-001 removes it.
-    expect(await (await fetch(`${running.url}/.overstory/profiles/${ownerProfile()}/device-keys`)).json()).toEqual(published);
+    // The old path is gone.
+    expect((await fetch(`${running.url}/.overstory/profiles/${ownerProfile()}/device-keys`)).status).toBe(404);
     await expect(new ProtocolClient(running.url).publishedDeviceKeys("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa")).rejects.toThrow("not-found");
   });
 });
@@ -223,18 +223,14 @@ describe("recovery pairing (accounts §5.3)", () => {
 
   test("a profile claimed with a key device signs in with it", async () => {
     const origin = new URL(running.url).origin;
-    const configurationTree = treeConfigurationID(carol.profileTree);
     const client = new ProtocolClient(running.url);
-    const challenge = await client.createAccountChallenge({ account: `${origin}/~carol`, profileTree: carol.profileTree, configurationTree });
+    const challenge = await client.createAccountChallenge({ account: `${origin}/~carol`, profileTree: carol.profileTree });
     await client.joinAccount({
-      account: `${origin}/~carol`,
-      profileTree: carol.profileTree,
-      configurationTree,
       challenge,
       publicKey: carol.publicKey,
       signature: carol.sign(accountChallengeBytes(challenge)),
       device: { id: laptopID, label: "Carol's laptop", key: laptop.key },
-      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(carol.profileTree, { id: laptopID, label: "Carol's laptop", key: laptop.key }))),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(carol.profileTree, { id: laptopID, label: "Carol's laptop", key: laptop.key }), directoryStamper(undefined, 0))),
     });
     laptopClient = await openSession(carol.profileTree, laptopID, laptop);
     expect((await laptopClient.account()).account.profileTree).toBe(carol.profileTree);
@@ -243,21 +239,21 @@ describe("recovery pairing (accounts §5.3)", () => {
   test("an operator's recovery pairing makes the claiming device the only one, an administrator", async () => {
     // Carol has lost her laptop; the operator issues a recovery pairing for ~carol.
     const offer = running.overstoryd.createRecoveryPairing("carol");
-    expect(offer.id.startsWith("pr_")).toBe(true);
+    expect(offer.code.startsWith("arr_")).toBe(true);
     expect(offer.expiresAt - Date.now()).toBeGreaterThan(23 * 60 * 60 * 1000);
     // Until it is claimed, her devices keep working.
     expect((await laptopClient.account()).account.profileTree).toBe(carol.profileTree);
 
     const phone = p256Key();
     const phoneID = generateOverstoryID("dv");
-    await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, { id: phoneID, label: "Carol's phone", key: phone.key });
+    await new ProtocolClient(running.url).claimPairing(offer.code, { id: phoneID, label: "Carol's phone", key: phone.key });
     await expect(laptopClient.account()).rejects.toThrow("unauthenticated");
     await expect(new ProtocolClient(running.url).createDeviceSessionChallenge({ profileTree: carol.profileTree, device: laptopID })).rejects.toThrow("not-found");
     const phoneClient = await openSession(carol.profileTree, phoneID, phone);
     const { values } = await readTreeConfig(phoneClient, carol.profileTree, "person");
     expect(values.devices).toEqual({ [phoneID]: { id: phoneID, label: "Carol's phone", administrator: true, key: phone.key } });
     // A recovery pairing, like any pairing, is single use.
-    await expect(new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, { id: generateOverstoryID("dv"), label: "Again", key: ed25519Key().key }))
+    await expect(new ProtocolClient(running.url).claimPairing(offer.code, { id: generateOverstoryID("dv"), label: "Again", key: ed25519Key().key }))
       .rejects.toThrow();
   });
 
@@ -267,10 +263,10 @@ describe("recovery pairing (accounts §5.3)", () => {
       return (await new ProtocolClient(running.url).openDeviceSession(challenge, ownerKey().sign(deviceSessionChallengeBytes(challenge)))).token;
     })()));
     const offer = await owner.createPairing();
-    expect(offer.id.startsWith("pa_")).toBe(true);
+    expect(offer.code.startsWith("arp_")).toBe(true);
     const tablet = ed25519Key();
     const tabletID = generateOverstoryID("dv");
-    await new ProtocolClient(running.url).claimPairing(offer.id, offer.secret, { id: tabletID, label: "Tablet", key: tablet.key });
+    await new ProtocolClient(running.url).claimPairing(offer.code, { id: tabletID, label: "Tablet", key: tablet.key });
     const devices = (await readTreeConfig(owner, ownerProfile(), "person")).values.devices!;
     expect(devices[ownerMac()]!.administrator).toBe(true);
     expect(devices[tabletID]).toEqual({ id: tabletID, label: "Tablet", administrator: false, key: tablet.key });

@@ -138,7 +138,7 @@ struct RunnerVectorTests {
 
     static func snapshot(markdown: String) throws -> ProtocolSnapshot {
         let file = try ProtocolObjectCodec.object(.file(Data(markdown.utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         return ProtocolSnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
     }
 }
@@ -171,8 +171,8 @@ private actor VectorHost: UpdateTransport {
         case "fail":
             throw URLError(.networkConnectionLost)
         case "reject":
-            let head = ProtocolAcceptedUpdate(id: currentUpdate, tree: tree, root: current.root, previous: nil, acceptedAt: 1_800_000_000_000)
-            throw ProtocolUpdateConflictError(conflict: ProtocolUpdateConflict(message: "refused", current: head, conflicts: []))
+            let head = ProtocolUpdateHead(update: currentUpdate, root: current.root, conflicted: false)
+            throw ProtocolUpdateConflictError(conflict: ProtocolUpdateConflict(message: "refused", head: head, conflicts: []))
         case "unsupported":
             throw ProtocolHTTPError(status: 422, code: "unsupported-operation", message: "moveSource", retryable: false)
         default:
@@ -196,12 +196,12 @@ private actor VectorHost: UpdateTransport {
             currentUpdate = update.id
         }
         if action == "acceptThenFail" { throw URLError(.networkConnectionLost) }
-        return ProtocolUpdateResponse(results: results, head: .init(update: currentUpdate, root: current.root, conflicted: false, observedThrough: currentUpdate))
+        return ProtocolUpdateResponse(results: results, head: .init(update: currentUpdate, root: current.root, conflicted: false))
     }
 
     func descriptor(tree: String) async throws -> ProtocolCurrentTree {
         ProtocolCurrentTree(tree: ProtocolTreeDescriptor(id: tree, kind: "ordinary", root: current.root, access: "write",
-            canonical: nil, update: currentUpdate), observedThrough: currentUpdate)
+            canonical: nil, update: currentUpdate))
     }
 
     func snapshot(tree _: String, root: String) async throws -> ProtocolSnapshot {

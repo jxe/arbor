@@ -5,7 +5,8 @@ import Foundation
 /// one bundle. The walk is the TypeScript `pathReadObjects` exactly; both run
 /// `protocol-path-reads.json`.
 public enum ProtocolPathRead {
-    private static let indexNames: Set<String> = ["_index.md", "_index.mdx"]
+    /// A directory's page; `.mdx` is a plain file (Apps 011).
+    private static let indexNames: Set<String> = ["_index.md"]
 
     /// The components the walk follows; `/` has none. `x.md`, `x/` and
     /// `x/_index.md` name node `x`; a file such as `photo.bin` stays itself.
@@ -17,8 +18,6 @@ public enum ProtocolPathRead {
         if let last = parts.last {
             if indexNames.contains(last) {
                 parts.removeLast()
-            } else if last.hasSuffix(".mdx") {
-                parts[parts.count - 1] = String(last.dropLast(4))
             } else if last.hasSuffix(".md") {
                 parts[parts.count - 1] = String(last.dropLast(3))
             }
@@ -79,7 +78,7 @@ public enum ProtocolPathRead {
                 entries = try directory(bytes)
                 continue
             }
-            let names: Set<String> = [component, component + ".md", component + ".mdx"]
+            let names: Set<String> = [component, component + ".md"]
             for entry in entries where names.contains(entry.name) {
                 guard let hash = entry.hash, let bytes = try await load(hash) else { continue }
                 if entry.directory != nil { try await addIndex(try directory(bytes)) }

@@ -30,11 +30,11 @@ struct ObjectStoreTests {
         let orphan = try ProtocolObjectCodec.object(.file(Data("orphan".utf8)))
         let lazy = "sha256:" + String(repeating: "b", count: 64)
         let inner = try ProtocolObjectCodec.object(.directory([
-            .init(name: "kept.bin", file: kept.hash),
-            .init(name: "lazy.bin", file: lazy),
+            .init(name: "kept.bin", file: kept.hash, created: 0, modified: 0),
+            .init(name: "lazy.bin", file: lazy, created: 0, modified: 0),
         ]))
         let root = try ProtocolObjectCodec.object(.directory([.init(name: "dir", directory: inner.hash)]))
-        let oldRoot = try ProtocolObjectCodec.object(.directory([.init(name: "orphan.bin", file: orphan.hash)]))
+        let oldRoot = try ProtocolObjectCodec.object(.directory([.init(name: "orphan.bin", file: orphan.hash, created: 0, modified: 0)]))
         let leaf = try ProtocolObjectCodec.object(.file(Data("leaf root".utf8)))
         let all = [kept, orphan, inner, root, oldRoot, leaf].reduce(into: [String: Data]()) { $0[$1.hash] = $1.bytes }
 

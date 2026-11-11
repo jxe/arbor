@@ -8,6 +8,8 @@ import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirector
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { collectionDirectory, idRow } from "../../support/collection-trees.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
@@ -38,9 +40,9 @@ async function remember(acceptedRoot: string) {
 /** A traced row change authored on `basisRoot`. */
 async function rowChange(basisRoot: string, operations: (collection: { material: { kind: "basis"; path: string; object: string } }) => SourceOperation[]): Promise<CandidateUpdate> {
   const ops = operations({ material: { kind: "basis", path: "/items", object: items(basisRoot) } });
-  const result = await executeRowOperations(basisRoot, ops, async (hash) => objects.get(hash)!, replayCollectionRows);
+  const result = await executeRowOperations(basisRoot, ops, async (hash) => objects.get(hash)!, TEST_AT, replayCollectionRows);
   for (const [hash, bytes] of result.generated) objects.set(hash, bytes);
-  return { change: crypto.randomUUID(), candidate: result.root, trace: [{ before: basisRoot, after: result.root, operations: ops }],
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate: result.root, trace: [{ before: basisRoot, after: result.root, operations: ops }],
     resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 const set = (row: string, field: string, before: unknown, value: unknown, opKey = "set") => (collection: never) =>
@@ -61,7 +63,7 @@ beforeEach(async () => {
   const value = decodeProtocolDirectory(objects.get(initial.root)!);
   value.entries.push({ name: "items", directory: folder });
   root = directory(value);
-  base = (await submit({ change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], deltas: [],
+  base = (await submit({ at: TEST_TIME, change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], deltas: [],
     objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) }, descriptor.tree.update)).id;
 });
 afterEach(async () => {
@@ -110,7 +112,7 @@ test("keeping the shown value resolves with no operations", async () => {
   await submit(await rowChange(root, set("a", "title", "A", "Mine") as never));
   const accepted = await submit(await rowChange(root, set("a", "title", "A", "Theirs") as never));
   const decision = (await client.conflicts(tree, accepted.id, accepted.root)).decisions[0]!;
-  const resolved = await submit({ change: crypto.randomUUID(), candidate: accepted.root, trace: [], deltas: [], objects: [],
+  const resolved = await submit({ at: TEST_TIME, change: crypto.randomUUID(), candidate: accepted.root, trace: [], deltas: [], objects: [],
     resolves: [{ state: accepted.id, conflict: decision.id, alternatives: decision.alternatives.map((a) => a.id) }] }, accepted.id);
   expect(resolved.conflicted).toBe(false);
   expect(resolved.root).toBe(accepted.root);
@@ -134,7 +136,7 @@ test("a stale value seen is invalid, not merged", async () => {
 
 /** A derived row change (spec 10 §2.2): no roots stated, and no objects. */
 function derivedChange(operations: (collection: { material: { kind: "basis"; path: string; object: string } }) => SourceOperation[], basisRoot = root, frame: { before?: string } = {}): DerivableCandidateUpdate {
-  return { change: crypto.randomUUID(), candidate: null, resolves: [], deltas: [], objects: [],
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate: null, resolves: [], deltas: [], objects: [],
     trace: [{ ...frame, operations: operations({ material: { kind: "basis", path: "/items", object: items(basisRoot) } }) }] };
 }
 async function status(request: DerivableUpdateRequest) {
@@ -149,7 +151,7 @@ test("a derived row change is executed by the host, which returns the root it de
   expect(result.outcome).toBe("accepted");
   expect(result.update.conflicted).toBe(false);
   // The host derives what a stating client would have stated.
-  const expected = await executeRowOperations(root, update.trace![0]!.operations, async (hash) => objects.get(hash)!, replayCollectionRows);
+  const expected = await executeRowOperations(root, update.trace![0]!.operations, async (hash) => objects.get(hash)!, TEST_AT, replayCollectionRows);
   expect(result.candidate).toBe(expected.root);
   expect(result.update.root).toBe(expected.root);
   // The reconciliation runs from the root the client holds, so it needs no
@@ -167,10 +169,10 @@ test("a derived row change is executed by the host, which returns the root it de
 
 test("derived elements chain on the roots the host derives, and a later element may state roots", async () => {
   const first = derivedChange(set("a", "title", "A", "Alpha") as never);
-  const firstRoot = (await executeRowOperations(root, first.trace![0]!.operations, async (hash) => objects.get(hash)!, replayCollectionRows));
+  const firstRoot = (await executeRowOperations(root, first.trace![0]!.operations, async (hash) => objects.get(hash)!, TEST_AT, replayCollectionRows));
   for (const [hash, bytes] of firstRoot.generated) objects.set(hash, bytes);
   const second = derivedChange(set("a", "done", null, true) as never, firstRoot.root);
-  const secondRoot = await executeRowOperations(firstRoot.root, second.trace![0]!.operations, async (hash) => objects.get(hash)!, replayCollectionRows);
+  const secondRoot = await executeRowOperations(firstRoot.root, second.trace![0]!.operations, async (hash) => objects.get(hash)!, TEST_AT, replayCollectionRows);
   for (const [hash, bytes] of secondRoot.generated) objects.set(hash, bytes);
   // A client that can compute the root may state it after a derived element.
   const third = await rowChange(secondRoot.root, set("b", "title", "B", "Bee") as never);

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { applyTransitionPayload, decodeCandidateUpdateJSON, applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@ovst/protocol";
-import { prepareSourceChange, type LocalChange } from "@ovst/working-tree";
+import { applyTransitionPayload, applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@ovst/protocol";
+import { decodeLocalUpdate, wireUpdate, prepareSourceChange, type LocalChange } from "@ovst/working-tree";
 import { encodeAttempt } from "../../packages/working-tree/src/control.ts";
 import { compactTransport, branchPublications, publication } from "../../packages/working-tree/src/publication.ts";
 import { Fixture } from "./overstoryd-merge/fixture.ts";
@@ -12,13 +12,13 @@ const vectors = JSON.parse(await readFile(new URL("../../docs/overstory-spec/con
 }> };
 function records(value: typeof vectors.cases[number]): LocalChange[] {
   const bytes = new TextEncoder().encode(value.source), file = hashObject(bytes);
-  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", file}]}), root = hashObject(directory);
+  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", file, created: 0, modified: 0}]}), root = hashObject(directory);
   let graph: TreeSnapshot = {root, objects: new Map([[file, bytes], [root, directory]])}, source = value.source;
   const result: LocalChange[] = [];
   for (const [index, step] of value.steps.entries()) {
     const edits = (step.edits ?? []).map(edit => ({offset: edit.range[0], length: edit.range[1] - edit.range[0], replacement: edit.replacement}));
     expect(applySourceChange(source, edits, step.moves)).toBe(step.source);
-    const record = prepareSourceChange({change: `c${index}`, tree: "tr_publication", graph, sourcePath: "/note.md",
+    const record = prepareSourceChange({at: new Date(0).toISOString(), change: `c${index}`, tree: "tr_publication", graph, sourcePath: "/note.md",
       basis: index ? {kind: "authored", change: `c${index-1}`} : {kind: "accepted", root: graph.root, update: "up_initial"},
       intent: {basis: {tree: "tr_publication", path: "/note", revision: `r${index}`, source}, edits, moves: step.moves, source: step.source}});
     result.push(record); graph = decodeTreeSnapshotJSON(record.candidate); source = step.source;
@@ -34,7 +34,7 @@ for (const value of vectors.cases) test(`one publication: ${value.name}`, async 
   expect(local).toEqual(before);
   expect(publication(local, [])).toEqual(published);
   if (value.kinds.length === 1 && value.kinds[0] === "moveSource") {
-    const wireBytes = (updates: unknown[]) => decodeBase64(encodeAttempt("tr_publication", {root: local[0]!.graph.root, update: "up_initial"}, {base: "up_initial", updates}).body).length;
+    const wireBytes = (updates: unknown[]) => decodeBase64(encodeAttempt("tr_publication", {root: local[0]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: (updates as Parameters<typeof wireUpdate>[0][]).map(wireUpdate)}).body).length;
     expect(wireBytes([published.update])).toBeLessThan(wireBytes(local.map(record => record.update)));
   }
   // Execute the actual compiled frames in the host's merge engine.
@@ -122,7 +122,7 @@ test("generic frame limits remain boundaries and accepted-base deltas remain com
   const result = hashObject(new TextEncoder().encode(steps[0]!.source));
   first.update.objects = first.update.objects.filter(object => object.hash !== result);
   first.update.deltas = [{base: hashObject(new TextEncoder().encode(initial)), result,
-    instructions: [{insert: encodeBase64(new TextEncoder().encode("B"))}, {copy: {offset: 1, length: initial.length - 1}}]}];
+    instructions: [{insert: encodeBase64(new TextEncoder().encode("B"))}, {copy: [1, initial.length - 1] as [number, number]}]}];
   for (const delta of local[0]!.update.deltas) {
     expect(partial.update.deltas.some(item => item.result === delta.result) || partial.update.objects.some(item => item.hash === delta.result)).toBe(true);
   }
@@ -138,7 +138,7 @@ test("branches inside frozen batches commute only across disjoint source footpri
   const initial = f.tree({"a.md": "A", "b.md": "B", "c.md": "C"});
   const graph = {root: initial, objects: new Map(f.objects)};
   function edit(change: string, parent: LocalChange | undefined, path: string, source: string, next: string): LocalChange {
-    return prepareSourceChange({change, tree: "tr_publication", graph: parent ? decodeTreeSnapshotJSON(parent.candidate) : graph,
+    return prepareSourceChange({at: new Date(0).toISOString(), change, tree: "tr_publication", graph: parent ? decodeTreeSnapshotJSON(parent.candidate) : graph,
       basis: parent ? {kind: "authored", change: parent.change} : {kind: "accepted", root: initial, update: "up_initial"}, sourcePath: path,
       intent: {basis: {tree: "tr_publication", path, revision: change, source}, edits: [{offset: 0, length: source.length, replacement: next}], source: next}});
   }
@@ -193,13 +193,13 @@ test("fifty moves in a large document use compact accepted-base deltas, includin
     const compact = compactTransport(published.update, local[offset]!.graph, local.at(-1)!.candidate);
     const updates = [compact];
     const oldUpdates = [published.update];
-    const encoded = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates});
-    const old = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: oldUpdates});
+    const encoded = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: updates.map(wireUpdate)});
+    const old = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: oldUpdates.map(wireUpdate)});
     expect(encoded.requestDigests).toEqual(old.requestDigests);
     expect(decodeBase64(encoded.body).length).toBeLessThan(fixture.maximumRequestBytes);
     expect(decodeBase64(encoded.body).length).toBeLessThan(decodeBase64(old.body).length / 10);
     const basis = decodeTreeSnapshotJSON(local[offset]!.graph);
-    const reconstructed = applyTransitionPayload(basis.objects, decodeCandidateUpdateJSON(compact));
+    const reconstructed = applyTransitionPayload(basis.objects, decodeLocalUpdate(compact));
     expect(reconstructed.get(compact.candidate)).toEqual(decodeTreeSnapshotJSON(local.at(-1)!.candidate).objects.get(compact.candidate));
     expect(compact.deltas.every(delta => basis.objects.has(delta.base))).toBe(true);
     console.log(`move payload (${offset ? "new accepted basis" : "whole burst"}): ${decodeBase64(old.body).length} -> ${decodeBase64(encoded.body).length} bytes`);
@@ -263,12 +263,12 @@ test("typing in a page's body composes over the body", async () => {
   const {parsePage, encodeProtocolPage} = await import("@ovst/protocol");
   let source = "---\ntitle: Note\n---\nHello\n";
   const page = encodeProtocolPage(parsePage(new TextEncoder().encode(source))!), pageHash = hashObject(page);
-  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", page: pageHash}]}), root = hashObject(directory);
+  const directory = encodeProtocolDirectory({type: "directory", entries: [{name: "note.md", page: pageHash, created: 0, modified: 0 }]}), root = hashObject(directory);
   let graph: TreeSnapshot = {root, objects: new Map([[pageHash, page], [root, directory]])};
   const local: LocalChange[] = [];
   for (const [i, c] of [..." world"].entries()) {
     const at = source.length - 1, next = source.slice(0, at) + c + source.slice(at);
-    const record = prepareSourceChange({change: `p${i}`, tree: "tr_publication", graph, sourcePath: "/note.md",
+    const record = prepareSourceChange({at: new Date(0).toISOString(), change: `p${i}`, tree: "tr_publication", graph, sourcePath: "/note.md",
       basis: i ? {kind: "authored", change: `p${i-1}`} : {kind: "accepted", root, update: "up_initial"},
       intent: {basis: {tree: "tr_publication", path: "/note", revision: `r${i}`, source}, edits: [{offset: at, length: 0, replacement: c}], source: next}});
     local.push(record); graph = decodeTreeSnapshotJSON(record.candidate); source = next;

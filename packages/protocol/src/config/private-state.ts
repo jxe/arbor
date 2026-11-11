@@ -82,7 +82,7 @@ export async function prepareStoryDataRoot(): Promise<Diagnostic[]> {
  * format or the daemon's rebuildable state changes shape, and is the client
  * half of the schema stamp the host asserts at startup.
  */
-export const STORY_SYNC_STATE_VERSION = "6";
+export const STORY_SYNC_STATE_VERSION = "7";
 
 const REBUILDABLE_PRIVATE_ENTRIES = ["sync"] as const;
 

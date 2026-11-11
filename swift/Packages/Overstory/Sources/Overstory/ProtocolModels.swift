@@ -152,20 +152,6 @@ public struct ProtocolTreeDescriptor: Codable, Sendable, Equatable {
     }
 }
 
-/// `GET /.overstory/trees/{id}/entry-metadata`: file entries of the current root,
-/// keyed by entry path (`/Trips/_index.md`), with the accepted update they
-/// describe. Unknown fields inside an entry are ignored.
-public struct ProtocolEntryMetadata: Decodable, Sendable, Equatable {
-    public struct Entry: Decodable, Sendable, Equatable {
-        /// Unix milliseconds of the accepted update that last wrote the entry.
-        public var modifiedAt: Double?
-        public init(modifiedAt: Double? = nil) { self.modifiedAt = modifiedAt }
-    }
-    public var update: String
-    public var entries: [String: Entry]
-    public init(update: String, entries: [String: Entry]) { self.update = update; self.entries = entries }
-}
-
 public struct ProtocolSnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
     public var snapshot: Value
     public var observedThrough: String
@@ -191,6 +177,8 @@ public struct ProtocolAccountDescriptor: Codable, Sendable, Equatable {
     public var configuration: ProtocolTreeDescriptor
     public var writableProfiles: [ProtocolTreeDescriptor]
     public var device: Device? = nil
+    /// The origin of the profile's home host: this host, here (locators §5).
+    public var homeHost: String? = nil
 }
 
 /// `GET /.overstory/account` at a home host. Like the tree and directory lists it
@@ -200,11 +188,16 @@ public struct ProtocolAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAccountDescriptor
 }
 
-/// A host list read, `/.overstory/trees` or `/.overstory/account/directory`: no observation
-/// cursor, unlike Story Sync's local `ProtocolSnapshotEnvelope`.
-public struct ProtocolRemoteSnapshot<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
-    public var snapshot: Value
-    public init(snapshot: Value) { self.snapshot = snapshot }
+/// `GET /.overstory/trees` (locators §5): the trees, named as what it lists.
+public struct ProtocolTreeList: Codable, Sendable, Equatable {
+    public var trees: [ProtocolTreeDescriptor]
+    public init(trees: [ProtocolTreeDescriptor]) { self.trees = trees }
+}
+
+/// `GET /.overstory/account/directory` (locators §5): the people.
+public struct ProtocolPeopleList: Codable, Sendable, Equatable {
+    public var people: [ProtocolProfileDirectoryEntry]
+    public init(people: [ProtocolProfileDirectoryEntry]) { self.people = people }
 }
 
 public struct ProtocolResolvedNodeRef: Codable, Sendable, Equatable {
@@ -250,17 +243,18 @@ public struct ProtocolResolvedNodeRef: Codable, Sendable, Equatable {
     }
 }
 
+/// A locator resolved (locators §5): `enclosingTree.update` is where a watch starts.
 public struct ProtocolLocatorResolution: Codable, Sendable, Equatable {
     public var ref: ProtocolResolvedNodeRef
     public var enclosingTree: ProtocolTreeDescriptor
-    public var historical: Bool
-    public var observedThrough: String
 }
 
+/// One accepted state of a tree (an AcceptedRef): `{ update, root }` on the wire.
 public struct ProtocolAcceptedLink: Codable, Sendable, Equatable {
     public var id: String
     public var root: String
     public init(id: String, root: String) { self.id = id; self.root = root }
+    private enum CodingKeys: String, CodingKey { case id = "update", root }
 }
 
 public struct ProtocolAcceptedUpdate: Codable, Sendable, Equatable {
@@ -316,7 +310,7 @@ public struct ProtocolAcceptedUpdate: Codable, Sendable, Equatable {
     public func validated() throws -> Self {
         try AcceptedReadValidation.state([
             "id": .string(id), "tree": .string(tree), "root": .string(root),
-            "previous": previous.map { .object(["id": .string($0.id), "root": .string($0.root)]) } ?? .null,
+            "previous": previous.map { .object(["update": .string($0.id), "root": .string($0.root)]) } ?? .null,
             "acceptedAt": .number(acceptedAt), "subject": subject.map(ProtocolReadValue.string) ?? .null,
             "conflicted": .bool(conflicted),
         ])
@@ -354,19 +348,17 @@ public struct ProtocolSnapshot: Codable, Sendable, Equatable {
     }
 }
 
-/// The tree resource: its current descriptor and the cursor to watch after.
+/// The tree resource: its current descriptor, whose `update` is also where a watch resumes.
 public struct ProtocolCurrentTree: Codable, Sendable, Equatable {
     public var tree: ProtocolTreeDescriptor
-    public var observedThrough: String
 
-    public init(tree: ProtocolTreeDescriptor, observedThrough: String) {
+    public init(tree: ProtocolTreeDescriptor) {
         self.tree = tree
-        self.observedThrough = observedThrough
     }
 
     public func validated(expectedTree: String? = nil) throws -> Self {
         let tree = try tree.validated()
-        guard !tree.update.isEmpty, !observedThrough.isEmpty, expectedTree == nil || tree.id == expectedTree else {
+        guard !tree.update.isEmpty, expectedTree == nil || tree.id == expectedTree else {
             throw ProtocolValidationError.invalidValue("Tree descriptor does not match its tree")
         }
         return self
@@ -390,7 +382,6 @@ public enum ProtocolObjectDeltaInstruction: Sendable, Equatable, Codable {
     static let maxSafeInteger = 9_007_199_254_740_991
 
     private enum CodingKeys: String, CodingKey { case copy, insert }
-    private enum CopyKeys: String, CodingKey { case offset, length }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -398,13 +389,12 @@ public enum ProtocolObjectDeltaInstruction: Sendable, Equatable, Codable {
             throw ProtocolValidationError.invalidValue("Object delta instruction requires exactly one operation")
         }
         if values.contains(.copy) {
-            let copy = try values.nestedContainer(keyedBy: CopyKeys.self, forKey: .copy)
-            let offset = try copy.decode(Int.self, forKey: .offset)
-            let length = try copy.decode(Int.self, forKey: .length)
-            guard Self.validCopy(offset: offset, length: length) else {
+            // A copy is `[offset, length]` of the base (tree operations §2.5).
+            let copy = try values.decode([Int].self, forKey: .copy)
+            guard copy.count == 2, Self.validCopy(offset: copy[0], length: copy[1]) else {
                 throw ProtocolValidationError.invalidValue("Invalid object delta copy")
             }
-            self = .copy(offset: offset, length: length)
+            self = .copy(offset: copy[0], length: copy[1])
         } else {
             let bytes = try decodeProtocolBytes(values, forKey: .insert, from: decoder, invalid: "Invalid object delta insert")
             guard !bytes.isEmpty else { throw ProtocolValidationError.invalidValue("Invalid object delta insert") }
@@ -416,9 +406,7 @@ public enum ProtocolObjectDeltaInstruction: Sendable, Equatable, Codable {
         var values = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case let .copy(offset, length):
-            var copy = values.nestedContainer(keyedBy: CopyKeys.self, forKey: .copy)
-            try copy.encode(offset, forKey: .offset)
-            try copy.encode(length, forKey: .length)
+            try values.encode([offset, length], forKey: .copy)
         case let .insert(bytes):
             // Padded base64 in JSON (JSONEncoder's default for `Data`), a byte string in CBOR.
             try values.encode(bytes, forKey: .insert)
@@ -534,6 +522,15 @@ public struct ProtocolAcceptedTransition: Codable, Sendable, Equatable {
         try validateTransition()
     }
 
+    /// Objects travel as bytes; empty lists are left out (tree operations §2.1).
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encodeIfPresent(from, forKey: .from)
+        try values.encode(update, forKey: .update)
+        try values.encodeIfPresent(requestDigest, forKey: .requestDigest)
+        try ProtocolWirePayload.encode(objects: objects, deltas: deltas, into: &values, objectsKey: .objects, deltasKey: .deltas)
+    }
+
     public func validated() throws -> Self {
         _ = try update.validated()
         try validateTransition()
@@ -563,8 +560,9 @@ public struct ProtocolResolutionDeclaration: Codable, Sendable, Equatable {
     public init(state: String, conflict: String, alternatives: [String]) {
         self.state = state; self.conflict = conflict; self.alternatives = alternatives
     }
+    /// As it travels: `{ update, conflict, alternatives }`.
     var semantic: ProtocolSemanticValue {
-        .object(["state": .string(state), "conflict": .string(conflict), "alternatives": .array(alternatives.map(ProtocolSemanticValue.string))])
+        .object(["update": .string(state), "conflict": .string(conflict), "alternatives": .array(alternatives.map(ProtocolSemanticValue.string))])
     }
 }
 
@@ -578,21 +576,26 @@ public struct ProtocolTraceFrame: Sendable, Equatable {
     public init(before: String, after: String, operations: [ProtocolSourceOperation]) {
         self.before = before; self.after = after; self.operations = operations
     }
+    /// As it travels, its operations' references flat.
     var semantic: ProtocolSemanticValue {
         .object(["before": .string(before), "after": .string(after),
-                 "operations": .array(operations.map { .object($0.fields) })])
+                 "operations": .array(operations.map { .object($0.wireFields) })])
     }
     init(_ raw: ProtocolSemanticValue) throws {
         guard let f = raw.fields, let before = f["before"]?.text, let after = f["after"]?.text,
               let ops = f["operations"]?.items else {
             throw ProtocolValidationError.invalidValue("Expected trace frame")
         }
-        self.init(before: before, after: after, operations: try ops.map { try ProtocolSourceOperation(ProtocolSemanticValue.fields($0)) })
+        self.init(before: before, after: after, operations: try ops.map { try ProtocolSourceOperation(wire: ProtocolSemanticValue.fields($0)) })
     }
 }
 
 public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
     public var change: String
+    /// When the edit was made, RFC 3339 UTC with milliseconds
+    /// (`ProtocolEntryTime`): it stamps the entries this update creates or
+    /// changes (data model §6).
+    public var at: String
     /// `nil` is a snapshot: exact bytes with no authored evidence. A trace is
     /// evidence the authority checks, never a hint it may skip.
     public var trace: [ProtocolTraceFrame]?
@@ -602,16 +605,17 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
     public var objects: [ProtocolObjectEnvelope]
     public var deltas: [ProtocolObjectDelta]
 
-    public init(candidate: String, change: String = UUID().uuidString, trace: [ProtocolTraceFrame]? = nil,
+    public init(candidate: String, change: String = UUID().uuidString, at: String, trace: [ProtocolTraceFrame]? = nil,
                 resolves: [ProtocolResolutionDeclaration] = [], ifCurrent: String? = nil,
                 objects: [ProtocolObjectEnvelope], deltas: [ProtocolObjectDelta] = []) {
-        self.candidate = candidate; self.change = change; self.trace = trace
+        self.candidate = candidate; self.change = change; self.at = at; self.trace = trace
         self.resolves = resolves; self.ifCurrent = ifCurrent; self.objects = objects; self.deltas = deltas
     }
+    /// The intent as it travels: a snapshot's null trace and empty resolves are left out.
     var semantic: [String: ProtocolSemanticValue] {
-        var fields: [String: ProtocolSemanticValue] = ["change": .string(change), "candidate": .string(candidate),
-            "trace": trace.map { .array($0.map(\.semantic)) } ?? .null,
-            "resolves": .array(resolves.map(\.semantic))]
+        var fields: [String: ProtocolSemanticValue] = ["change": .string(change), "at": .string(at), "candidate": .string(candidate)]
+        if let trace { fields["trace"] = .array(trace.map(\.semantic)) }
+        if !resolves.isEmpty { fields["resolves"] = .array(resolves.map(\.semantic)) }
         if let ifCurrent { fields["ifCurrent"] = .string(ifCurrent) }
         return fields
     }
@@ -621,12 +625,14 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
     init(_ decoded: ProtocolAuthoredCandidate) throws {
         let fields = decoded.intentFields
         typealias Value = ProtocolSemanticValue
-        guard let trace = fields["trace"] else { throw ProtocolValidationError.invalidValue("Missing trace") }
+        // An omitted trace is a snapshot, omitted resolves none.
+        let trace = fields["trace"] ?? .null
         self.init(candidate: try Value.text(fields["candidate"]), change: try Value.text(fields["change"]),
+            at: try Value.text(fields["at"]),
             trace: try trace.items.map { try $0.map(ProtocolTraceFrame.init) },
-            resolves: try Value.items(fields["resolves"]).map { raw in
+            resolves: try Value.items(fields["resolves"] ?? .array([])).map { raw in
                 let r = try Value.fields(raw)
-                return ProtocolResolutionDeclaration(state: try Value.text(r["state"]), conflict: try Value.text(r["conflict"]),
+                return ProtocolResolutionDeclaration(state: try Value.text(r["update"]), conflict: try Value.text(r["conflict"]),
                     alternatives: try Value.items(r["alternatives"]).map(Value.text))
             }, ifCurrent: fields["ifCurrent"]?.text, objects: decoded.payload.objects, deltas: decoded.payload.deltas)
     }
@@ -635,9 +641,10 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
 
     /// The activation element of a tree's first snapshot: snapshot semantics,
     /// no resolutions, every object complete and no deltas. A claim carries
-    /// its configuration in this shape (accounts §1.2).
-    public static func activation(_ snapshot: ProtocolSnapshot, change: String) -> ProtocolCandidateUpdate {
-        ProtocolCandidateUpdate(candidate: snapshot.root, change: change, objects: snapshot.objects)
+    /// its configuration in this shape (accounts §1.2). `at` is no earlier
+    /// than the times the snapshot was stamped with.
+    public static func activation(_ snapshot: ProtocolSnapshot, change: String, at: String) -> ProtocolCandidateUpdate {
+        ProtocolCandidateUpdate(candidate: snapshot.root, change: change, at: at, objects: snapshot.objects)
     }
 }
 
@@ -645,13 +652,13 @@ public struct ProtocolUpdateRequest: Codable, Sendable, Equatable {
     public var base: String?
     public var updates: [ProtocolCandidateUpdate]
     public init(base: String?, updates: [ProtocolCandidateUpdate]) { self.base = base; self.updates = updates }
-    public init(base: String?, candidate: String, ifCurrent: String? = nil,
+    public init(base: String?, candidate: String, at: String, ifCurrent: String? = nil,
                 objects: [ProtocolObjectEnvelope], deltas: [ProtocolObjectDelta] = []) {
-        self.init(base: base, updates: [ProtocolCandidateUpdate(candidate: candidate, ifCurrent: ifCurrent, objects: objects, deltas: deltas)])
+        self.init(base: base, updates: [ProtocolCandidateUpdate(candidate: candidate, at: at, ifCurrent: ifCurrent, objects: objects, deltas: deltas)])
     }
-    public init(base: ProtocolUpdateBase, candidate: String, ifCurrent: String? = nil,
+    public init(base: ProtocolUpdateBase, candidate: String, at: String, ifCurrent: String? = nil,
                 objects: [ProtocolObjectEnvelope], deltas: [ProtocolObjectDelta] = []) {
-        self.init(base: base.update, candidate: candidate, ifCurrent: ifCurrent, objects: objects, deltas: deltas)
+        self.init(base: base.update, candidate: candidate, at: at, ifCurrent: ifCurrent, objects: objects, deltas: deltas)
     }
     public var candidate: String { updates[0].candidate }
     public var ifCurrent: String? { updates[0].ifCurrent }
@@ -715,15 +722,15 @@ public struct ProtocolTransitionPayload: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        objects = try values.decode([ProtocolObjectEnvelope].self, forKey: .objects)
-        deltas = try values.decode([ProtocolObjectDelta].self, forKey: .deltas)
+        objects = try ProtocolWirePayload.objects(values, forKey: .objects)
+        deltas = try ProtocolWirePayload.deltas(values, forKey: .deltas)
         _ = try validated()
     }
 
+    /// Objects as bytes; an empty list is left out (tree operations §2.1).
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(objects, forKey: .objects)
-        try values.encode(deltas, forKey: .deltas)
+        try ProtocolWirePayload.encode(objects: objects, deltas: deltas, into: &values, objectsKey: .objects, deltasKey: .deltas)
     }
 
     public func validated() throws -> Self {
@@ -757,24 +764,25 @@ public struct ProtocolConflictDetails: Codable, Sendable, Equatable {
     public var kind: String
     public var completed: [ProtocolUpdateElementResult]
     public var failedIndex: Int
-    public var current: ProtocolAcceptedUpdate
+    /// The tree's current accepted state, as a success's `head` names it.
+    public var head: ProtocolUpdateHead
     public var conflicts: [ProtocolConflictReason]
 
     private enum CodingKeys: String, CodingKey {
-        case kind, completed, failedIndex, current, conflicts
+        case kind, completed, failedIndex, head, conflicts
     }
 
     public init(
         kind: String,
         completed: [ProtocolUpdateElementResult],
         failedIndex: Int,
-        current: ProtocolAcceptedUpdate,
+        head: ProtocolUpdateHead,
         conflicts: [ProtocolConflictReason]
     ) {
         self.kind = kind
         self.completed = completed
         self.failedIndex = failedIndex
-        self.current = current
+        self.head = head
         self.conflicts = conflicts
     }
 
@@ -787,7 +795,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
     public var tree: String?
     public var details: ProtocolConflictDetails
 
-    public var current: ProtocolAcceptedUpdate { details.current }
+    public var head: ProtocolUpdateHead { details.head }
     public var conflicts: [ProtocolConflictReason] { details.conflicts }
 
     public init(
@@ -798,7 +806,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
         kind: String = "server-update",
         completed: [ProtocolUpdateElementResult] = [],
         failedIndex: Int = 0,
-        current: ProtocolAcceptedUpdate,
+        head: ProtocolUpdateHead,
         conflicts: [ProtocolConflictReason]
     ) {
         self.error = error
@@ -809,7 +817,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
             kind: kind,
             completed: completed,
             failedIndex: failedIndex,
-            current: current,
+            head: head,
             conflicts: conflicts
         )
     }
@@ -819,7 +827,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
         guard ["server-update", "tree-configuration"].contains(details.kind) else {
             throw ProtocolValidationError.invalidValue("Unknown conflict detail kind")
         }
-        _ = try details.current.validated()
+        try details.head.validate()
         guard details.failedIndex == details.completed.count else {
             throw ProtocolValidationError.invalidValue("Conflict prefix does not match its failed index")
         }
@@ -876,13 +884,18 @@ public struct ProtocolUpdateElementResult: Sendable, Equatable, Codable {
 }
 
 /// The server's current head as of an accepted update response.
+/// Its `update` is also where a watch resumes.
 public struct ProtocolUpdateHead: Sendable, Equatable, Codable {
     public var update: String
     public var root: String
     public var conflicted: Bool
-    public var observedThrough: String
-    public init(update: String, root: String, conflicted: Bool, observedThrough: String) {
-        self.update = update; self.root = root; self.conflicted = conflicted; self.observedThrough = observedThrough
+    public init(update: String, root: String, conflicted: Bool) {
+        self.update = update; self.root = root; self.conflicted = conflicted
+    }
+
+    func validate() throws {
+        guard !update.isEmpty else { throw ProtocolValidationError.invalidValue("Invalid update head") }
+        try validateObjectHash(root)
     }
 }
 
@@ -913,10 +926,7 @@ public struct ProtocolUpdateResponse: Sendable, Equatable, Codable {
         results = try values.decode([ProtocolUpdateElementResult].self, forKey: .results)
         guard !results.isEmpty else { throw ProtocolValidationError.invalidValue("Update response has no results") }
         head = try values.decode(ProtocolUpdateHead.self, forKey: .head)
-        guard !head.update.isEmpty, !head.observedThrough.isEmpty, head.observedThrough.utf8.count <= 1024 else {
-            throw ProtocolValidationError.invalidValue("Invalid update head")
-        }
-        try validateObjectHash(head.root)
+        try head.validate()
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -970,14 +980,14 @@ public struct ProtocolDevice: Codable, Sendable, Equatable {
     }
 }
 
+/// A pairing for the caller's account: `code` is its only name and its secret (accounts §4).
 public struct ProtocolPairingOffer: Codable, Sendable, Equatable {
-    public var id: String
-    public var secret: String
+    public var code: String
     public var confirmationCode: String
     public var expiresAt: Double
 
     public func validated() throws -> Self {
-        guard !id.isEmpty, !secret.isEmpty, !confirmationCode.isEmpty, expiresAt.isFinite else {
+        guard !code.isEmpty, !confirmationCode.isEmpty, expiresAt.isFinite else {
             throw ProtocolValidationError.invalidValue("Malformed pairing offer")
         }
         return self
@@ -1017,8 +1027,12 @@ public struct ProtocolPairingDevice: Codable, Sendable, Equatable {
     }
 }
 
+/// What a profile key signs to join a community (accounts §1.2, federation
+/// §3): `account` claims the address as the profile's home, `placement` makes
+/// it a member whose home is `profile`, its canonical locator elsewhere.
 public struct ProtocolAccountChallenge: Codable, Sendable, Equatable {
     public var version: Int
+    public var purpose: String
     public var id: String
     public var origin: String
     public var account: String
@@ -1027,14 +1041,38 @@ public struct ProtocolAccountChallenge: Codable, Sendable, Equatable {
     public var nonce: String
     public var issuedAt: Int
     public var expiresAt: Int
+    /// Only on a placement's challenge: the profile's locator at its home host.
+    public var profile: String?
+
+    public init(version: Int = 1, purpose: String, id: String, origin: String, account: String, profileTree: String,
+                configurationTree: String, nonce: String, issuedAt: Int, expiresAt: Int, profile: String? = nil) {
+        self.version = version; self.purpose = purpose; self.id = id; self.origin = origin; self.account = account
+        self.profileTree = profileTree; self.configurationTree = configurationTree; self.nonce = nonce
+        self.issuedAt = issuedAt; self.expiresAt = expiresAt; self.profile = profile
+    }
 
     public func validated() throws -> Self {
-        guard version == 1, !id.isEmpty, !origin.isEmpty, !account.isEmpty,
-              !profileTree.isEmpty, !configurationTree.isEmpty, !nonce.isEmpty,
+        guard version == 1, purpose == "account" || purpose == "placement", (purpose == "placement") == (profile != nil),
+              !id.isEmpty, !origin.isEmpty, !account.isEmpty,
+              !profileTree.isEmpty, configurationTree == treeConfigurationID(profileTree), !nonce.isEmpty,
               expiresAt > issuedAt else {
             throw ProtocolValidationError.invalidValue("Malformed account challenge")
         }
         return self
+    }
+
+    /// Check, before signing, that this is the challenge asked for: its
+    /// purpose, the host's origin, the account, the profile and its derived
+    /// configuration, and for a placement the profile's home locator.
+    public func verified(origin expectedOrigin: String, account expectedAccount: String?, profileTree expectedProfile: String, profile expectedHome: String?) throws -> Self {
+        let value = try validated()
+        guard value.purpose == (expectedHome == nil ? "account" : "placement"),
+              value.origin == expectedOrigin, expectedAccount == nil || value.account == expectedAccount,
+              value.profileTree == expectedProfile, value.configurationTree == treeConfigurationID(expectedProfile),
+              value.profile == expectedHome else {
+            throw ProtocolValidationError.invalidValue("The host's challenge is not the one asked for")
+        }
+        return value
     }
 }
 
@@ -1099,17 +1137,17 @@ public struct ProtocolPlacementAccountSnapshot: Codable, Sendable, Equatable {
 }
 
 /// `GET /.overstory/account` as a host sends it: a home host's account, with its
-/// configuration, or a placement host's (accounts §1.3), told apart by
-/// `homeHost` as `isPlacementAccountDescriptor` does in TypeScript.
+/// configuration, or a placement host's (accounts §1.3). Both name `homeHost`;
+/// only a placement host's has `placementRoot`, which tells them apart.
 public enum ProtocolAnyAccountDescriptor: Codable, Sendable, Equatable {
     case home(ProtocolAccountDescriptor)
     case placement(ProtocolPlacementAccountDescriptor)
 
-    private enum CodingKeys: String, CodingKey { case homeHost }
+    private enum CodingKeys: String, CodingKey { case placementRoot }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        if (try? values.decodeIfPresent(String.self, forKey: .homeHost)) != nil {
+        if values.contains(.placementRoot) {
             self = .placement(try ProtocolPlacementAccountDescriptor(from: decoder))
         } else {
             self = .home(try ProtocolAccountDescriptor(from: decoder))
@@ -1142,10 +1180,9 @@ public struct ProtocolAnyAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAnyAccountDescriptor
 }
 
+/// A claim's body: the host reads the account, profile and configuration
+/// from the signed challenge (accounts §1.2).
 public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable {
-    public var account: String
-    public var profileTree: String
-    public var configurationTree: String
     public var challenge: ProtocolAccountChallenge
     public var publicKey: String
     public var signature: String
@@ -1155,9 +1192,6 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
     public var configuration: ProtocolCandidateUpdate
 
     public init(
-        account: String,
-        profileTree: String,
-        configurationTree: String,
         challenge: ProtocolAccountChallenge,
         publicKey: String,
         signature: String,
@@ -1165,9 +1199,6 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
         device: ProtocolPairingDevice,
         configuration: ProtocolCandidateUpdate
     ) {
-        self.account = account
-        self.profileTree = profileTree
-        self.configurationTree = configurationTree
         self.challenge = challenge
         self.publicKey = publicKey
         self.signature = signature

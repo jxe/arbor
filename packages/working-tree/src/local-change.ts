@@ -1,8 +1,28 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { applySourceChange, applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit, type SourceMove } from "@ovst/protocol";
 import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory, decodeProtocolPage, encodeProtocolPage, isProtocolContentKind, parsePage, samePage, protocolObjectReferences, type ProtocolObjectKind,
-  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
-  type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
+  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, entryTimeOf, stampedEntry, encodeCandidateUpdateJSON, encodeBase64, encodeAuthoredCandidateIntent,
+  type TreeSnapshot, type TreeSnapshotJSON, type AuthoredUpdateIntent, type CandidateUpdate, type CandidateUpdateJSON, type ObjectEnvelopeJSON, type ObjectDeltaJSON, type SourceOperation } from "@ovst/protocol";
+
+/**
+ * A queued record's update: the wire element, except that each object keeps
+ * its hash beside its bytes and both lists are always present, so publication
+ * can match objects to snapshots. `wireUpdate` gives the element as sent.
+ */
+export type LocalUpdate = AuthoredUpdateIntent & { objects: ObjectEnvelopeJSON[]; deltas: ObjectDeltaJSON[] };
+export function localUpdate(update: CandidateUpdate): LocalUpdate {
+  const { deltas } = encodeCandidateUpdateJSON(update);
+  const { change, at, candidate, trace, resolves, ifCurrent } = update;
+  return { change, at, candidate, trace, resolves, ...(ifCurrent !== undefined ? { ifCurrent } : {}),
+    objects: update.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })), deltas: deltas ?? [] };
+}
+export function wireUpdate(update: LocalUpdate): CandidateUpdateJSON {
+  const { objects, deltas, ...intent } = update;
+  return { ...encodeAuthoredCandidateIntent(intent), ...(objects.length ? { objects: objects.map(object => object.bytes) } : {}), ...(deltas.length ? { deltas } : {}) } as CandidateUpdateJSON;
+}
+export function decodeLocalUpdate(update: LocalUpdate): CandidateUpdate {
+  return decodeCandidateUpdateJSON(wireUpdate(update));
+}
 
 export type LocalChangeBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
 /** One editor generation of a coalesced intent: its moves and edits against
@@ -27,11 +47,11 @@ export interface SourceDocumentCapture { path: string; basisRevision: string; in
 export interface LocalChange {
   creation?: SourcePageCreation;
   change: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshotJSON;
-  sourcePath: string | null; document: SourceDocumentCapture | null; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
+  sourcePath: string | null; document: SourceDocumentCapture | null; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate: TreeSnapshotJSON; update: LocalUpdate;
 }
 export interface StoredSnapshot { root: string; objects: string[] }
 export type StoredLocalChange = Omit<LocalChange, "graph" | "candidate" | "update"> & {
-  graph: StoredSnapshot; candidate: StoredSnapshot; update: CandidateUpdateJSON; updateObjects: string[];
+  graph: StoredSnapshot; candidate: StoredSnapshot; update: LocalUpdate; updateObjects: string[];
 };
 /** Schema 4 stores the wire element verbatim with its frame chain. */
 export interface ChangeLogJournal { schema: 4; tree: string; records: StoredLocalChange[] }
@@ -104,8 +124,11 @@ class PageCopy extends Error {}
 export function prepareSourceChange(input: {
   change?: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot;
   sourcePath: string; intent: SourceIntent; compact?: boolean;
+  /** When the edit was made (RFC 3339 UTC); now when omitted. */
+  at?: string;
 }): LocalChange & {document: SourceDocumentCapture; sourcePath: string} {
   const { tree, sourcePath, intent, graph } = input;
+  const at = input.at ?? new Date().toISOString(), atMs = entryTimeOf(at);
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   if (intent.basis.tree !== tree || typeof intent.basis.revision !== "string" || !intent.basis.revision ||
       typeof intent.basis.path !== "string" || !validText(intent.basis.source, decoder) || typeof intent.source !== "string" ||
@@ -150,7 +173,7 @@ export function prepareSourceChange(input: {
       const produced = encoder.encode(source), file = hashObject(produced);
       objects.set(file, produced);
       addedBody = {parentPath: depth === 0 ? "/" : "/" + parts.slice(0, depth).join("/"), parent: hash, file};
-      directory.entries.push({ name: "_index.md", file });
+      directory.entries.push(stampedEntry("file", "_index.md", file, undefined, atMs));
       directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
       const next = encodeProtocolDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
     }
@@ -164,18 +187,19 @@ export function prepareSourceChange(input: {
       if (!after) {
         // Frontmatter that no longer parses leaves a file (directory format §3).
         const produced = encoder.encode(source), hash = hashObject(produced);
-        objects.set(hash, produced); directory.entries[index] = { name: entry.name, file: hash };
+        objects.set(hash, produced); directory.entries[index] = stampedEntry("file", entry.name, hash, entry, atMs);
       } else {
         const produced = encodeProtocolPage(after), hash = hashObject(produced);
         objects.set(hash, produced);
         if (samePage({ ...after, body: before.body }, before)) { file = entry.page; bodyStart = encoder.encode(previous).length - before.body.length; }
-        directory.entries[index] = { name: entry.name, page: hash };
+        directory.entries[index] = stampedEntry("page", entry.name, hash, entry, atMs);
       }
     } else if (depth === parts.length - 1) {
       if (!entry.file || !objects.has(entry.file) || !bytesEqual(objects.get(entry.file)!, encoder.encode(previous))) throw new Error("Source bytes do not match basis");
       file = entry.file;
-      const produced = encoder.encode(source);
-      entry.file = hashObject(produced); objects.set(entry.file, produced);
+      const produced = encoder.encode(source), hash = hashObject(produced);
+      objects.set(hash, produced);
+      directory.entries[directory.entries.indexOf(entry)] = stampedEntry("file", entry.name, hash, entry, atMs);
     } else {
       if (!entry.directory) throw new Error("Source path crosses a file or tree boundary");
       entry.directory = replace(entry.directory, depth + 1, previous, source);
@@ -267,10 +291,10 @@ export function prepareSourceChange(input: {
     if (compacted.every(frame => reproduces(frame, sourcePath, sources))) frames = compacted;
   }
   if (frames.length > TRACE_FRAME_LIMIT || frames.reduce((total, frame) => total + frame.operations.length, 0) > TRACE_OPERATION_LIMIT) evidence = false;
-  const update = encodeCandidateUpdateJSON({ candidate: root, change,
+  const update = localUpdate({ candidate: root, change, at,
     trace: evidence && frames.length ? frames : null, resolves: [],
     objects: [...candidate.objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
-  decodeCandidateUpdateJSON(update);
+  decodeLocalUpdate(update);
   const document: SourceDocumentCapture = { path: intent.basis.path, basisRevision: intent.basis.revision, intentDigest: sourceIntentDigest(intent) };
   return JSON.parse(JSON.stringify({ change, tree, basis: input.basis, graph: snapshotJSON(graph), sourcePath, document, candidate: snapshotJSON(candidate), update }));
 }
@@ -356,14 +380,14 @@ function reproduces(frame: SourceFrame, sourcePath: string, sources: ReadonlyMap
  * names that branch and proves that removing it restores the original graph, so
  * the candidate is exactly the basis plus the addition. Undoing a conversion in
  * the editor is a plain source edit. */
-export function preparePageCreation(input: {change: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot; candidate: TreeSnapshot; creation: SourcePageCreation}): LocalChange {
-  const {change,tree,basis,graph,candidate,creation} = input;
+export function preparePageCreation(input: {change: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot; candidate: TreeSnapshot; creation: SourcePageCreation; at: string}): LocalChange {
+  const {change,tree,basis,graph,candidate,creation,at} = input;
   if (creation.document.tree !== tree) throw Error("Invalid creation scope");
-  const removed = prepareEntryActions(candidate,{transfers:[],removals:creation.removals},{change});
+  const removed = prepareEntryActions(candidate,{transfers:[],removals:creation.removals},{change,at:entryTimeOf(at)});
   if (removed.candidate.root !== graph.root) throw Error("Creation does not reproduce original graph");
   verifyTreeSnapshotGraph(graph,"sparse-files"); verifyTreeSnapshotGraph(candidate,"sparse-files");
   const operations = creationOperations(creation.removals, graph, candidate);
-  const update = encodeCandidateUpdateJSON({change,candidate:candidate.root,trace:[{before:graph.root,after:candidate.root,operations}],resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  const update = localUpdate({change,at,candidate:candidate.root,trace:[{before:graph.root,after:candidate.root,operations}],resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   return {change,tree,basis,graph:snapshotJSON(graph),candidate:snapshotJSON(candidate),sourcePath:null,document:null,creation:{document:{...creation.document},removals:[...creation.removals]},update};
 }
 /** One `addEntry` per created branch, under the basis directory that held it. */
@@ -389,14 +413,17 @@ function creationOperations(paths: string[], graph: TreeSnapshot, candidate: Tre
 }
 export function prepareEntryChange(input: {
   change?: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate?: TreeSnapshot;
+  /** When the edit was made (RFC 3339 UTC); now when omitted. */
+  at?: string;
 }): LocalChange {
   const change=input.change ?? crypto.randomUUID();
   if(!!input.entryTransfer === !!input.entryActions)throw Error("Specify one entry intent representation");
-  const context={change,candidate:input.candidate};
+  const at=input.at ?? new Date().toISOString();
+  const context={change,candidate:input.candidate,at:entryTimeOf(at)};
   const {candidate,operations}=input.entryActions ? prepareEntryActions(input.graph,input.entryActions,context) : prepareEntryTransfer(input.graph,input.entryTransfer!,context);
   if(input.candidate && input.candidate.root!==candidate.root)throw Error("Entry intent does not reproduce candidate");
-  const update=encodeCandidateUpdateJSON({change,candidate:candidate.root,trace:operations.length?[{before:input.graph.root,after:candidate.root,operations}]:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
-  decodeCandidateUpdateJSON(update);
+  const update=localUpdate({change,at,candidate:candidate.root,trace:operations.length?[{before:input.graph.root,after:candidate.root,operations}]:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  decodeLocalUpdate(update);
   return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,document:null,...(input.entryActions ? {entryActions:structuredClone(input.entryActions)} : {entryTransfer:structuredClone(input.entryTransfer)}),candidate:snapshotJSON(candidate),update};
 }
 
@@ -408,14 +435,14 @@ export function validateLocalChange(record: LocalChange): void {
   if (new Set(record.graph.objects.map(o => o.hash)).size !== record.graph.objects.length ||
       new Set(record.candidate.objects.map(o => o.hash)).size !== record.candidate.objects.length) throw new Error("Duplicate snapshot object");
   verifyTreeSnapshotGraph(graph, "sparse-files"); verifyTreeSnapshotGraph(candidate, "sparse-files");
-  for (const object of decodeCandidateUpdateJSON(record.update).objects) {
+  for (const object of decodeLocalUpdate(record.update).objects) {
     const present = candidate.objects.get(object.hash);
     if (graph.objects.has(object.hash) || !present || !bytesEqual(present, object.bytes)) throw new Error("Update object is not a new candidate object");
   }
   if ((record.document === null) !== (record.sourcePath === null)) throw new Error("Incomplete source intent");
   if (record.creation) {
     if (record.creation.document.tree !== record.tree || record.entryActions || record.entryTransfer) throw new Error("Invalid page creation");
-    const removed = prepareEntryActions(candidate,{transfers:[],removals:record.creation.removals},{change:record.change});
+    const removed = prepareEntryActions(candidate,{transfers:[],removals:record.creation.removals},{change:record.change,at:entryTimeOf(record.update.at)});
     if (removed.candidate.root !== graph.root) throw new Error("Creation does not reproduce original graph");
   }
   if (record.entryTransfer && record.entryActions) throw new Error("Multiple entry intent representations");
@@ -452,8 +479,8 @@ export function validateLocalChanges(records: LocalChange[], tree: string): void
 /** The request that publishes `through`: its chain of records back to an
  * accepted basis, oldest first. A settled record repeats without objects or
  * deltas. The change log and a preview of an unretained change both use it. */
-export function localChangeRequest(records: readonly LocalChange[], through: string, settled: ReadonlySet<string> = new Set()): { base: { root: string; update: string }; request: { base: string; updates: CandidateUpdateJSON[] } } {
-  const byChange = new Map(records.map(record => [record.change, record])), updates: CandidateUpdateJSON[] = [];
+export function localChangeRequest(records: readonly LocalChange[], through: string, settled: ReadonlySet<string> = new Set()): { base: { root: string; update: string }; request: { base: string; updates: LocalUpdate[] } } {
+  const byChange = new Map(records.map(record => [record.change, record])), updates: LocalUpdate[] = [];
   let current = through;
   for (;;) {
     const record = byChange.get(current); if (!record) throw new Error("Missing authored dependency");

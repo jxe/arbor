@@ -18,7 +18,7 @@ test("a new pairing prunes expired unclaimed pairings and keeps claimed ones for
     const directory = new AccountDirectory(db);
     const offer = directory.createPairing(directory.account("ac_owner")!);
     const ids = (db.query("SELECT id FROM pairings ORDER BY id").all() as Array<{ id: string }>).map(({ id }) => id);
-    expect(ids).toEqual([offer.id, "pa_claimed"].sort());
+    expect(ids).toEqual([directory.pairingByCode(offer.code)!.id, "pa_claimed"].sort());
   } finally {
     db.close();
   }

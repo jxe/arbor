@@ -15,6 +15,7 @@ import { mergeProtocolTrees } from "@ovst/tree-merge";
 import { CollectionProjections } from "@ovst/story-sync/state";
 import { compileUsl, type LogicalTables } from "@ovst/usl";
 import { verifyStore } from "@ovst/usl/verify";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 const SCHEMA = `model Game {
   name  Text
@@ -121,7 +122,7 @@ describe("rows of several tables", () => {
     ];
     const load = async (hash: ObjectHash) => objects.get(hash)!;
     const objects = new Map(snapshot.objects);
-    const result = await executeRowOperations(snapshot.root, operations, load, replayCollectionRows);
+    const result = await executeRowOperations(snapshot.root, operations, load, TEST_AT, replayCollectionRows);
     for (const [hash, bytes] of result.generated) objects.set(hash, bytes);
     expect(names((await tables(objects, result.root))!)).toEqual({
       Game: [{ id: "g1", name: "Chess", tags: ["board"] }, { id: "g2", name: "Weiqi" }],
@@ -137,7 +138,7 @@ describe("rows of several tables", () => {
     // The same projections read the written folder back as the replayed tree.
     const reread = await resolveSnapshot(await snapshotDirectory(join(sandbox, "replay"), new Map(), [], (dir, list) => snapshot.projections.read(dir, list)));
     expect(reread.root).toBe(result.root);
-    const derived = await deriveRowOperations(snapshot.root, reread.root, async (hash) => objects.get(hash) ?? reread.objects.get(hash)!);
+    const derived = (await deriveRowOperations(snapshot.root, reread.root, async (hash) => objects.get(hash) ?? reread.objects.get(hash)!, TEST_AT))?.operations;
     expect(derived?.map((op) => ["model" in op ? op.model : null, op.kind])).toEqual([["Game", "set"], ["List", "disconnect"], ["List", "rowCreate"]]);
   });
 
@@ -145,7 +146,7 @@ describe("rows of several tables", () => {
     const snapshot = await folder("unknown-table", FILES);
     current = snapshot.objects;
     const op: RowOperation = { key: "a", kind: "rowDelete", collection: collection(snapshot.root), model: "Status", row: key("g1") };
-    await expect(executeRowOperations(snapshot.root, [op], async (hash) => snapshot.objects.get(hash)!, replayCollectionRows)).rejects.toThrow();
+    await expect(executeRowOperations(snapshot.root, [op], async (hash) => snapshot.objects.get(hash)!, TEST_AT, replayCollectionRows)).rejects.toThrow();
   });
 
   test("concurrent edits to different models, and to different fields of one row, merge", async () => {

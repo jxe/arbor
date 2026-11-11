@@ -84,7 +84,7 @@ public struct ProtocolDeviceSessionChallenge: Codable, Sendable, Equatable {
     public var expiresAt: Int
 
     public func validated() throws -> Self {
-        guard version == 1, purpose == "device-session",
+        guard version == 1, purpose == "session",
               id.range(of: #"^ax_[a-z2-7]{26}$"#, options: .regularExpression) != nil,
               isCanonicalOrigin(origin),
               profileTree.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil,

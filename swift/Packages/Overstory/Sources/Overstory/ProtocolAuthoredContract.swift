@@ -88,14 +88,15 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
         guard let again = try? encoder.encode(pairs) else { return false }
         return String(decoding: again, as: UTF8.self) == s
     }
+    /// A reference as it travels (tree operations §1.2.2), told apart by its
+    /// keys: `{ path, object }`, `{ change, operation }` or `{ update,
+    /// conflict, alternative }`, with `within` and `range` beside them.
     @discardableResult private static func reference(_ raw: ProtocolSemanticValue?, entry: Bool = false) throws -> Obj {
-        let v = try object(raw); try keys(v, ["material"], ["within", "range"]); let m = try object(v["material"])
-        switch m["kind"]?.text {
-        case "basis": try keys(m, ["kind", "path", "object"]); try path(m["path"]); try hash(m["object"])
-        case "operation": try keys(m, ["kind", "change", "operation"]); try id(m["change"]); try id(m["operation"])
-        case "alternative": try keys(m, ["kind", "state", "conflict", "alternative"]); try token(m["state"]); try id(m["conflict"]); try id(m["alternative"])
-        default: try check(false)
-        }
+        let v = try object(raw)
+        if v["path"] != nil { try keys(v, ["path", "object"], ["within", "range"]); try path(v["path"]); try hash(v["object"]) }
+        else if v["change"] != nil { try keys(v, ["change", "operation"], ["within", "range"]); try id(v["change"]); try id(v["operation"]) }
+        else if v["update"] != nil { try keys(v, ["update", "conflict", "alternative"], ["within", "range"]); try token(v["update"]); try id(v["conflict"]); try id(v["alternative"]) }
+        else { try check(false) }
         if let within = v["within"] {
             guard let a = within.items else { throw ProtocolValidationError.invalidValue("Expected descendant components") }
             try check(!a.isEmpty && a.count <= 256)
@@ -148,7 +149,9 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             // A page target (spec 10 §4.1): any property but `id`, values in the page JSON spelling.
             let fields: [String: [String]] = ["set": ["field", "before", "value"], "connect": ["field", "member"],
                 "disconnect": ["field", "member"], "move": ["field", "member", "after"]]
-            try keys(v, ["key", "kind", "page"] + fields[kind]!); try reference(v["page"], entry: true)
+            try keys(v, ["key", "kind", "page"] + fields[kind]!, ["at"]); try reference(v["page"], entry: true)
+            // Allowed as on any property operation, though a page keeps no time of its own (§4.1).
+            if let at = v["at"] { try check(at.text.map(ProtocolEntryTime.isValid) == true) }
             let field = try text(v["field"], 4096); try check(!field.isEmpty && field != "id" && !field.contains("\0"))
             for value in [v["before"], v["value"], v["member"], v["after"]] { if let value { try json(value) } }
             if kind == "move", v["after"] != .null { try check(v["after"] != v["member"]) }
@@ -177,17 +180,26 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
         if v["base"] != .null { try token(v["base"]) }
         guard let updates = v["updates"]?.items else { throw ProtocolValidationError.invalidValue("Expected updates") }
         try check(!updates.isEmpty); var changes = Set<String>()
+        var previousAt = Int.min
         for raw in updates {
             let u = try object(raw)
             try validateCandidate(u)
             try check(changes.insert(u["change"]!.text!).inserted)
+            // Within one request each `at` is no earlier than the one before it.
+            let at = ProtocolEntryTime.milliseconds(u["at"]!.text!)!
+            try check(at >= previousAt); previousAt = at
         }
-        if v["base"] == .null { let first = updates[0].fields!; try check(first["ifCurrent"] == nil && first["resolves"]!.items!.isEmpty) }
+        if v["base"] == .null { let first = updates[0].fields!; try check(first["ifCurrent"] == nil && (first["resolves"]?.items ?? []).isEmpty) }
     }
     /// Shared by semantic fixtures and complete transport candidates.
     static func validateCandidate(_ u: [String: ProtocolSemanticValue]) throws {
-        try keys(u, ["change", "candidate", "trace", "resolves"], ["ifCurrent"])
+        // An omitted trace is a snapshot and omitted resolves are none (tree operations §2.1).
+        try keys(u, ["change", "at", "candidate"], ["trace", "resolves", "ifCurrent"])
+        var u = u
+        if u["trace"] == nil { u["trace"] = .null }
+        if u["resolves"] == nil { u["resolves"] = .array([]) }
         try id(u["change"])
+        try check(u["at"]?.text.map(ProtocolEntryTime.isValid) == true)
         // A derived candidate is an operation trace whose last frame leaves
         // its `after` out (source intent §2.2).
         if u["candidate"] == .null { try check(u["trace"]?.items.map { !$0.isEmpty } == true) } else { try hash(u["candidate"]) }
@@ -195,7 +207,7 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
         guard let resolves = u["resolves"]?.items else { throw ProtocolValidationError.invalidValue("Expected resolves") }
         var decisions = Set<String>()
         for raw in resolves {
-            let r = try object(raw); try keys(r, ["state", "conflict", "alternatives"]); try token(r["state"]); try id(r["conflict"])
+            let r = try object(raw); try keys(r, ["update", "conflict", "alternatives"]); try token(r["update"]); try id(r["conflict"])
             try check(decisions.insert(r["conflict"]!.text!).inserted)
             guard let a = r["alternatives"]?.items else { throw ProtocolValidationError.invalidValue("Expected alternatives") }
             try check(!a.isEmpty); for v in a { try id(v) }
@@ -218,7 +230,13 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
                 try check(previous == nil || f["before"] == nil || previous == f["before"]!.text!); previous = f["after"]?.text
                 // One key names one authored contribution of this change, so it
                 // is unique across the whole trace, not merely within a frame.
-                for id in try ops.map(validateOperation) { try check(keyed.insert(id).inserted) }
+                for op in ops {
+                    try check(keyed.insert(try validateOperation(op)).inserted)
+                    // A property operation's own `at` is never later than its update's.
+                    if let at = op.fields?["at"]?.text, op.fields?["kind"]?.text.map(["rowCreate", "set", "connect", "disconnect", "move"].contains) == true {
+                        try check(ProtocolEntryTime.milliseconds(at)! <= ProtocolEntryTime.milliseconds(u["at"]!.text!)!)
+                    }
+                }
             }
             try check(frames.isEmpty || previous == u["candidate"]!.text)
         }

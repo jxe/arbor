@@ -92,7 +92,7 @@ function exactKeys(value: object, keys: string[]): boolean {
 /** What a key device signs to open a session at `origin` (accounts §5.1). */
 export interface DeviceSessionChallenge {
   version: 1;
-  purpose: "device-session";
+  purpose: "session";
   id: string;
   origin: string;
   profileTree: string;
@@ -117,7 +117,7 @@ export function validateDeviceSessionChallenge(value: unknown): DeviceSessionCha
   if (
     !exactKeys(challenge, challenge.homeHost === undefined ? CHALLENGE_KEYS : [...CHALLENGE_KEYS, "homeHost"])
     || (challenge.homeHost !== undefined && (!originIsCanonical(challenge.homeHost) || challenge.homeHost === challenge.origin))
-    || challenge.version !== 1 || challenge.purpose !== "device-session"
+    || challenge.version !== 1 || challenge.purpose !== "session"
     || typeof challenge.id !== "string" || !isGeneratedOverstoryID(challenge.id, "ax")
     || !originIsCanonical(challenge.origin)
     // Any person profile, including one whose TreeID predates self-certifying IDs.

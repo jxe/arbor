@@ -57,16 +57,20 @@ function setField(row: LogicalRow, field: LogicalField, value: JSONValue | undef
 }
 
 /** Apply one operation to a model's rows by stable key, stamping its time. */
-function applyRowOperation(model: LogicalModel, rows: Rows, operation: RowOperation) {
+function applyRowOperation(model: LogicalModel, rows: Rows, operation: RowOperation, updateAt: number) {
   const current = rows.get(operation.row);
   if (operation.kind === "rowDelete") {
     if (!current) invalid("row is absent");
     rows.set(operation.row, null);
     return;
   }
-  const at = operation.at;
-  if (at === undefined) invalid("an operation that changes a row carries its time");
-  if (!ROW_TIME.test(at) || !TIME.test(at)) invalid("at is an RFC 3339 UTC time with milliseconds");
+  // An operation's own `at`, or its update's (updates and merging §2.5).
+  let at = updateAt;
+  if (operation.at !== undefined) {
+    if (!ROW_TIME.test(operation.at) || !TIME.test(operation.at)) invalid("at is an RFC 3339 UTC time with milliseconds");
+    at = Date.parse(operation.at);
+    if (at > updateAt) invalid("an operation's at is later than its update's");
+  }
   if (operation.kind === "rowCreate") {
     if (current) invalid("row already exists");
     const key: LogicalRow["key"] = model.keyFields.map((f) => {
@@ -121,14 +125,14 @@ function applyRowOperation(model: LogicalModel, rows: Rows, operation: RowOperat
  * Exposed for merge, which applies one side's operations to another side's
  * rows. Throws for an operation its rows can't take.
  */
-export function applyRowOperations(schema: LogicalSchema, tables: LogicalTables, operations: readonly RowOperation[]): LogicalTables {
+export function applyRowOperations(schema: LogicalSchema, tables: LogicalTables, operations: readonly RowOperation[], at: number): LogicalTables {
   const byModel = new Map<string, Rows>();
   for (const operation of operations) {
     const model = schema.models.find((m) => m.name === operation.model);
     if (!model) invalid(`${operation.model} is not a model of this collection`);
     let rows = byModel.get(model.name);
     if (!rows) byModel.set(model.name, rows = new Map((tables[model.name] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow])));
-    applyRowOperation(model, rows, operation);
+    applyRowOperation(model, rows, operation, at);
   }
   const result: LogicalTables = { ...tables };
   for (const [model, rows] of byModel) {
@@ -140,7 +144,7 @@ export function applyRowOperations(schema: LogicalSchema, tables: LogicalTables,
 /** The collection schema package's row replay (spec 10 §4.1): apply the
  * operations to the directory's logical tables, validate the result and
  * encode its tables. */
-export const replayCollectionRows: CollectionRowReplay = async (directoryHash, operations, read) => {
+export const replayCollectionRows: CollectionRowReplay = async (directoryHash, operations, read, at) => {
   const directory = decodeProtocolDirectory(await read(directoryHash));
   let collection;
   try {
@@ -150,7 +154,7 @@ export const replayCollectionRows: CollectionRowReplay = async (directoryHash, o
     throw error;
   }
   if (!collection) invalid("the directory has no collection");
-  const tables = applyRowOperations(collection.schema, collection.tables, operations);
+  const tables = applyRowOperations(collection.schema, collection.tables, operations, at);
   let encoded;
   try {
     encoded = await encodeDirectoryCollection(directory, tables, read);

@@ -54,10 +54,10 @@ public struct ProtocolPage: Hashable, Sendable {
         properties.first { $0.name == name }?.value
     }
 
-    /// Whether an entry with this name is a page when its file reads as one.
+    /// Whether an entry with this name is a page when its file reads as one:
+    /// a `.md` file. An `.mdx` file is a plain file (Apps 011).
     public static func isPageName(_ name: String) -> Bool {
-        let lower = name.lowercased()
-        return lower.hasSuffix(".md") || lower.hasSuffix(".mdx")
+        name.lowercased().hasSuffix(".md")
     }
 }
 
@@ -386,7 +386,7 @@ extension ProtocolPage {
         return (id, properties)
     }
 
-    /// The page a `.md` or `.mdx` file holds, or nil when it is not one: its
+    /// The page a `.md` file holds, or nil when it is not one: its
     /// bytes are not UTF-8, or its frontmatter does not read as YAML 1.2. Such
     /// a file stays a file entry, with the `unparsed-front-matter` diagnostic.
     public static func parse(_ bytes: Data) -> ProtocolPage? {

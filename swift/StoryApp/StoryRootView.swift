@@ -2136,7 +2136,6 @@ struct StoryRootView: View {
         if path == "/_index.md" { return "/" }
         if path.hasSuffix("/_index.md") { return String(path.dropLast(10)) }
         if path.hasSuffix(".md") { return String(path.dropLast(3)) }
-        if path.hasSuffix(".mdx") { return String(path.dropLast(4)) }
         return path
     }
 
@@ -5413,7 +5412,7 @@ struct StoryIOSLaunchView: View {
               let account = accounts.first(where: { $0.configurationTree == selectedConfigurationTree }) else { return }
         treeError = nil
         do {
-            trees = try await workspace.accountService.client(for: account).trees().snapshot.sorted {
+            trees = try await workspace.accountService.client(for: account).trees().trees.sorted {
                 ($0.canonicalPath ?? $0.id) < ($1.canonicalPath ?? $1.id)
             }
         } catch {
@@ -5830,7 +5829,7 @@ private struct IOSPlaceTreePanel: View {
             } else {
                 try await workspace.accountService.client(for: account)
             }
-            trees = try await client.trees().snapshot.sorted {
+            trees = try await client.trees().trees.sorted {
                 ($0.canonicalPath ?? $0.id).localizedCaseInsensitiveCompare($1.canonicalPath ?? $1.id) == .orderedAscending
             }
             message = nil

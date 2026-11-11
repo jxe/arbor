@@ -16,10 +16,10 @@ test("an entry and the objects it names are published durably together", async (
   const objects = new ObjectStore(join(directory, "objects"));
   const history = new MergeHistory({} as AcceptedUpdateStore, objects);
   const leaf = new TextEncoder().encode("leaf");
-  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", file: hashObject(leaf) }] });
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", file: hashObject(leaf), created: 0, modified: 0 }] });
   const named = [{ hash: hashObject(leaf), bytes: leaf }, { hash: hashObject(rootBytes), bytes: rootBytes }];
   const { hash, conflicted } = await history.write({
-    format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null, root: named[1]!.hash, change: "first",
+    format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null, root: named[1]!.hash, at: 0, change: "first",
     trace: null, resolves: [], decisions: [],
   }, named);
   expect(conflicted).toBe(false);

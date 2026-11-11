@@ -34,7 +34,7 @@ async function edit(tree: string, files: Record<string, string | null>) {
     if (text === null) continue;
     const bytes = encoder.encode(text), hash = hashObject(bytes);
     objects.set(hash, bytes);
-    entries.push({ name, file: hash } as ProtocolDirectoryEntry);
+    entries.push({ name, file: hash, created: 0, modified: 0 } as ProtocolDirectoryEntry);
   }
   entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   const bytes = encodeProtocolDirectory({ type: "directory", entries }), next = hashObject(bytes);
@@ -77,7 +77,7 @@ beforeAll(async () => {
   const account = (await owner.account()).account;
   const snapshotOf = (text: string) => {
     const bytes = encoder.encode(text), file = hashObject(bytes);
-    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file }] }), root = hashObject(directory);
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file, created: 0, modified: 0 }] }), root = hashObject(directory);
     return { root, objects: new Map([[file, bytes], [root, directory]]) };
   };
   const parent = { tree: account.profileTree!, kind: "person" as const };
@@ -173,11 +173,11 @@ test("a tree that gains type: group is a group for authorization in the same acc
   // The directory finds the group through its stored row.
   const response = await fetch(`${running.url}/.overstory/account/directory`, { headers: { authorization: `Bearer ${await deviceSession(running.url, ownerToken)}` } });
   expect(response.status).toBe(200);
-  const directory = await response.json() as { snapshot: Array<{ profile: string; kind: string; sources: string[] }> };
-  const club = directory.snapshot.find((entry) => entry.profile === ids.club)!;
+  const directory = await response.json() as { people: Array<{ profile: string; kind: string; sources: string[] }> };
+  const club = directory.people.find((entry) => entry.profile === ids.club)!;
   expect(club.kind).toBe("group");
   expect(club.sources).toContain(`group:${ids.club}`);
-  expect(directory.snapshot.find((entry) => entry.profile === ids.bobProfile)?.sources).toContain(`group:${ids.club}`);
+  expect(directory.people.find((entry) => entry.profile === ids.bobProfile)?.sources).toContain(`group:${ids.club}`);
 
   await edit(ids.club, { "_index.md": "# Club\n" });
   expect(row(ids.club)).toBeNull();

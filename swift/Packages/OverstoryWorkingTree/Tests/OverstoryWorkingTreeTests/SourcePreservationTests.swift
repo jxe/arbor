@@ -16,7 +16,7 @@ func sourcePreservationFixtures() throws {
         if value.valid {
             #expect(try patch.applying(to:value.source) == value.replacement)
             let file = Data(value.source.utf8), hash = ProtocolObjectCodec.hash(file)
-            let directory = try ProtocolObjectCodec.encode(.directory([.init(name:"note.md",file:hash)]))
+            let directory = try ProtocolObjectCodec.encode(.directory([.init(name:"note.md",file:hash, created: 0, modified: 0)]))
             let graph = ProtocolSnapshot(root:ProtocolObjectCodec.hash(directory),objects:[.init(hash:hash,bytes:file),.init(hash:ProtocolObjectCodec.hash(directory),bytes:directory)])
             let reference = WorkspaceReference(tree:"tr_lineage",path:"/note")
             let intent = try WorkspaceDocumentIntent(basis:.init(reference:reference,source:value.source,contentRevision:"r"),patch:patch,source:value.replacement)
@@ -44,7 +44,7 @@ func sourceCopyFixtures() async throws {
         let patch = WorkspaceDocumentPatch(baseContentRevision:"r",edits:[.init(utf8Range:0..<value.source.utf8.count,replacement:value.replacement,lineage:value.lineage?.map(\.value),copies:value.copies.map(\.value))])
         if !value.valid { #expect(throws:(any Error).self) { try patch.applying(to:value.source) }; continue }
         let bytes = Data(value.source.utf8), file = ProtocolObjectCodec.hash(bytes)
-        let directory = try ProtocolObjectCodec.encode(.directory([.init(name:"note.md",file:file)])), hash = ProtocolObjectCodec.hash(directory)
+        let directory = try ProtocolObjectCodec.encode(.directory([.init(name:"note.md",file:file, created: 0, modified: 0)])), hash = ProtocolObjectCodec.hash(directory)
         let graph = ProtocolSnapshot(root:hash,objects:[.init(hash:file,bytes:bytes),.init(hash:hash,bytes:directory)])
         let reference = WorkspaceReference(tree:"tr_copy",path:"/note")
         let intent = try WorkspaceDocumentIntent(basis:.init(reference:reference,source:value.source,contentRevision:"r"),patch:patch,source:value.replacement)

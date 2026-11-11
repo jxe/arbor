@@ -39,7 +39,7 @@ const listeningList = "10000000-0000-4000-8000-000000000003";
 const mutualAid = "00000000-0000-4000-8000-000000000001";
 const listening = "00000000-0000-4000-8000-000000000002";
 const walking = "00000000-0000-4000-8000-000000000003";
-const document = { tree: "tr_supplies_source", path: "/List", version: "doc-v1" };
+const SOURCE_TREE = "tr_supplies_source";
 
 let directory: string;
 let databasePath: string;
@@ -125,7 +125,7 @@ beforeAll(async () => {
     name,
     version: `sha256:${name}`,
   }]));
-  runtime = new RegisteredMutationRuntime(document, broker, Object.entries(handles).map(([name, handle]) => ({
+  runtime = new RegisteredMutationRuntime(SOURCE_TREE, broker, Object.entries(handles).map(([name, handle]) => ({
     ref: refs[name]!,
     handle,
     sources: sourceBindings(),
@@ -143,7 +143,7 @@ afterAll(async () => {
 function user(profile: string) { return { user: { profile } }; }
 
 function call<Result = unknown>(name: string, input: unknown, mutationID = `mutation-${name}`, profile = ada): Promise<MutationResultReceipt<Result>> {
-  return runtime.call({ document, handle: refs[name]!, mutationID, input }, user(profile)) as Promise<MutationResultReceipt<Result>>;
+  return runtime.call({ handle: refs[name]!, mutationID, input }, user(profile)) as Promise<MutationResultReceipt<Result>>;
 }
 
 function all(sql: string, ...parameters: unknown[]): Record<string, unknown>[] {
@@ -191,8 +191,8 @@ describe.serial("Supplies mutation runner", () => {
       throw new Error("private SQL and /tmp/store details");
     });
     await expect(diagnosticBroker.execute(failing, {
-      scope: document.tree,
-      handle: { tree: document.tree, path: "/failure.ts", name: "failing", version: "sha256:failure" },
+      scope: SOURCE_TREE,
+      handle: { tree: SOURCE_TREE, path: "/failure.ts", name: "failing", version: "sha256:failure" },
       mutationID: "wrong-source",
       input: {},
       user: { profile: ada },
@@ -201,8 +201,8 @@ describe.serial("Supplies mutation runner", () => {
         : source),
     })).rejects.toMatchObject({ value: { code: "conflict", message: expect.stringContaining("does not resolve") } });
     await expect(diagnosticBroker.execute(failing, {
-      scope: document.tree,
-      handle: { tree: document.tree, path: "/failure.ts", name: "failing", version: "sha256:failure" },
+      scope: SOURCE_TREE,
+      handle: { tree: SOURCE_TREE, path: "/failure.ts", name: "failing", version: "sha256:failure" },
       mutationID: "unexpected-failure",
       input: {},
       user: { profile: ada },
@@ -231,10 +231,11 @@ describe.serial("Supplies mutation runner", () => {
     }));
     expect(first.result.id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-5[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
     expect(all("select id, created from List where name = 'Retry stable'")).toEqual([{ id: first.result.id, created: "2026-08-27T12:00:01.000Z" }]);
-    expect(all("select observed_through, result_json from __arbor_mutation_receipts where mutation_id = 'stable-create'")).toEqual([{
-      observed_through: first.observedThrough,
+    expect(all("select result_json from __arbor_mutation_receipts where mutation_id = 'stable-create'")).toEqual([{
       result_json: JSON.stringify(first.result),
     }]);
+    // The local runtime accepts no tree update, so its receipt names none.
+    expect(first).not.toHaveProperty("affected");
     expect(changes).toHaveLength(1);
     expect(receiptVisibleAtPublication).toBe(true);
     await expect(call("createList", { name: "Different", visibility: "Private" }, "stable-create"))
@@ -332,8 +333,7 @@ describe.serial("Supplies mutation runner", () => {
     const receipt = await call("renameList", { listId: listeningList, name: "Live committed name" }, "live-rename", bo);
     const result = await next(reader, "result") as Extract<ViewEvent, { value: unknown }>;
     expect(result.value).toEqual({ id: listeningList, name: "Live committed name" });
-    expect(Number(result.observedThrough.slice("view:".length))).toBeGreaterThan(0);
-    expect(receipt.observedThrough).toMatch(/^sqlite:\d+$/);
+    expect(receipt).not.toHaveProperty("observedThrough");
     await reader.cancel();
   });
 

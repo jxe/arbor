@@ -39,11 +39,13 @@ public struct TreeConfigurationClient: Sendable {
     }
 
     func submitConfiguration(_ configuration: ProtocolTreeDescriptor, snapshot: ProtocolSnapshot, file: String, source: String) async throws {
-        let candidate = try snapshot.settingRootFile(named: file, to: Data(source.utf8))
+        let at = ProtocolEntryTime.now()
+        let candidate = try snapshot.settingRootFile(named: file, to: Data(source.utf8), at: ProtocolEntryTime.milliseconds(at)!)
         let prepared = try await wire.prepareUpdate(
             tree: configuration.id,
             base: ProtocolUpdateBase(root: configuration.root, update: configuration.update),
             snapshot: candidate,
+            at: at,
             ifCurrent: configuration.update
         )
         _ = try await wire.submitUpdate(prepared)
@@ -55,7 +57,13 @@ public struct TreeConfigurationClient: Sendable {
         let described = try? await wire.descriptor(tree: tree).tree.canonical
         let canonical = described?.httpURL
         let declaration = try TreeConfigurationYAML.declaration(canonical: canonical ?? "", source: accessSource)
-        var profileLocators = (try? await wire.access(tree: tree).locators) ?? [:]
+        // Administrators read the rules from access.yaml; the people a rule
+        // names by TreeID are named from the account's directory, and this
+        // person from their own profile.
+        var profileLocators: [String: String] = [:]
+        for person in (try? await wire.directory().people) ?? [] {
+            if let locator = person.locator { profileLocators[person.profile] = locator }
+        }
         if let profileTree = account.profileTree, let profileURL = account.profileURL {
             profileLocators[profileTree] = profileURL
         }
@@ -159,8 +167,9 @@ public struct TreeConfigurationClient: Sendable {
         let account = try await homeWire.account().account
         guard let profile = account.profileTree else { throw ProtocolValidationError.invalidValue("This account has no profile") }
         let access = try TreeConfigurationYAML.encodeAccess([ProtocolResourceAccessRule(who: .profile(profile), allow: [.admin])] + rules)
-        let configuration = try Self.snapshot(files: ["access.yaml": access, "mounts.yaml": "{}\n"])
-        _ = try await wire.declareTree(tree, configuration: configuration)
+        let at = ProtocolEntryTime.now()
+        let configuration = try Self.snapshot(files: ["access.yaml": access, "mounts.yaml": "{}\n"], at: ProtocolEntryTime.milliseconds(at)!)
+        _ = try await wire.declareTree(tree, configuration: configuration, at: at)
         try await mount(tree: tree, in: parent, at: name)
     }
 
@@ -175,9 +184,12 @@ public struct TreeConfigurationClient: Sendable {
         try await submitConfiguration(configuration, snapshot: snapshot, file: "mounts.yaml", source: next)
     }
 
-    static func snapshot(files: [String: String]) throws -> ProtocolSnapshot {
+    /// A new configuration of `files`, each created `at` (Unix ms).
+    static func snapshot(files: [String: String], at: Int) throws -> ProtocolSnapshot {
         let objects = try files.mapValues { try ProtocolObjectCodec.object(.file(Data($0.utf8))) }
-        let entries = objects.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map { ProtocolDirectoryEntry(name: $0, file: objects[$0]!.hash) }
+        let entries = objects.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }.map {
+            ProtocolDirectoryEntry.stamped(.file, name: $0, object: objects[$0]!.hash, previous: nil, at: at)
+        }
         let root = try ProtocolObjectCodec.object(.directory(entries))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: (Array(objects.values) + [root]).sorted { $0.hash < $1.hash })
         _ = try ProtocolObjectGraph.validate(snapshot)

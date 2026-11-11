@@ -25,6 +25,7 @@ import {
 import { encodeLogEntry, LOG_ENTRY_FORMAT, type Candidate, type LogEntry, type MergeQuestion } from "@ovst/merge-protocol";
 import { Sidecar } from "../../packages/overstoryd-merge/src/sidecar.ts";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 const list = (name: string, fallback: number[]) => process.env[name]?.split(",").map(Number) ?? fallback;
 const KS = list("KS", [1, 16, 64]), LS = list("LS", [16, 64, 128]);
@@ -46,7 +47,7 @@ function tree(files: Record<string, string>): string {
       if (!path.startsWith(prefix)) continue;
       const [name, ...rest] = path.slice(prefix.length).split("/");
       if (entries.has(name!)) continue;
-      entries.set(name!, rest.length ? { name: name!, directory: build(`${prefix}${name}/`) } : { name: name!, file: text(content) });
+      entries.set(name!, rest.length ? { name: name!, directory: build(`${prefix}${name}/`) } : { name: name!, file: text(content), created: 0, modified: 0 });
     }
     return put(encodeProtocolDirectory({ type: "directory", entries: [...entries.values()].sort((a, b) => compareProtocolNames(a.name, b.name)) }));
   };
@@ -81,7 +82,7 @@ async function accept(answering: Sidecar, question: MergeQuestion): Promise<{ en
   remember(answer);
   const head = JSON.parse(new TextDecoder().decode(objects.get(question.head)!)) as LogEntry;
   const entry = writeEntry({
-    tree: head.tree, previous: question.head, root: answer.root, change: question.candidate.change,
+    tree: head.tree, previous: question.head, root: answer.root, at: 0, change: question.candidate.change,
     trace: question.candidate.trace, resolves: question.candidate.resolves, decisions: answer.decisions,
     asked: asked(question, answer.root), ...(answer.evidence != null ? { evidence: answer.evidence } : {}),
   });
@@ -103,9 +104,9 @@ async function fileAt(root: string, path: string): Promise<string> {
 async function traced(root: string, path: string, insert: string, change: string): Promise<Candidate> {
   const operations: SourceOperation[] = [{ key: "edit", kind: "editSource",
     source: { material: { kind: "basis", path, object: await fileAt(root, path) }, range: [0, 0] }, text: insert }];
-  const executed = await executeExactSourceEdits(root, operations, read);
+  const executed = await executeExactSourceEdits(root, operations, read, TEST_AT);
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
-  return { root: executed.root, change, trace: [{ before: root, after: executed.root, operations }], resolves: [] };
+  return { root: executed.root, change, at: TEST_AT, trace: [{ before: root, after: executed.root, operations }], resolves: [] };
 }
 
 const files: Record<string, string> = {};
@@ -124,14 +125,14 @@ const round = (value: number) => Math.round(value * 100) / 100;
 // ---- (a) One checkpoint with K conflicting files ---------------------------
 
 for (const k of KS) {
-  const genesis = writeEntry({ tree: "tree", previous: null, root: start, change: "genesis", trace: null, resolves: [], decisions: [] });
+  const genesis = writeEntry({ tree: "tree", previous: null, root: start, at: 0, change: "genesis", trace: null, resolves: [], decisions: [] });
   const binary = (index: number, side: string) => ({ [`part-${index % 6}/blob-${index}.bin`]: `${side} ${index}\0` });
   const changed = (side: string) => Object.assign({}, files, ...Array.from({ length: k }, (_, index) => binary(index, side)));
   // A concurrent snapshot already accepted as the head.
   const headRoot = tree({ ...changed("head"), "choice.bin": "base\0" });
-  const head = writeEntry({ tree: "tree", previous: genesis, root: headRoot, change: "head", trace: null, resolves: [], decisions: [] });
+  const head = writeEntry({ tree: "tree", previous: genesis, root: headRoot, at: 0, change: "head", trace: null, resolves: [], decisions: [] });
   const question: MergeQuestion = { base: genesis, head, rules: RULES,
-    candidate: { root: tree({ ...changed("mine"), "choice.bin": "base\0" }), change: "mine", trace: null, resolves: [] } };
+    candidate: { root: tree({ ...changed("mine"), "choice.bin": "base\0" }), at: TEST_AT, change: "mine", trace: null, resolves: [] } };
   const answering = sidecar();
   const first = await answering.answer(question);
   remember(first);
@@ -153,12 +154,12 @@ for (const k of KS) {
  * choice open, so every later entry carries it. */
 async function chain(length: number, open: boolean): Promise<string> {
   const author = sidecar();
-  let at = writeEntry({ tree: "tree", previous: null, root: start, change: `genesis-${open}`, trace: null, resolves: [], decisions: [] });
+  let at = writeEntry({ tree: "tree", previous: null, root: start, at: 0, change: `genesis-${open}`, trace: null, resolves: [], decisions: [] });
   let root = start, made = 0;
   if (open) {
-    const theirs = writeEntry({ tree: "tree", previous: at, root: tree({ ...files, "choice.bin": "theirs\0" }), change: "theirs", trace: null, resolves: [], decisions: [] });
+    const theirs = writeEntry({ tree: "tree", previous: at, root: tree({ ...files, "choice.bin": "theirs\0" }), at: 0, change: "theirs", trace: null, resolves: [], decisions: [] });
     ({ entry: at, root } = await accept(author, { base: at, head: theirs, rules: RULES,
-      candidate: { root: tree({ ...files, "choice.bin": "mine\0" }), change: "mine", trace: null, resolves: [] } }));
+      candidate: { root: tree({ ...files, "choice.bin": "mine\0" }), at: TEST_AT, change: "mine", trace: null, resolves: [] } }));
     made += 2;
   }
   for (let index = 0; made < length; index++) {

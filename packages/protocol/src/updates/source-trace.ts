@@ -1,4 +1,4 @@
-import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectoryEntry } from "../objects.ts";
+import { compareProtocolNames, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, stampedEntry, type ObjectHash, type ProtocolDirectoryEntry } from "../objects.ts";
 import { applyPageOperations, decodeProtocolPage, encodeProtocolPage, type ProtocolPage } from "../pages.ts";
 import { isPageOperation, isPropertyOperation, type AuthoredOperation, type MaterialRef, type PageOperation, type RowOperation } from "./authored-contract.ts";
 import { arrangeSources, UnsupportedSourceMove, type SourceReplacement } from "./source-moves.ts";
@@ -38,6 +38,8 @@ export async function executeExactSourceEdits(
   baseRoot: ObjectHash,
   operations: readonly AuthoredOperation[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  /** The update's `at` in Unix ms: an edited file or page entry's `modified`. */
+  at: number,
 ): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; evidence: SourceEditEvidence[] }> {
   const cache = new Map<ObjectHash, Uint8Array>();
   async function read(hash: ObjectHash) {
@@ -153,7 +155,8 @@ export async function executeExactSourceEdits(
       if (![...replacementObjects.keys()].some(p => p === child || p.startsWith(child + "/"))) continue;
       const next = entry.file || entry.page ? replacementObjects.get(child)! : entry.directory ? await rebuild(entry.directory, child) : undefined;
       if (next && next !== (entry.file ?? entry.page ?? entry.directory)) {
-        if (entry.file) entry.file = next; else if (entry.page) entry.page = next; else entry.directory = next;
+        const index = directory.entries.indexOf(entry);
+        directory.entries[index] = entry.directory ? { name: entry.name, directory: next } : stampedEntry(entry.page ? "page" : "file", entry.name, next, entry, at);
         changed = true;
       }
     }
@@ -170,11 +173,12 @@ export async function validateSourceEditCandidate(
   candidate: ObjectHash,
   operations: readonly AuthoredOperation[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  at: number,
   rows?: CollectionRowReplay,
 ): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; evidence: SourceEditEvidence[] }> {
   const result = operations.some(isPropertyOperation)
-    ? { ...await executeRowOperations(baseRoot, operations, load, rows), evidence: [] }
-    : await executeExactSourceEdits(baseRoot, operations, load);
+    ? { ...await executeRowOperations(baseRoot, operations, load, at, rows), evidence: [] }
+    : await executeExactSourceEdits(baseRoot, operations, load, at);
   if (result.root !== candidate) invalid("operations do not explain candidate");
   return result;
 }
@@ -194,6 +198,7 @@ export interface SourceFrame {
 export async function validateSourceTrace(
   frames: readonly SourceFrame[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  at: number,
   rows?: CollectionRowReplay,
 ): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; evidence: SourceEditEvidence[] }> {
   if (!frames.length) invalid("trace has no frames");
@@ -209,7 +214,7 @@ export async function validateSourceTrace(
       if (keys.has(operation.key)) invalid("duplicate operation key");
       keys.add(operation.key);
     }
-    const result = await validateSourceEditCandidate(frame.before, frame.after, frame.operations, read, rows);
+    const result = await validateSourceEditCandidate(frame.before, frame.after, frame.operations, read, at, rows);
     for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
     evidence.push(...result.evidence);
   }
@@ -228,6 +233,7 @@ export async function validateSourceTrace(
 export async function checkPlainTrace(
   frames: readonly SourceFrame[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  at: number,
   rows?: CollectionRowReplay,
 ): Promise<{ plain: true; touched: string[]; generated: Map<ObjectHash, Uint8Array> } | { plain: false; reason: string }> {
   if (!frames.length) return { plain: false, reason: "empty trace" };
@@ -238,7 +244,7 @@ export async function checkPlainTrace(
   try {
     for (const [index, frame] of frames.entries()) {
       if (index && frames[index - 1]!.after !== frame.before) return { plain: false, reason: "frame does not follow its basis" };
-      const root = await executePlainFrame(frame.before, frame.operations, read, rows, { keys, touched, generated });
+      const root = await executePlainFrame(frame.before, frame.operations, read, at, rows, { keys, touched, generated });
       if (typeof root !== "string") return { plain: false, reason: root.reason };
       if (root !== frame.after) return { plain: false, reason: "operations do not reproduce the frame" };
     }
@@ -268,6 +274,7 @@ export async function deriveTrace(
   basis: ObjectHash,
   frames: readonly DerivableSourceFrame[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  at: number,
   rows?: CollectionRowReplay,
 ): Promise<{ frames: SourceFrame[]; root: ObjectHash; generated: Map<ObjectHash, Uint8Array> }> {
   if (!frames.length) invalid("trace has no frames");
@@ -280,7 +287,7 @@ export async function deriveTrace(
     if (frame.before !== undefined && frame.before !== root) invalid("frame does not follow its basis");
     let after: Awaited<ReturnType<typeof executePlainFrame>>;
     try {
-      after = await executePlainFrame(root, frame.operations, read, rows, { keys, touched, generated });
+      after = await executePlainFrame(root, frame.operations, read, at, rows, { keys, touched, generated });
     } catch (error) {
       if (error instanceof UnsupportedSourceEdit) throw new UnsupportedDerivation(error.message);
       throw error;
@@ -301,6 +308,7 @@ async function executePlainFrame(
   before: ObjectHash,
   operations: readonly AuthoredOperation[],
   read: (hash: ObjectHash) => Promise<Uint8Array>,
+  at: number,
   rows: CollectionRowReplay | undefined,
   into: { keys: Set<string>; touched: Set<string>; generated: Map<ObjectHash, Uint8Array> },
 ): Promise<ObjectHash | { reason: string }> {
@@ -313,7 +321,7 @@ async function executePlainFrame(
     }
     if (!rows && operations.some((operation) => isPropertyOperation(operation) && !isPageOperation(operation)))
       return { reason: "row operations need a collection replay" };
-    const result = await executeRowOperations(before, operations, read, rows);
+    const result = await executeRowOperations(before, operations, read, at, rows);
     for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
     for (const path of result.touched) touched.add(path);
     return result.root;
@@ -333,7 +341,7 @@ async function executePlainFrame(
   }
   let root = before;
   if (edits.length) {
-    const result = await executeExactSourceEdits(before, edits, read);
+    const result = await executeExactSourceEdits(before, edits, read, at);
     for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
     for (const evidence of result.evidence) touched.add(evidence.path);
     root = result.root;
@@ -359,7 +367,11 @@ async function executePlainFrame(
     const key = path.join("/");
     if (names.has(key)) return { reason: "addEntry names one entry twice" };
     names.add(key);
-    const entry = { name: addition.destination.name, ...addition.value } as ProtocolDirectoryEntry;
+    // An added file or page is created at the update's time; an added
+    // directory's entries carry the times its author stamped.
+    const value = addition.value;
+    const entry: ProtocolDirectoryEntry = "directory" in value && value.directory !== undefined ? { name: addition.destination.name, directory: value.directory }
+      : stampedEntry("page" in value && value.page !== undefined ? "page" : "file", addition.destination.name, ("page" in value && value.page) || (value as { file: ObjectHash }).file, undefined, at);
     const next = await addEntryAt(root, path, entry, read, generated);
     if (!next) return { reason: "addEntry names an existing entry" };
     root = next;
@@ -377,6 +389,8 @@ export type CollectionRowReplay = (
   directory: ObjectHash,
   operations: readonly RowOperation[],
   read: (hash: ObjectHash) => Promise<Uint8Array>,
+  /** The update's `at` in Unix ms, for operations that state none. */
+  at: number,
 ) => Promise<{ directory: ObjectHash; generated: Map<ObjectHash, Uint8Array> }>;
 
 /** Execute a frame of property operations against `baseRoot`. Each operation
@@ -388,6 +402,7 @@ export async function executeRowOperations(
   baseRoot: ObjectHash,
   operations: readonly AuthoredOperation[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  at: number,
   replay?: CollectionRowReplay,
 ): Promise<{ root: ObjectHash; generated: Map<ObjectHash, Uint8Array>; touched: string[] }> {
   const generated = new Map<ObjectHash, Uint8Array>();
@@ -435,10 +450,10 @@ export async function executeRowOperations(
       const page = applyPageOperations(decodeProtocolPage(await read(group.object)), group.operations);
       const bytes = encodeProtocolPage(page), hash = hashObject(bytes);
       generated.set(hash, bytes);
-      root = await setPageAt(root, group.parts, hash, read, generated);
+      root = await setPageAt(root, group.parts, hash, read, generated, at);
       continue;
     }
-    const result = await replay!(group.object, group.operations, read);
+    const result = await replay!(group.object, group.operations, read, at);
     for (const [hash, bytes] of result.generated) generated.set(hash, bytes);
     root = await setDirectoryAt(root, group.parts, result.directory, read, generated);
   }
@@ -452,6 +467,7 @@ async function setPageAt(
   page: ObjectHash,
   read: (hash: ObjectHash) => Promise<Uint8Array>,
   generated: Map<ObjectHash, Uint8Array>,
+  at: number,
 ): Promise<ObjectHash> {
   const parent = decodeProtocolDirectory(await read(root));
   const [name, ...rest] = path as [string, ...string[]];
@@ -460,10 +476,10 @@ async function setPageAt(
   if (!rest.length) {
     if (!prior?.page) invalid("page target is not a page");
     if (prior.page === page) return root;
-    next = { name, page };
+    next = stampedEntry("page", name, page, prior, at);
   } else {
     if (!prior?.directory) invalid("page target crosses a file or tree boundary");
-    const directory = await setPageAt(prior.directory, rest, page, read, generated);
+    const directory = await setPageAt(prior.directory, rest, page, read, generated, at);
     if (directory === prior.directory) return root;
     next = { name, directory };
   }

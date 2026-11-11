@@ -12,7 +12,7 @@ afterEach(async () => { store.packs.close(); await rm(dir, { recursive: true, fo
 const put = (objects: Map<ObjectHash, Uint8Array>, bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
 function tree(files: Record<string, string>) {
   const objects = new Map<ObjectHash, Uint8Array>();
-  const entries = Object.keys(files).sort().map((name) => ({ name, file: put(objects, new TextEncoder().encode(files[name]!)) }));
+  const entries = Object.keys(files).sort().map((name) => ({ name, file: put(objects, new TextEncoder().encode(files[name]!)), created: 0, modified: 0 }));
   const sub = put(objects, encodeProtocolDirectory({ type: "directory", entries }));
   const root = put(objects, encodeProtocolDirectory({ type: "directory", entries: [{ name: "notes", directory: sub }] }));
   return { root, objects };

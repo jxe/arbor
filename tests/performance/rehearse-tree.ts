@@ -4,6 +4,8 @@
  * phase: traced | pairs | all */
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 const ARBOR = process.env.ARBOR!;
 const { serveHost } = await import(`${ARBOR}/packages/overstoryd/src/index.ts`);
 const P = await import(`${ARBOR}/packages/protocol/src/index.ts`);
@@ -21,7 +23,7 @@ async function build(dir: string, at: string): Promise<string> {
     if (d.name.startsWith(".")) continue;
     const name = d.name.normalize("NFC");
     if (d.isDirectory()) entries.push({ name, directory: await build(join(dir, d.name), `${at}/${name}`) });
-    else { entries.push({ name, file: put(new Uint8Array(await readFile(join(dir, d.name)))) }); if (name.endsWith(".md")) pages.push(`${at}/${name}`); }
+    else { entries.push({ name, file: put(new Uint8Array(await readFile(join(dir, d.name)))), created: 0, modified: 0 }); if (name.endsWith(".md")) pages.push(`${at}/${name}`); }
   }
   entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   return put(P.encodeProtocolDirectory({ type: "directory", entries }));
@@ -37,7 +39,7 @@ const merged = [...existing.entries, ...todosRoot.entries.filter((t: any) => !ex
   .sort((a: any, b: any) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 let root = put(P.encodeProtocolDirectory({ type: "directory", entries: merged })), update = head.tree.update;
 const fresh = () => { const out = [...objects].filter(([h]) => !sent.has(h)); for (const [h] of out) sent.add(h); return out.map(([hash, bytes]) => ({ hash, bytes })); };
-const snapshotUpdate = (candidate: string) => ({ change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: fresh() });
+const snapshotUpdate = (candidate: string) => ({ at: TEST_TIME, change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: fresh() });
 async function submit(u: any, basis = update) {
   const accepted = (await client.submitUpdates(tree, { base: basis, updates: [u] })).results[0]!.update;
   if (!objects.has(accepted.root)) for (const [h, b] of (await client.snapshot(tree, accepted.root)).objects) { objects.set(h, b); sent.add(h); }
@@ -51,11 +53,11 @@ async function traced(i: number) {
   const operations = [{ key: "e", kind: "editSource" as const, source: { material: { kind: "basis" as const, path, object: await lookup(root, path) }, range: [0, 0] as [number, number] }, text: `r${i} ` }];
   const ex = await executeExactSourceEdits(root, operations, async (h: string) => objects.get(h)!);
   for (const [h, b] of ex.generated) { objects.set(h, b); sent.add(h); }
-  ({ id: update, root } = await submit({ change: crypto.randomUUID(), candidate: ex.root, trace: [{ before: root, after: ex.root, operations }], resolves: [], deltas: [], objects: [...ex.generated].map(([hash, bytes]) => ({ hash, bytes })) }));
+  ({ id: update, root } = await submit({ at: TEST_TIME, change: crypto.randomUUID(), candidate: ex.root, trace: [{ before: root, after: ex.root, operations }], resolves: [], deltas: [], objects: [...ex.generated].map(([hash, bytes]) => ({ hash, bytes })) }));
 }
 function withFile(r: string, name: string, text: string) {
   const d = P.decodeProtocolDirectory(objects.get(r)!);
-  d.entries = d.entries.filter((e: any) => e.name !== name); d.entries.push({ name, file: put(new TextEncoder().encode(text)) });
+  d.entries = d.entries.filter((e: any) => e.name !== name); d.entries.push({ name, file: put(new TextEncoder().encode(text)), created: 0, modified: 0 });
   d.entries.sort((a: any, b: any) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   return put(P.encodeProtocolDirectory(d));
 }

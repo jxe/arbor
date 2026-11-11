@@ -7,15 +7,16 @@ import Testing
 struct ConflictReviewTests {
     private func inspection(state: String = "accepted-1", dependencies: [String] = []) throws -> ConflictReviewSnapshot {
         let root = "sha256:" + String(repeating: "a", count: 64)
-        let parent: [String: Any] = ["material": ["kind": "basis", "path": "/", "object": root], "within": ["nested"]]
+        // A decision page's reference is told apart by its keys.
+        let parent: [String: Any] = ["path": "/", "object": root, "within": ["nested"]]
         let alternatives: [[String: Any]] = (0..<3).map { index in
             ["id": "alternative-\(index)", "revision": "revision-\(index)",
              "value": ["file": "sha256:" + String(repeating: String(index), count: 64)],
              "placement": ["parent": parent, "name": "page.md"], "contributions": []]
         }
-        let data = try JSONSerialization.data(withJSONObject: ["tree": "tr_review", "state": state, "root": root, "conflicted": true,
+        let data = try JSONSerialization.data(withJSONObject: ["tree": "tr_review", "update": state, "root": root, "conflicted": true,
             "decisions": [["id": "decision", "kind": "entry", "affected": [parent], "selected": "alternative-0",
-                           "alternatives": alternatives, "dependencies": dependencies, "actions": ["resolveConflict"]]], "next": NSNull()])
+                           "alternatives": alternatives, "dependencies": dependencies]], "next": NSNull()])
         // Apply the protocol validator before consuming its extensible read contract.
         let page = try JSONDecoder().decode(ProtocolDecisionPageContract.self, from: data)
         guard case let .array(decisions) = page.fields["decisions"] else { throw ConflictReviewError.unavailable }

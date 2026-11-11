@@ -135,7 +135,7 @@ const answer = z.union([
   z.object({ id, stale: z.literal(true) }).strict(),
   z.object({ id, refusal: publicError }).strict(),
   z.object({ id, error: z.object({ message: z.string(), code: z.enum(["limit", "unavailable"]).optional() }).strict() }).strict(),
-  z.object({ id, receipt: z.object({ mutationID: z.string(), requestDigest: hash, observedThrough: z.string(), result: z.unknown() }).strict() }).strict(),
+  z.object({ id, receipt: z.object({ mutationID: z.string(), requestDigest: hash, affected: z.object({ tree: z.string(), update: z.string() }).strict().optional(), result: z.unknown() }).strict() }).strict(),
 ]);
 
 /** The handshake line, or null when the line is not one. */

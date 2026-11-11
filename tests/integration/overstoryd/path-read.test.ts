@@ -47,23 +47,23 @@ beforeAll(async () => {
   const romeIndex = add("romeIndex", text("# Rome\n"));
   const photo = add("photo", new Uint8Array([1, 2, 3]));
   const notes = add("notes", text("Notes\n"));
-  const rome = add("rome", encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file: romeIndex }] }));
+  const rome = add("rome", encodeProtocolDirectory({ type: "directory", entries: [{ name: "_index.md", file: romeIndex, created: 0, modified: 0 }] }));
   const trips = add("trips", encodeProtocolDirectory({ type: "directory", entries: sorted([
-    { name: "Paris.md", file: paris },
+    { name: "Paris.md", file: paris, created: 0, modified: 0 },
     { name: "Rome", directory: rome },
-    { name: "_index.md", file: tripsIndex },
-    { name: "photo.bin", file: photo },
+    { name: "_index.md", file: tripsIndex, created: 0, modified: 0 },
+    { name: "photo.bin", file: photo, created: 0, modified: 0 },
   ]) }));
   const directory = encodeProtocolDirectory({
     ...top,
-    entries: sorted([...top.entries, { name: "Trips", directory: trips }, { name: "Notes.md", file: notes }]),
+    entries: sorted([...top.entries, { name: "Trips", directory: trips }, { name: "Notes.md", file: notes, created: 0, modified: 0 }]),
   });
   root = add("root", directory);
   await client.submitUpdate(community, head.tree.update, { root, objects });
   const current = await client.descriptor(community);
   expect(current.tree.root as string).toBe(root);
   update = current.tree.update;
-  observedThrough = current.observedThrough;
+  observedThrough = current.tree.update;
 });
 
 afterAll(async () => {
@@ -121,22 +121,6 @@ describe("path reads", () => {
     expect(escape.status).toBe(400);
   });
 
-  test("entry times come for just the directories a path read walks", async () => {
-    const all = await client.entryMetadata(community);
-    const paris = await client.entryMetadata(community, { path: "/Trips/Paris" });
-    expect(paris.update).toBe(all.update);
-    expect(Object.keys(paris.entries)).toContain("/Trips/Paris.md");
-    expect(Object.keys(paris.entries)).toContain("/Notes.md");
-    expect(Object.keys(paris.entries)).not.toContain("/Trips/Rome/_index.md");
-    for (const [path, value] of Object.entries(paris.entries)) expect(all.entries[path]).toEqual(value);
-    // Any spelling of the node walks the same directories; a folder's own entries come too.
-    expect(await client.entryMetadata(community, { path: "/Trips/Rome/_index.md" }))
-      .toEqual(await client.entryMetadata(community, { path: "/Trips/Rome" }));
-    expect(Object.keys((await client.entryMetadata(community, { path: "/Trips/Rome" })).entries)).toContain("/Trips/Rome/_index.md");
-    const escape = await fetch(`${running.url}/.overstory/trees/${community}/entry-metadata?path=${encodeURIComponent("/Trips/../..")}`);
-    expect(escape.status).toBe(400);
-  });
-
   test("the bundle is exactly the walk: a producer cannot add or leave out objects", async () => {
     const { decodePathReadBundle, encodePathReadBundle } = await import("@ovst/protocol");
     const objects = await pathReadObjects(root, "/Trips/Paris", (hash) => client.object(community, hash));
@@ -160,7 +144,7 @@ describe("a Browse session", () => {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-    const session = await TreeSession.open(community, counting, browseSettings(), { tree: { ...(await client.descriptor(community)).tree, root: root as never }, observedThrough });
+    const session = await TreeSession.open(community, counting, browseSettings(), { tree: { ...(await client.descriptor(community)).tree, root: root as never } });
     const objects = await session.openPage("/Trips/Paris");
     expect(new Set(objects.keys())).toEqual(new Set([root, hashes.trips!, hashes.paris!]));
     expect((await session.index.entry("/Trips/Paris.md"))?.file).toBe(hashes.paris!);
@@ -179,7 +163,7 @@ describe("payload-free watch", () => {
     const top = decodeProtocolDirectory(await client.object(community, root));
     const directory = encodeProtocolDirectory({
       ...top,
-      entries: top.entries.map((entry) => entry.name === "Notes.md" ? { name: "Notes.md", file: hashObject(changed) } : entry),
+      entries: top.entries.map((entry) => entry.name === "Notes.md" ? { name: "Notes.md", file: hashObject(changed), created: 0, modified: 0 } : entry),
     });
     await client.submitUpdate(community, update, {
       root: hashObject(directory),

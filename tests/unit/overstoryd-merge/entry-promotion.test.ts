@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { encodeLogEntry, LOG_ENTRY_FORMAT, parseQuestion, type Candidate } from "@ovst/merge-protocol";
 import { Sidecar } from "../../../packages/overstoryd-merge/src/sidecar.ts";
 import { Fixture } from "./fixture.ts";
+const TEST_AT = 0;
 
 test("preflight validates a rename on the authored prefix containing its new parent", async () => {
   const f = new Fixture();
@@ -10,13 +11,13 @@ test("preflight validates a rename on the authored prefix containing its new par
   const moved = f.dir([{ name: "parent", directory: folder }]);
   const renamed = f.dir([{ name: "parent", directory: f.tree({ "renamed.md": "original" }) }]);
   const base = f.put(encodeLogEntry({ format: LOG_ENTRY_FORMAT, tree: "tr_test", previous: null,
-    root, change: "initial", trace: null, resolves: [], decisions: [] }));
-  const prefix: Candidate[] = [{ root: moved, change: "move", resolves: [], trace: [{ before: root, after: moved, operations: [
+    root, at: 0, change: "initial", trace: null, resolves: [], decisions: [] }));
+  const prefix: Candidate[] = [{ root: moved, at: TEST_AT, change: "move", resolves: [], trace: [{ before: root, after: moved, operations: [
     { key: "parent", kind: "addEntry", destination: { parent: f.root(root), name: "parent" }, value: { directory: f.dir([]) } },
     { key: "transfer", kind: "moveEntry", source: f.ref("/note.md", "original"),
       destination: { parent: f.op("move", "parent"), name: "note.md" } },
   ] }] }];
-  const candidate: Candidate = { root: renamed, change: "rename", resolves: [], trace: [{ before: moved, after: renamed, operations: [
+  const candidate: Candidate = { root: renamed, at: TEST_AT, change: "rename", resolves: [], trace: [{ before: moved, after: renamed, operations: [
     { key: "rename", kind: "moveEntry", source: f.ref("/parent/note.md", "original"),
       destination: { parent: { material: { kind: "basis", path: "/parent", object: folder } }, name: "renamed.md" } },
   ] }] };

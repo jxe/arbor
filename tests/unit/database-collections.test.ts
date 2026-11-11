@@ -8,6 +8,7 @@ import { deriveRowOperations, loadDirectoryCollection, replayCollectionRows } fr
 import { decodeProtocolDirectory, executeRowOperations, type ObjectHash, type RowOperation } from "@ovst/protocol";
 import { mergeProtocolTrees } from "@ovst/tree-merge";
 import { CollectionProjections, type CollectionProjectionForm } from "@ovst/story-sync/state";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 const SUPPLIES = join(import.meta.dir, "../../examples/supplies/data");
 const LIST = "10000000-0000-4000-8000-000000000001";
@@ -74,7 +75,7 @@ describe("a folder's SQLite database", () => {
     external.close();
     const after = await snapshot(directory, collections);
     const objects = new Map([...before.objects, ...after.objects]);
-    const operations = await deriveRowOperations(before.root, after.root, async (hash) => objects.get(hash)!);
+    const operations = (await deriveRowOperations(before.root, after.root, async (hash) => objects.get(hash)!, TEST_AT))?.operations;
     expect(operations).toEqual([expect.objectContaining({ kind: "set", model: "List", row: key(LIST), field: "name", before: "Community care", value: "Mutual aid" })]);
   });
 
@@ -86,8 +87,8 @@ describe("a folder's SQLite database", () => {
     const collection = { material: { kind: "basis" as const, path: "/", object: base.root } };
     const ours: RowOperation[] = [{ key: "a", kind: "set", collection, model: "List", row: key(LIST), field: "name", before: "Community care", value: "Ours", at: "2026-10-24T10:00:00.000Z" }];
     const theirs: RowOperation[] = [{ key: "b", kind: "set", collection, model: "List", row: key(LIST), field: "openToEdits", before: true, value: false, at: "2026-10-24T10:01:00.000Z" }];
-    const candidate = await executeRowOperations(base.root, ours, load, replayCollectionRows);
-    const current = await executeRowOperations(base.root, theirs, load, replayCollectionRows);
+    const candidate = await executeRowOperations(base.root, ours, load, TEST_AT, replayCollectionRows);
+    const current = await executeRowOperations(base.root, theirs, load, TEST_AT, replayCollectionRows);
     const objects = new Map([...base.objects, ...candidate.generated, ...current.generated]);
     const merged = await mergeProtocolTrees(base.root, candidate.root, current.root, async (hash) => objects.get(hash)!);
     expect(merged.conflicts).toEqual([]);

@@ -31,12 +31,12 @@ struct TreeSessionTests {
         let markdown = try ProtocolObjectCodec.object(.file(Data("# Note\n".utf8)))
         let image = try ProtocolObjectCodec.object(.file(Data([0x89, 0x50, 0x4E, 0x47])))
         let nested = try ProtocolObjectCodec.object(.directory([
-            ProtocolDirectoryEntry(name: "photo.png", file: image.hash),
+            ProtocolDirectoryEntry(name: "photo.png", file: image.hash, created: 0, modified: 0),
         ]))
         let root = try ProtocolObjectCodec.object(.directory([
             ProtocolDirectoryEntry(name: "assets", directory: nested.hash),
-            ProtocolDirectoryEntry(name: "cover.png", file: image.hash),
-            ProtocolDirectoryEntry(name: "note.md", file: markdown.hash),
+            ProtocolDirectoryEntry(name: "cover.png", file: image.hash, created: 0, modified: 0),
+            ProtocolDirectoryEntry(name: "note.md", file: markdown.hash, created: 0, modified: 0),
         ]))
         return Fixture(markdown: markdown, image: image, nested: nested, root: root)
     }
@@ -49,7 +49,7 @@ struct TreeSessionTests {
             f.tree,
             client: ProtocolClient(origin: URL(string: "http://127.0.0.1:9")!),
             settings: settings,
-            opening: TreeOpening(current: ProtocolCurrentTree(tree: f.tree, observedThrough: "up_visit"))
+            opening: TreeOpening(current: ProtocolCurrentTree(tree: f.tree))
         )
     }
 
@@ -63,7 +63,8 @@ struct TreeSessionTests {
         let session = try await browse(f, store: everything(f))
         #expect(session.coordinator == nil)
         #expect(session.settings.readOnly)
-        #expect(session.observedThrough == "up_visit")
+        // The watch resumes after the tree's accepted update.
+        #expect(session.observedThrough == f.tree.update)
         #expect(try await session.workingTree.heads().materializedRoot == f.root.hash)
         #expect(await session.workingTree.hasUnloadedDirectories())
         let note = try await session.provider.resolve(WorkspaceReference(tree: "tr_visit", path: "/note"))
@@ -101,7 +102,7 @@ struct TreeSessionTests {
     func forkLoadsThroughParent() async throws {
         let body = Data("# Plan\n".utf8)
         let plan = try ProtocolObjectCodec.object(.file(body))
-        let march = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "plan.md", file: plan.hash)]))
+        let march = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "plan.md", file: plan.hash, created: 0, modified: 0)]))
         let root = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "march", directory: march.hash)]))
         let folder = FileManager.default.temporaryDirectory.appending(path: "fork-folder-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: folder.appending(path: "march"), withIntermediateDirectories: true)
@@ -125,11 +126,11 @@ struct TreeSessionTests {
     @Test("A directory that arrives without its pages' bodies is held unloaded, not refused")
     func directoryWithoutBodies() throws {
         let inner = try ProtocolObjectCodec.object(.file(Data("# Plan\n".utf8)))
-        let folder = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "plan.md", file: inner.hash)]))
+        let folder = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "plan.md", file: inner.hash, created: 0, modified: 0)]))
         let note = try ProtocolObjectCodec.object(.file(Data("# Note\n".utf8)))
         let root = try ProtocolObjectCodec.object(.directory([
             ProtocolDirectoryEntry(name: "march", directory: folder.hash),
-            ProtocolDirectoryEntry(name: "note.md", file: note.hash),
+            ProtocolDirectoryEntry(name: "note.md", file: note.hash, created: 0, modified: 0),
         ]))
         // An own update's projection can hold the directory but not plan.md.
         let projection = ProtocolSnapshot(root: root.hash, objects: [root, folder, note])

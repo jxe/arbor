@@ -18,7 +18,7 @@ test("projects a collection's rows as children: the main model's under the folde
     Item: [idRow("1", { slug: "first", note: "kept" })],
     Tag: [idRow("t1", { label: "Red" })],
   }, f.objects);
-  const scripts = f.directory({ type: "directory", entries: [{ name: "schema.ts", file: f.text("export const schema = {};\n") }] });
+  const scripts = f.directory({ type: "directory", entries: [{ name: "schema.ts", file: f.text("export const schema = {};\n"), created: 0, modified: 0 }] });
   const root = f.directory({ type: "directory", entries: [{ name: "people", directory: current }, { name: "scripts", directory: scripts }] });
   const projection = new ProtocolProjection({ root, load: f.load });
   expect(await projection.resolve("/people/first")).toMatchObject({
@@ -35,11 +35,11 @@ test("stable-key healing reads each directory once and only Markdown files", asy
   const f = store();
   const page = (id: string) => f.text(`---\nid: ${id}\n---\n\n# ${id}\n`);
   const image = f.text("---\nid: image\n---\n");
-  const deep = f.directory({ type: "directory", entries: [{ name: "moved.md", file: page("moved") }, { name: "photo.png", file: image }] });
-  const section = f.directory({ type: "directory", entries: [{ name: "_index.md", file: page("section") }, { name: "deep", directory: deep }] });
+  const deep = f.directory({ type: "directory", entries: [{ name: "moved.md", file: page("moved"), created: 0, modified: 0 }, { name: "photo.png", file: image, created: 0, modified: 0 }] });
+  const section = f.directory({ type: "directory", entries: [{ name: "_index.md", file: page("section"), created: 0, modified: 0 }, { name: "deep", directory: deep }] });
   const root = f.directory({ type: "directory", entries: [
-    { name: "a.md", file: page("a") }, { name: "photo.png", file: image },
-    { name: "section", directory: section }, { name: "section.md", file: page("shadowed") },
+    { name: "a.md", file: page("a"), created: 0, modified: 0 }, { name: "photo.png", file: image, created: 0, modified: 0 },
+    { name: "section", directory: section }, { name: "section.md", file: page("shadowed"), created: 0, modified: 0 },
   ] });
   const reads = new Map<string, number>();
   const load = async (hash: string) => { reads.set(hash, (reads.get(hash) ?? 0) + 1); return f.objects.get(hash)!; };

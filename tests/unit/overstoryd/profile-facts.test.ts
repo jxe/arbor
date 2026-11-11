@@ -9,14 +9,14 @@ function fixture(frontmatter: string, files: Record<string, Uint8Array> = {}, ti
   const index = new TextEncoder().encode(`---\n${frontmatter}\n---\n\n# ${title}\n`);
   const indexHash = hashObject(index);
   objects.set(indexHash, index);
-  const rootEntries: ProtocolDirectoryEntry[] = [{ name: "_index.md", file: indexHash }];
+  const rootEntries: ProtocolDirectoryEntry[] = [{ name: "_index.md", file: indexHash, created: 0, modified: 0 }];
   const nested = new Map<string, ProtocolDirectoryEntry[]>();
   for (const [path, bytes] of Object.entries(files)) {
     const parts = path.split("/");
     const file = hashObject(bytes);
     objects.set(file, bytes);
-    if (parts.length === 1) rootEntries.push({ name: parts[0]!, file });
-    else nested.set(parts[0]!, [{ name: parts[1]!, file }]);
+    if (parts.length === 1) rootEntries.push({ name: parts[0]!, file, created: 0, modified: 0 });
+    else nested.set(parts[0]!, [{ name: parts[1]!, file, created: 0, modified: 0 }]);
   }
   for (const [name, entries] of nested) {
     const bytes = encodeProtocolDirectory({ type: "directory", entries });

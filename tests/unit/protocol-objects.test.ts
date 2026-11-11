@@ -19,6 +19,7 @@ import { ObjectIndex } from "@ovst/story-sync/state";
 import { CollectionProjections } from "../../packages/story-sync/src/state/providers/collection-projection.ts";
 import { loadDirectoryCollection } from "@ovst/collection-schema";
 import {
+  basisDirectories,
   loadIgnorePolicy,
   materializeTree,
   membershipSkip,
@@ -190,6 +191,10 @@ describe("canonical tree objects", () => {
       "collection-extra-member",
       "collection-tables-unsorted",
       "noncanonical-cbor",
+      "entry-without-times",
+      "created-after-modified",
+      "time-as-text",
+      "times-on-directory-entry",
     ]);
     for (const vector of fixture.invalid) {
       expect(() => decodeProtocolDirectory(Buffer.from(vector.canonicalCborBase64, "base64"))).toThrow();
@@ -231,7 +236,7 @@ describe("canonical tree objects", () => {
     // A collection's rows are never files the tree describes.
     expect(() => decodeProtocolDirectory(encodeCanonicalCBOR({
       type: "directory",
-      entries: [{ name: "_store.json", file: hash }, { name: "schema.usl", file: hash }],
+      entries: [{ name: "_store.json", file: hash, created: 0, modified: 0 }, { name: "schema.usl", file: hash, created: 0, modified: 0 }],
       childrenSource: { version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl", schemaFingerprint: hash, childSetHash: hash },
     }))).toThrow("Unknown wire object");
   });
@@ -248,7 +253,8 @@ describe("canonical tree objects", () => {
         type: "directory",
         entries: [
           { name: "nested", tree: "tr_child" },
-          expect.objectContaining({ name: "note.md", file: expect.stringMatching(/^sha256:/) }),
+          // A scan with no basis dates a file by its modification time.
+          { name: "note.md", file: expect.stringMatching(/^sha256:/), created: expect.any(Number), modified: expect.any(Number) },
         ],
       });
       expect(snapshot.objects.size).toBe(2);
@@ -271,6 +277,8 @@ describe("canonical tree objects", () => {
       try {
         await writeFile(join(root, "schema.usl"), "model Item {\n  title Text\n}\n");
         await writeFile(join(root, `_store.${codec}`), source);
+        // The schema file dates its entry; the same date in each format.
+        await utimes(join(root, "schema.usl"), new Date(), new Date("2026-10-24T09:00:00.000Z"));
         const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) => collections.read(directory, names)));
         roots.add(snapshot.root);
         const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
@@ -359,7 +367,7 @@ describe("canonical tree objects", () => {
       const objects = new Map(clean.objects);
       const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
       const top = decodeProtocolDirectory(objects.get(clean.root)!);
-      const legacy = put(encodeProtocolDirectory({ ...top, entries: [{ name: ".DS_Store", file: put(new TextEncoder().encode("old finder")) }, ...top.entries] }));
+      const legacy = put(encodeProtocolDirectory({ ...top, entries: [{ name: ".DS_Store", file: put(new TextEncoder().encode("old finder")), created: 0, modified: 0 }, ...top.entries] }));
       const load = async (hash: string) => objects.get(hash)!;
 
       await writeFile(join(destination, ".DS_Store"), "local finder");
@@ -428,7 +436,8 @@ describe("canonical tree objects", () => {
       expect(await readFile(join(destination, "cache", "blob"), "utf8")).toBe("generated\n");
       expect(await readFile(join(destination, "tracked.log"), "utf8")).toBe("tracked before its rule\n");
       await expect(readFile(join(destination, "stray.txt"))).rejects.toThrow();
-      const written = await snapshotDirectory(destination, new Map(), [], undefined, undefined, skip);
+      // Against the tree it was written from, every entry keeps its times.
+      const written = await snapshotDirectory(destination, new Map(), [], undefined, undefined, skip, false, { at: Date.now(), basis: basisDirectories(held.root, load) });
       expect(written.root).toBe(held.root);
     } finally {
       await rm(source, { recursive: true, force: true });

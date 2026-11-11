@@ -16,7 +16,7 @@ struct LiveEditorAdmissionTests {
         let tree = try await WorkingTree.inMemory(tree: TreeID(rawValue: current.tree.id))
         let snapshot = try await client.snapshot(tree: current.tree.id, root: current.tree.root)
         try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: snapshot,
-            tree: TreeID(rawValue: current.tree.id), update: current.tree.update, cursor: current.observedThrough))
+            tree: TreeID(rawValue: current.tree.id), update: current.tree.update, cursor: current.tree.update))
         return tree
     }
 
@@ -29,10 +29,10 @@ struct LiveEditorAdmissionTests {
         }
         let name = "undo-" + UUID().uuidString
         let file = Data(content.utf8), hash = ProtocolObjectCodec.hash(file)
-        var entries = original; entries.append(.init(name: name + ".md", file: hash))
+        var entries = original; entries.append(.init(name: name + ".md", file: hash, created: 0, modified: 0))
         entries.sort { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }
         let bytes = try ProtocolObjectCodec.encode(.directory(entries, collection: descriptor))
-        let update = ProtocolCandidateUpdate(candidate: ProtocolObjectCodec.hash(bytes), change: UUID().uuidString,
+        let update = ProtocolCandidateUpdate(candidate: ProtocolObjectCodec.hash(bytes), change: UUID().uuidString, at: ProtocolEntryTime.now(),
             trace: nil, objects: [.init(hash: hash, bytes: file), .init(hash: ProtocolObjectCodec.hash(bytes), bytes: bytes)])
         let request = try await client.prepareUpdates(tree: tree, base: .init(root: snapshot.root, update: current.tree.update), updates: [update])
         _ = try await client.submitUpdateResponse(request)
@@ -219,7 +219,7 @@ struct LiveEditorAdmissionTests {
             return id
         }
         #expect(alternatives.count == 2)
-        let resolution = ProtocolCandidateUpdate(candidate: current.tree.root, trace: [],
+        let resolution = ProtocolCandidateUpdate(candidate: current.tree.root, at: ProtocolEntryTime.now(), trace: [],
             resolves: [.init(state: current.tree.update, conflict: id, alternatives: ids)], objects: [])
         let prepared = try await client.prepareUpdates(tree: treeID,
             base: .init(root: current.tree.root, update: current.tree.update), updates: [resolution])

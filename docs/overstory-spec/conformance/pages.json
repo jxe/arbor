@@ -1,5 +1,5 @@
 {
-  "description": "Pages (spec 01 §1.1.2 and directory format §3): how a .md or .mdx file reads as a page object, the canonical CBOR object and hash, the canonical file a page is written as from nothing, and minimal writes against an existing file. Reads and invalid objects bind every implementation; writes bind placements that keep files, such as Story Sync. A timestamp is {\"$date\": text} or {\"$dateTime\": text}. A read whose page is null stays a file entry. Recompute expectations with tests/support/regenerate-page-vectors.ts.",
+  "description": "Pages (spec 01 §1.1.2 and directory format §3): how a .md file reads as a page object, the canonical CBOR object and hash, the canonical file a page is written as from nothing, and minimal writes against an existing file. Reads and invalid objects bind every implementation; writes bind placements that keep files, such as Story Sync. A timestamp is {\"$date\": text} or {\"$dateTime\": text}. A read whose page is null stays a file entry. Recompute expectations with tests/support/regenerate-page-vectors.ts.",
   "reads": [
     {
       "name": "no frontmatter",

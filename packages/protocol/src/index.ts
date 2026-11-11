@@ -38,9 +38,10 @@ export * from "./updates/source-trace.ts";
 export * from "./updates/source-moves.ts";
 export * from "./updates/provenance.ts";
 export * from "./transport.ts";
-export type { AuthoredOperation as SourceOperation, AuthoredFrame as SourceTraceFrame, DerivableFrame, DerivableUpdateIntent, Material, MaterialRef, EntryDestination, ResolutionDeclaration, RowOperation, RowMember, PageOperation, PropertyOperation } from "./updates/authored-contract.ts";
-export { AuthoredContractError, decodeAuthoredCandidateIntent, decodeMaterialRef, isPageOperation, isPropertyOperation, isRowOperation, isStatedUpdate, ROW_OPERATION_KINDS, ROW_TIME } from "./updates/authored-contract.ts";
+export type { AuthoredOperation as SourceOperation, AuthoredFrame as SourceTraceFrame, DerivableFrame, DerivableUpdateIntent, AuthoredUpdateIntent, Material, MaterialRef, EntryDestination, ResolutionDeclaration, RowOperation, RowMember, PageOperation, PropertyOperation } from "./updates/authored-contract.ts";
+export { AuthoredContractError, decodeAuthoredCandidateIntent, decodeMaterialRef, encodeAuthoredCandidateIntent, encodeAuthoredOperation, encodeAuthoredTrace, decodeAuthoredOperation, decodeAuthoredTrace, encodeMaterialRef, type WireRef, isPageOperation, isPropertyOperation, isRowOperation, isStatedUpdate, ROW_OPERATION_KINDS, ROW_TIME } from "./updates/authored-contract.ts";
 export type { DecisionPage, InspectedDecision, InspectedAlternative } from "./updates/accepted-contract.ts";
+export { encodeAcceptedWatchChange, decodeAcceptedWatchChange, encodeDecisionPage, decodeDecisionPage, type AcceptedWatchChange } from "./updates/accepted-contract.ts";
 
 export * from "./documents/markdown.ts";
 export * from "./documents/markdown-identity.ts";

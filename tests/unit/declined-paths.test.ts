@@ -16,7 +16,7 @@ function tree(spec: Spec): ObjectHash {
     if (typeof value === "string") {
       const bytes = new TextEncoder().encode(value), file = hashObject(bytes);
       objects.set(file, bytes);
-      return { name, file };
+      return { name, file, created: 0, modified: 0 };
     }
     if (typeof value.tree === "string") return { name, tree: value.tree };
     return { name, directory: tree(value as Spec) };

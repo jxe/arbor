@@ -12,7 +12,7 @@ struct PageEntryTests {
 
     func graph(_ page: ProtocolPage) throws -> ProtocolSnapshot {
         let bytes = try page.encoded()
-        let nested = try ProtocolObjectCodec.encode(.directory([.init(name: "note.md", page: ProtocolObjectCodec.hash(bytes))]))
+        let nested = try ProtocolObjectCodec.encode(.directory([.init(name: "note.md", page: ProtocolObjectCodec.hash(bytes), created: 0, modified: 0)]))
         let root = try ProtocolObjectCodec.encode(.directory([.init(name: "nested", directory: ProtocolObjectCodec.hash(nested))]))
         return ProtocolSnapshot(root: ProtocolObjectCodec.hash(root), objects: [bytes, nested, root].map { .init(hash: ProtocolObjectCodec.hash($0), bytes: $0) })
     }

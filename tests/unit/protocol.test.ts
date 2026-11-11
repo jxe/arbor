@@ -110,9 +110,9 @@ describe("REST v1 protocol fixtures", () => {
     expect(frames.map((frame) => frame.event)).toEqual(["tree.update", "resync-required"]);
     const [update, resync] = frames as [typeof frames[0], typeof frames[0]];
     expect(update.id).toBe("1");
-    const data = JSON.parse(update.data) as { transition: { update: { tree: string } }; canonical: { endpoint: string } };
-    expect(Object.keys(data).sort()).toEqual(["access", "canonical", "transition"]);
-    const tree = data.transition.update.tree;
+    const data = JSON.parse(update.data) as { update: { tree: string }; canonical: { endpoint: string } };
+    expect(Object.keys(data).sort()).toEqual(["access", "canonical", "update"]);
+    const tree = data.update.tree;
     // The frame is one the watch decoder accepts.
     expect(decodeAcceptedWatchChange(data, tree).transition.update.id).toBe("1");
     expect(data.canonical.endpoint).toBe(`https://community.example/.overstory/trees/${tree}`);
@@ -220,7 +220,7 @@ describe("REST v1 protocol fixtures", () => {
       }>;
     }>("protocol-endpoints.json");
     const wireErrors = await conformanceJSON<OverstoryError[]>("errors.json");
-    expect(decodeUpdateConflictJSON(wireErrors.find((value) => value.error === "conflict")).details.current.id).toBe("up_current");
+    expect(decodeUpdateConflictJSON(wireErrors.find((value) => value.error === "conflict")).details.head.update).toBe("up_current");
     const merges = JSON.parse(await readFile(join(overstorydFixtures, "merge.json"), "utf8")) as {
       version: number;
       markdownCases: Array<{ name: string }>;
@@ -257,7 +257,7 @@ describe("REST v1 protocol fixtures", () => {
     for (const name of ["read-ref", "link-read"]) {
       const snapshot = validateTreeDescriptor(byName.get(name)!.response.body!.tree) as RemoteTreeDescriptor;
       expect(snapshot.canonical).toEqual(tree.canonical);
-      expect(byName.get(name)!.response.body!.observedThrough).toBe(snapshot.update);
+      expect(byName.get(name)!.response.body).not.toHaveProperty("observedThrough");
     }
     const snapshotCase = byName.get("read-accepted-snapshot")!;
     const snapshotBody = new Uint8Array(Buffer.from(snapshotCase.response.bodyBase64!, "base64"));

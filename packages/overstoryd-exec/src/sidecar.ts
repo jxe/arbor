@@ -113,7 +113,7 @@ function reflected(path: string, key: "update" | "schema" = "update"): string | 
 }
 
 /** Times for rows a mutation produced: unchanged rows keep theirs, changed ones are modified at `now`, new ones created then (spec 10 §4.1). */
-function stamp(after: LogicalTables, before: LogicalTables, now: string): LogicalTables {
+function stamp(after: LogicalTables, before: LogicalTables, now: number): LogicalTables {
   const out: LogicalTables = {};
   for (const [model, rows] of Object.entries(after)) {
     const prior = new Map((before[model] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
@@ -371,7 +371,7 @@ export class ExecSidecar implements AsyncDisposable {
           .get(tree, subject, question.mutationID) as { request_digest: string; observed_through: string; result_json: string } | null;
         if (stored) {
           if (stored.request_digest !== prepared.requestDigest) return conflict;
-          return { id, receipt: { mutationID: question.mutationID, requestDigest: prepared.requestDigest, observedThrough: stored.observed_through, result: JSON.parse(stored.result_json) } };
+          return { id, receipt: receiptOf(tree, question.mutationID, prepared.requestDigest, stored.observed_through, JSON.parse(stored.result_json)) };
         }
         const pending = this.receipts.query("select request_digest, request_json, result_json from pending_receipts where tree = ? and subject = ? and mutation_id = ?")
           .get(tree, subject, question.mutationID) as { request_digest: string; request_json: string; result_json: string } | null;
@@ -392,24 +392,23 @@ export class ExecSidecar implements AsyncDisposable {
         // Caught up during the trial: what the handler read may not be the update named.
         if (reflected(opened.file) !== collection.update) return { id, stale: true };
         const operations = trial.changes.length ? this.operations(opened, collection, trial.changes, trial.mutationNow) : [];
-        if (operations?.length === 0) {
-          const current = await client.descriptor(tree);
-          return { id, receipt: this.settle(tree, subject, question.mutationID, prepared.requestDigest, current.observedThrough, trial.result) };
-        }
+        // A mutation that writes nothing names no update.
+        if (operations?.length === 0) return { id, receipt: this.settle(tree, subject, question.mutationID, prepared.requestDigest, null, trial.result) };
         if (!operations) return { id, refusal: { code: "internal-error", message: "The mutation's changes can't be stated as row operations", retryable: false } };
         const change = `mutation-${sha256(`${tree}\0${subject}\0${question.mutationID}\0${prepared.requestDigest}`).slice(0, 32)}`;
         const request: DerivableUpdateRequest = {
           base: collection.update,
-          updates: [{ change, candidate: null, ifCurrent: collection.update, trace: [{ operations }], resolves: [], deltas: [], objects: [] }],
+          // Stored with the pending receipt, so a retry derives the same root (updates and merging §1.1).
+          updates: [{ change, at: new Date(question.now).toISOString(), candidate: null, ifCurrent: collection.update, trace: [{ operations }], resolves: [], deltas: [], objects: [] }],
         };
         this.receipts.query("insert or replace into pending_receipts (tree, subject, mutation_id, request_digest, request_json, result_json) values (?, ?, ?, ?, ?, ?)")
           .run(tree, subject, question.mutationID, prepared.requestDigest, JSON.stringify(request), JSON.stringify(trial.result ?? null));
-        const observedThrough = await this.submit(client, tree, collection, request, subject, question.mutationID);
-        if (!observedThrough) {
+        const affected = await this.submit(client, tree, collection, request, subject, question.mutationID);
+        if (!affected) {
           this.forget(tree, subject, question.mutationID);
           return { id, stale: true };
         }
-        return { id, receipt: this.settle(tree, subject, question.mutationID, prepared.requestDigest, observedThrough, trial.result) };
+        return { id, receipt: this.settle(tree, subject, question.mutationID, prepared.requestDigest, affected, trial.result) };
       } finally {
         await store[Symbol.asyncDispose]();
       }
@@ -433,7 +432,8 @@ export class ExecSidecar implements AsyncDisposable {
       database.close();
     }
     const tables = (byModel: Map<string, Map<string, Row>>): RowsByTable => Object.fromEntries([...byModel].map(([model, byKey]) => [model, [...byKey.values()]]));
-    const before = logicalFromRows(opened.logical.result, opened.layout, tables(rows), { now });
+    const nowMs = Date.parse(now);
+    const before = logicalFromRows(opened.logical.result, opened.layout, tables(rows), { now: nowMs });
     for (const change of changes) {
       const schema = opened.schemas.find((candidate) => candidate.model === change.collection);
       if (!schema) continue;
@@ -443,7 +443,7 @@ export class ExecSidecar implements AsyncDisposable {
       if (was) byKey.delete(stableKeyFromProperties(schema.primaryKey, was)!);
       if (is) byKey.set(stableKeyFromProperties(schema.primaryKey, is)!, is);
     }
-    const after = stamp(logicalFromRows(opened.logical.result, opened.layout, tables(rows), { now }), before, now);
+    const after = stamp(logicalFromRows(opened.logical.result, opened.layout, tables(rows), { now: nowMs }), before, nowMs);
     const operations = rowOperationsBetween(opened.logical.models, before, after, { material: { kind: "basis", path: collection.path, object: collection.directory as ObjectHash } });
     operations?.forEach((operation, index) => { operation.key = `row-${index + 1}`; });
     return operations;
@@ -453,12 +453,12 @@ export class ExecSidecar implements AsyncDisposable {
    * Submit a mutation's update. A head that moved on without changing the
    * collection takes the same changes again on the new head; any other move
    * is null, and the mutation runs again. The host's receipt answers an exact
-   * resubmission. The answer is the response's observation cursor.
+   * resubmission. The answer is the accepted update the writes made.
    */
   private async submit(client: ProtocolClient, tree: string, collection: ExecCollection, request: DerivableUpdateRequest, subject: string, mutationID: string): Promise<string | null> {
     for (let rebases = 0; rebases <= MUTATION_REBASES; rebases++) {
       try {
-        return (await client.submitUpdates(tree, request)).head.observedThrough;
+        return (await client.submitUpdates(tree, request)).head.update;
       } catch (error) {
         // A guard the head moved past: refused as a conflict, or as a stale execution guard.
         const stale = error instanceof ProtocolUpdateConflict || (error instanceof ProtocolHTTPError && error.status === 409);
@@ -484,13 +484,14 @@ export class ExecSidecar implements AsyncDisposable {
   }
 
   /** Record a mutation's receipt in place of its pending request, and return it. */
-  private settle(tree: string, subject: string, mutationID: string, requestDigest: MutationResultReceipt["requestDigest"], observedThrough: string, result: unknown): MutationResultReceipt {
+  private settle(tree: string, subject: string, mutationID: string, requestDigest: MutationResultReceipt["requestDigest"], affected: string | null, result: unknown): MutationResultReceipt {
     this.receipts.transaction(() => {
+      // The column keeps its old name; it holds the affected update, or "" when the mutation wrote nothing.
       this.receipts.query("insert into receipts (tree, subject, mutation_id, request_digest, observed_through, result_json) values (?, ?, ?, ?, ?, ?)")
-        .run(tree, subject, mutationID, requestDigest, observedThrough, JSON.stringify(result ?? null));
+        .run(tree, subject, mutationID, requestDigest, affected ?? "", JSON.stringify(result ?? null));
       this.forget(tree, subject, mutationID);
     })();
-    return { mutationID, requestDigest, observedThrough, result };
+    return receiptOf(tree, mutationID, requestDigest, affected ?? "", result);
   }
 
   private forget(tree: string, subject: string, mutationID: string): void {
@@ -518,4 +519,9 @@ function publicMutationError(error: unknown) {
   if (error instanceof MutationCallError) return { code: error.value.code, message: error.value.message, retryable: error.value.retryable };
   console.error("overstoryd-exec mutation failed", error);
   return { code: "internal-error", message: "The mutation could not be completed", retryable: true };
+}
+
+/** A receipt as it travels (07 §12.2): `affected` names the update the mutation's writes made, when it wrote. */
+function receiptOf(tree: string, mutationID: string, requestDigest: MutationResultReceipt["requestDigest"], affected: string, result: unknown): MutationResultReceipt {
+  return { mutationID, requestDigest, ...(affected ? { affected: { tree, update: affected } } : {}), result };
 }

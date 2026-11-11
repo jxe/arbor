@@ -5,6 +5,7 @@ import {
   encodeProtocolPage,
   hashObject,
   isPageName,
+  mergedEntryTimes,
   parsePage,
   type ProtocolPage,
   type ObjectHash,
@@ -45,6 +46,20 @@ function entryEqual(left: ProtocolDirectoryEntry | undefined, right: ProtocolDir
     && left?.page === right?.page
     && left?.directory === right?.directory
     && left?.tree === right?.tree;
+}
+
+/** A merged file or page entry with its times merged as data model §6 says
+ * (`mergedEntryTimes`): rules build entries from objects, and this stamps them. */
+function timed(
+  entry: ProtocolDirectoryEntry | null | undefined,
+  before: ProtocolDirectoryEntry | undefined,
+  local: ProtocolDirectoryEntry | undefined,
+  accepted: ProtocolDirectoryEntry | undefined,
+): ProtocolDirectoryEntry | null {
+  if (!entry) return null;
+  if (entry.file === undefined && entry.page === undefined) return entry;
+  const times = mergedEntryTimes(before, local, accepted);
+  return times ? { ...entry, ...times } as ProtocolDirectoryEntry : entry;
 }
 
 function sortedEntries(entries: ProtocolDirectoryEntry[]): ProtocolDirectoryEntry[] {
@@ -120,7 +135,7 @@ export async function mergeProtocolTrees(
   const asPage = async (entry: ProtocolDirectoryEntry | undefined, accepted: ProtocolDirectoryEntry | undefined) => {
     if (!entry?.file || !accepted?.page || !isPageName(entry.name)) return entry;
     const page = await pageOf(entry);
-    return page ? { name: entry.name, page: context.store(encodeProtocolPage(page)) } : entry;
+    return page ? { name: entry.name, page: context.store(encodeProtocolPage(page)) } as ProtocolDirectoryEntry : entry;
   };
 
   const directoryObject = async (entry: ProtocolDirectoryEntry | undefined): Promise<ProtocolDirectory | null> => {
@@ -143,7 +158,7 @@ export async function mergeProtocolTrees(
         mergedPages++;
         approximatePlacements += merged.approximate;
         properties.push(...merged.properties);
-        return { name: local.name, page: context.store(encodeProtocolPage(merged.page)) };
+        return { name: local.name, page: context.store(encodeProtocolPage(merged.page)) } as ProtocolDirectoryEntry;
       }
     }
     if (local.file && accepted.file && isPageName(local.name) && (!before || before.file)) {
@@ -151,7 +166,7 @@ export async function mergeProtocolTrees(
       const merged = await markdownAdditiveV1(path, baseHash, local.file, accepted.file, context);
       sawMarkdownRule = true;
       approximatePlacements += merged.approximate;
-      return { name: local.name, file: merged.hash };
+      return { name: local.name, file: merged.hash } as ProtocolDirectoryEntry;
     }
     return undefined;
   };
@@ -260,7 +275,7 @@ export async function mergeProtocolTrees(
       } else {
         const moved = { ...local, name: target };
         const kept = { ...accepted, name: target };
-        const resolved = entryEqual(moved, kept) ? moved : await resolveNode(parentPath, target, { ...before, name: target }, moved, kept);
+        const resolved = timed(entryEqual(moved, kept) ? moved : await resolveNode(parentPath, target, { ...before, name: target }, moved, kept), before, local, accepted);
         if (resolved) entries.push(resolved);
       }
       if (conflicts.length > priorConflicts) unresolvedDirectories.add(parentPath);
@@ -271,10 +286,11 @@ export async function mergeProtocolTrees(
       const before = baseEntries.get(name);
       const local = candidateEntries.get(name);
       const accepted = currentEntries.get(name);
-      if (entryEqual(local, before)) { if (accepted) entries.push(accepted); continue; }
-      if (entryEqual(accepted, before)) { if (local) entries.push(local); continue; }
-      if (entryEqual(local, accepted)) { if (local) entries.push(local); continue; }
-      const resolved = await resolveNode(parentPath, name, before, local, accepted);
+      const merged = entryEqual(local, before) ? accepted
+        : entryEqual(accepted, before) ? local
+        : entryEqual(local, accepted) ? local
+        : await resolveNode(parentPath, name, before, local, accepted);
+      const resolved = timed(merged, before, local, accepted);
       if (resolved) entries.push(resolved);
     }
     let directory: ProtocolDirectory = { type: "directory", entries: sortedEntries(entries) };

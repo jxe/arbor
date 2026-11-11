@@ -25,6 +25,8 @@ function invalid(message: string): never { throw new Error(`Invalid source edit:
 export async function composeFrames(
   frames: readonly SourceFrame[],
   load: (hash: ObjectHash) => Promise<Uint8Array>,
+  /** The time the frames were stamped at, in Unix ms. */
+  at: number,
 ): Promise<SourceFrame> {
   if (!frames.length) invalid("trace has no frames");
   if (frames.length === 1) return frames[0]!;
@@ -65,6 +67,6 @@ export async function composeFrames(
   }
   // The exact intermediate bytes make this deterministic; prove it rather than
   // assume it, so a composed trace is never weaker evidence than the chain.
-  await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load);
+  await validateSourceEditCandidate(composed.before, composed.after, composed.operations, load, at);
   return composed;
 }

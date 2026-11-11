@@ -33,8 +33,8 @@ describe("object source chain", () => {
 describe("lazy node index", () => {
   const page = text("# Paris\n");
   const other = text("# Rome\n");
-  const trips = encodeProtocolDirectory({ type: "directory", entries: [{ name: "Paris.md", file: hashObject(page) }] });
-  const notes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "Rome.md", file: hashObject(other) }] });
+  const trips = encodeProtocolDirectory({ type: "directory", entries: [{ name: "Paris.md", file: hashObject(page), created: 0, modified: 0 }] });
+  const notes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "Rome.md", file: hashObject(other), created: 0, modified: 0 }] });
   const root = encodeProtocolDirectory({ type: "directory", entries: [
     { name: "Notes", directory: hashObject(notes) },
     { name: "Trips", directory: hashObject(trips) },
@@ -75,7 +75,7 @@ describe("lazy node index", () => {
     await index.entry("/Trips/Paris.md");
     const changed = encodeProtocolDirectory({ type: "directory", entries: [
       { name: "Notes", directory: hashObject(notes) },
-      { name: "Today.md", file: hashObject(other) },
+      { name: "Today.md", file: hashObject(other), created: 0, modified: 0 },
       { name: "Trips", directory: hashObject(trips) },
     ] });
     objects.set(hashObject(changed), changed);

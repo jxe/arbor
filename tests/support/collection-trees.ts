@@ -10,11 +10,12 @@ export interface CollectionTree {
 }
 
 /** The time test rows are stamped with unless they say otherwise. */
-export const T0 = "2026-10-24T09:00:00.000Z";
+export const T0 = Date.parse("2026-10-24T09:00:00.000Z");
 
 /** A logical row keyed by `id`. */
-export function idRow(id: string, fields: LogicalRow["fields"] = {}, created = T0, modified = created): LogicalRow {
-  return { key: [["id", id]], fields, created, modified };
+export function idRow(id: string, fields: LogicalRow["fields"] = {}, created: number | string = T0, modified: number | string = created): LogicalRow {
+  const ms = (time: number | string) => (typeof time === "string" ? Date.parse(time) : time);
+  return { key: [["id", id]], fields, created: ms(created), modified: ms(modified) };
 }
 
 /** A collection directory holding `schema.usl` and `tables`, with its objects added to `objects`. */
@@ -23,7 +24,7 @@ export function collectionDirectory(schemaSource: string, tables: LogicalTables,
   const schemaBytes = new TextEncoder().encode(schemaSource);
   const encoded = encodeCollection(compileLogicalSchema(schemaBytes), tables);
   for (const bytes of encoded.objects.values()) put(bytes);
-  const entries = [{ name: "schema.usl", file: put(schemaBytes) }, ...extra].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+  const entries = [{ name: "schema.usl", file: put(schemaBytes), created: 0, modified: 0 }, ...extra].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   return put(encodeProtocolDirectory({ type: "directory", entries, collection: encoded.reference }));
 }
 
@@ -32,7 +33,7 @@ export function collectionTree(schemaSource: string, tables: LogicalTables, obje
   const collection = collectionDirectory(schemaSource, tables, objects);
   const page = new TextEncoder().encode("# Notes\n");
   objects.set(hashObject(page), page);
-  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name: "items", directory: collection }, { name: "notes.md", file: hashObject(page) }] });
+  const root = encodeProtocolDirectory({ type: "directory", entries: [{ name: "items", directory: collection }, { name: "notes.md", file: hashObject(page), created: 0, modified: 0 }] });
   objects.set(hashObject(root), root);
   return { root: hashObject(root), collection, objects };
 }

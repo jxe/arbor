@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { decodeMaterialRef, stableJSONString, type MaterialRef, type SourceOperation } from "@ovst/protocol";
+import { decodeMaterialRef, encodeMaterialRef, stableJSONString, type MaterialRef, type SourceOperation } from "@ovst/protocol";
 
 /** The contract between overstoryd and a merge sidecar: the log entries overstoryd
  * writes into the object store, the one question it asks, and the answer.
@@ -94,6 +94,8 @@ export interface LogEntry {
   /** The accepted projection. */
   root: ObjectHash;
   change: string;
+  /** The update's `at` in Unix ms, which a replay stamps the candidate's own changes with. */
+  at: number;
   /** The authored frames; null for a snapshot. */
   trace: Frame[] | null;
   /** Decision keys this update resolved. */
@@ -122,6 +124,7 @@ const logEntrySchema = z
     previous: hash.nullable(),
     root: hash,
     change: token,
+    at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     trace,
     resolves: z.array(token),
     decisions: logDecisions,
@@ -175,6 +178,8 @@ const binding = z
 export interface Candidate {
   root: ObjectHash;
   change: string;
+  /** The update's `at` in Unix ms: what the candidate's own changes are stamped with (data model §6). */
+  at: number;
   trace: Frame[] | null;
   /** Decision keys whose guards overstoryd checked. */
   resolves: string[];
@@ -184,6 +189,7 @@ const candidate = z
   .object({
     root: hash,
     change: token,
+    at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     trace,
     resolves: z.array(token).max(1024),
     alternatives: z.array(binding).max(1024).optional(),
@@ -234,7 +240,7 @@ export function parseQuestion(raw: unknown): MergeQuestion {
     throw new Error("Validation requires a traced candidate and one accepted basis");
   for (const c of [...(question.prefix ?? []), question.candidate])
     for (const alternative of c.alternatives ?? []) {
-      const ref = decodeMaterialRef(alternative.ref);
+      const ref = decodeMaterialRef(encodeMaterialRef(alternative.ref));
       if (ref.material.kind !== "alternative" || ref.within || ref.range)
         throw new Error("Alternative bindings require a complete alternative reference");
     }

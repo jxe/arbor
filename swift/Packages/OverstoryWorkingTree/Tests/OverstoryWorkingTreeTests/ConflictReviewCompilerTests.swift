@@ -9,8 +9,8 @@ struct ConflictReviewCompilerTests {
     func keepCurrentTree() throws {
         var f = Fixture()
         let old = try f.file("Old contents\n"), later = try f.file("Already reconciled\r\n🪴\n")
-        let oldRoot = try f.directory([.init(name: "page.md", file: old)])
-        let root = try f.directory([.init(name: "page.md", file: later)])
+        let oldRoot = try f.directory([.init(name: "page.md", file: old, created: 0, modified: 0)])
+        let root = try f.directory([.init(name: "page.md", file: later, created: 0, modified: 0)])
         let decision = try f.decision("root-choice", path: "/", values: [["directory": oldRoot], ["directory": try f.directory([])]], root: root)
         var proposal = draft(root, [decision])
         // Only a draft keeping current contents is pinned to the root it saw.
@@ -18,7 +18,7 @@ struct ConflictReviewCompilerTests {
         proposal.keepCurrent = true
         #expect(proposal.rebased(onto: .init(tree: proposal.snapshot.tree, state: "later", root: oldRoot, decisions: [decision])) == nil)
         let retained = try JSONDecoder().decode(ConflictReviewDraft.self, from: JSONEncoder().encode(proposal))
-        let preview = try ConflictReviewCompiler.compile(retained, base: f.snapshot(root), material: [:])
+        let preview = try ConflictReviewCompiler.compile(retained, base: f.snapshot(root), material: [:], at: 0)
         #expect(preview.candidate.root == root)
         #expect(preview.changes.isEmpty)
         #expect(preview.operations == nil)
@@ -36,7 +36,7 @@ struct ConflictReviewCompilerTests {
         var proposal = draft(root, [a, b])
         proposal.keepCurrent = true
         #expect(proposal.obligations.isEmpty)
-        let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: [:])
+        let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: [:], at: 0)
         #expect(preview.candidate.root == root)
         #expect(preview.changes.isEmpty)
     }
@@ -49,7 +49,7 @@ struct ConflictReviewCompilerTests {
         var proposal = draft(root, [a])
         proposal.keepCurrent = true
         #expect(!proposal.supportsKeepingCurrent)
-        #expect(throws: ConflictReviewError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: [:]) }
+        #expect(throws: ConflictReviewError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: [:], at: 0) }
     }
 
     struct Fixture {
@@ -83,13 +83,13 @@ struct ConflictReviewCompilerTests {
             }
             return try JSONDecoder().decode(ConflictReviewDecision.self, from: JSONSerialization.data(withJSONObject: [
                 "id": id, "kind": path == "/" ? "directory" : "entry", "selected": "\(id)-0", "alternatives": alternatives,
-                "affected": [["material": ["kind": "basis", "path": path, "object": root]]], "dependencies": dependencies, "actions": ["resolveConflict"]
+                "affected": [["material": ["kind": "basis", "path": path, "object": root]]], "dependencies": dependencies
             ]))
         }
     }
     private func sourceDecision(_ id: String, range: [Int], file: String, alternatives: [String]) throws -> ConflictReviewDecision {
         try JSONDecoder().decode(ConflictReviewDecision.self, from: JSONSerialization.data(withJSONObject: [
-            "id": id, "kind": "content", "selected": "\(id)-0", "dependencies": [], "actions": ["resolveConflict"],
+            "id": id, "kind": "content", "selected": "\(id)-0", "dependencies": [],
             "affected": [["material": ["kind": "basis", "path": "/page.md", "object": file], "range": range]],
             "alternatives": alternatives.enumerated().map { ["id": "\(id)-\($0.offset)", "revision": "revision", "value": ["file": $0.element]] }
         ]))
@@ -98,33 +98,33 @@ struct ConflictReviewCompilerTests {
     @Test func sourceRangePreservesExactSurroundingsAndAnotherChoice() throws {
         var f = Fixture()
         let full = try f.file("éAAA bCCC\r\n"), first = try f.file("AAA"), second = try f.file("CCC"), hidden = try f.file("X")
-        let root = try f.directory([.init(name: "page.md", file: full)])
+        let root = try f.directory([.init(name: "page.md", file: full, created: 0, modified: 0)])
         let a = try sourceDecision("a", range: [2, 5], file: full, alternatives: [first, hidden])
         let b = try sourceDecision("b", range: [7, 10], file: full, alternatives: [second])
         var proposal = draft(root, [a, b]); proposal.alternative = "a-1"
-        let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
+        let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b], at: 0)
         let result = try #require(preview.changes.first { $0.path == "/page.md" }?.after?.file)
         #expect(result == ProtocolObjectCodec.hash(Data("éX bCCC\r\n".utf8)))
         #expect(preview.operations?.map(\.kind) == ["copySource", "editSource"])
         proposal.source = "e\u{301}\r\n"
-        let composed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
+        let composed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b], at: 0)
         #expect(composed.changes.first { $0.path == "/page.md" }?.after?.file == ProtocolObjectCodec.hash(Data("ée\u{301}\r\n bCCC\r\n".utf8)))
         #expect(composed.operations?.map(\.kind) == ["editSource"])
         proposal.source = nil; proposal.remove = true
-        let removed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b])
+        let removed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [a, b], at: 0)
         #expect(removed.changes.first { $0.path == "/page.md" }?.after?.file == ProtocolObjectCodec.hash(Data("é bCCC\r\n".utf8)))
     }
 
     @Test func rangesRejectInvalidBoundariesStaleFileIdentityAndOverlap() throws {
         var f = Fixture()
-        let full = try f.file("éABC"), fragment = try f.file("X"), root = try f.directory([.init(name: "page.md", file: full)])
+        let full = try f.file("éABC"), fragment = try f.file("X"), root = try f.directory([.init(name: "page.md", file: full, created: 0, modified: 0)])
         for (range, file) in [([1, 2], full), ([0, 99], full), ([2, 3], fragment)] {
             let bad = try sourceDecision("bad", range: range, file: file, alternatives: [fragment])
-            #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(draft(root, [bad]), base: f.snapshot(root), material: f.objects) }
+            #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(draft(root, [bad]), base: f.snapshot(root), material: f.objects, at: 0) }
         }
         let a = try sourceDecision("a", range: [2, 4], file: full, alternatives: [fragment])
         let b = try sourceDecision("b", range: [3, 5], file: full, alternatives: [fragment])
-        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(draft(root, [a]), base: f.snapshot(root), material: f.objects, allDecisions: [a, b]) }
+        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(draft(root, [a]), base: f.snapshot(root), material: f.objects, allDecisions: [a, b], at: 0) }
     }
 
     @Test func sourceChoiceInsideWholeFileChoiceResolvesWithTheFile() throws {
@@ -133,7 +133,7 @@ struct ConflictReviewCompilerTests {
         let older = ProtocolObjectCodec.hash(Data("older page with a block\n".utf8))
         let current = try f.file("current page\n"), previous = try f.file("previous page\n")
         let removed = try f.file(""), block = try f.file("a block\n")
-        let root = try f.directory([.init(name: "page.md", file: current)])
+        let root = try f.directory([.init(name: "page.md", file: current, created: 0, modified: 0)])
         let inner = try sourceDecision("inner", range: [11, 19], file: older, alternatives: [removed, block])
         let outer = try f.decision("outer", path: "/page.md", values: [["file": current], ["file": previous]], dependencies: ["inner"], root: root)
         let again = try f.decision("again", path: "/page.md", values: [["file": current], ["file": previous]], dependencies: ["inner"], root: root)
@@ -142,15 +142,15 @@ struct ConflictReviewCompilerTests {
         try proposal.choose(again.id, alternative: "again-1")
         // Linked whole-file choices must agree on the file's version.
         #expect(throws: ConflictReviewProposalError.self) {
-            try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+            try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0)
         }
         try proposal.choose(again.id, alternative: "again-0")
-        let kept = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        let kept = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0)
         #expect(kept.changes.allSatisfy { $0.after?.file == current || $0.path != "/page.md" })
         // Only the whole file's version can change the file.
         proposal.alternative = "inner-1"
         #expect(throws: ConflictReviewProposalError.self) {
-            try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+            try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0)
         }
     }
 
@@ -162,75 +162,75 @@ struct ConflictReviewCompilerTests {
     @Test func childChoiceOverridesChosenDirectoryAndMissingChoicesBlockPreview() throws {
         var f = Fixture()
         let original = try f.file("original\n"), other = try f.file("other\n")
-        let directory = try f.directory([.init(name: "note.md", file: original)])
+        let directory = try f.directory([.init(name: "note.md", file: original, created: 0, modified: 0)])
         let root = try f.directory([.init(name: "folder", directory: directory)])
         let parent = try f.decision("parent", path: "/folder", values: [["directory": directory]], dependencies: ["child"], root: root)
         let child = try f.decision("child", path: "/folder/note.md", values: [["file": original], ["file": other]], root: root)
         var proposal = draft(root, [parent, child])
         #expect(proposal.obligations.count == 1)
-        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects) }
+        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0) }
         try proposal.choose(child.id, alternative: "child-1")
-        let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        let preview = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0)
         #expect(preview.changes.first(where: { $0.path == "/folder/note.md" })?.after?.file == other)
         #expect(preview.fingerprint == (try proposal.fingerprint()))
         #expect(proposal.snapshot.group(containing: child.id).count == 2)
         // Removing a child must not be undone by reinstalling its parent version.
         proposal.set(.init(alternative: "child-0", remove: true), for: child.id)
-        let removed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        let removed = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0)
         #expect(removed.changes.first(where: { $0.path == "/folder/note.md" })?.after == nil)
         proposal.destination = "/moved"
-        let moved = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        let moved = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0)
         #expect(!moved.changes.contains { $0.path == "/moved/note.md" && $0.after != nil })
     }
 
     @Test func rootRemovalRequiresExplicitChildDisposition() throws {
         var f = Fixture()
-        let file = try f.file("retained"), folder = try f.directory([.init(name: "note.md", file: file)])
+        let file = try f.file("retained"), folder = try f.directory([.init(name: "note.md", file: file, created: 0, modified: 0)])
         let root = try f.directory([.init(name: "folder", directory: folder)]), empty = try f.directory([])
         let parent = try f.decision("root", path: "/", values: [["directory": root], ["directory": empty]], dependencies: ["child"], root: root)
         let child = try f.decision("child", path: "/folder/note.md", values: [["file": file]], root: root)
         var proposal = draft(root, [parent, child]); try proposal.choose(parent.id, alternative: "root-1")
         try proposal.choose(child.id, alternative: "child-0")
-        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects) }
+        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0) }
         proposal.set(.init(alternative: "child-0", destination: "/rescued.md"), for: child.id)
-        let rescued = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        let rescued = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0)
         #expect(rescued.changes.first(where: { $0.path == "/rescued.md" })?.after?.file == file)
         proposal.set(.init(alternative: "child-0", remove: true), for: child.id)
-        #expect(try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects).candidate.root == empty)
+        #expect(try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0).candidate.root == empty)
     }
 
     @Test func swapsAreAtomicAndCollisionsDoNotOverwriteUnrelatedEntries() throws {
         var f = Fixture()
         let a = try f.file("A"), b = try f.file("B"), c = try f.file("C")
-        let root = try f.directory([.init(name: "a", file: a), .init(name: "b", file: b), .init(name: "c", file: c)])
+        let root = try f.directory([.init(name: "a", file: a, created: 0, modified: 0), .init(name: "b", file: b, created: 0, modified: 0), .init(name: "c", file: c, created: 0, modified: 0)])
         let first = try f.decision("a", path: "/a", values: [["file": a]], dependencies: ["b"], root: root)
         let second = try f.decision("b", path: "/b", values: [["file": b]], root: root)
         var proposal = draft(root, [first, second]); proposal.destination = "/b"
         proposal.set(.init(alternative: "b-0", destination: "/a"), for: "b")
-        let swapped = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects)
+        let swapped = try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0)
         #expect(swapped.changes.first(where: { $0.path == "/a" })?.after?.file == b)
         #expect(swapped.changes.first(where: { $0.path == "/b" })?.after?.file == a)
         #expect(!swapped.changes.contains { $0.path == "/c" })
         proposal.destination = "/c"
-        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects) }
+        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0) }
         proposal.destination = "/a"
-        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects) }
+        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0) }
     }
 
     @Test func boundariesCannotBeTraversedAndUnreviewedChoicesAreProtected() throws {
         var f = Fixture()
         let a = try f.file("A"), b = try f.file("B")
-        let root = try f.directory([.init(name: "a", file: a), .init(name: "linked", tree: "tr_0123456789abcdefghijklmnopqrstuv")])
+        let root = try f.directory([.init(name: "a", file: a, created: 0, modified: 0), .init(name: "linked", tree: "tr_0123456789abcdefghijklmnopqrstuv")])
         let first = try f.decision("a", path: "/a", values: [["file": a], ["file": b]], root: root)
         var proposal = draft(root, [first]); proposal.destination = "/linked/child"
-        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects) }
+        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, at: 0) }
         proposal.destination = nil; proposal.alternative = "a-1"
         let other = try f.decision("other", path: "/", values: [["directory": root]], root: root)
-        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [other]) }
+        #expect(throws: ConflictReviewProposalError.self) { try ConflictReviewCompiler.compile(proposal, base: f.snapshot(root), material: f.objects, allDecisions: [other], at: 0) }
     }
 
     @Test func secondaryCompositionFingerprintPreservesScalarSpellingAndJournalRecovery() throws {
-        var f = Fixture(); let file = try f.file("x"), root = try f.directory([.init(name: "a", file: file), .init(name: "b", file: file)])
+        var f = Fixture(); let file = try f.file("x"), root = try f.directory([.init(name: "a", file: file, created: 0, modified: 0), .init(name: "b", file: file, created: 0, modified: 0)])
         let a = try f.decision("a", path: "/a", values: [["file": file]], dependencies: ["b"], root: root)
         let b = try f.decision("b", path: "/b", values: [["file": file]], root: root)
         var proposal = draft(root, [a, b]); proposal.set(.init(alternative: "b-0", source: "é\r\n"), for: "b")
@@ -242,7 +242,7 @@ struct ConflictReviewCompilerTests {
         let files = try UpdateControlFiles(root: directory); try files.writeReview(.init(drafts: [proposal]))
         let reopened = try #require(files.loadReview().drafts.first)
         #expect(try reopened.fingerprint() == proposal.fingerprint())
-        let preview = try ConflictReviewCompiler.compile(reopened, base: f.snapshot(root), material: f.objects)
+        let preview = try ConflictReviewCompiler.compile(reopened, base: f.snapshot(root), material: f.objects, at: 0)
         #expect(preview.changes.first(where: { $0.path == "/b" })?.after?.file == ProtocolObjectCodec.hash(Data("e\u{301}\r\n".utf8)))
     }
 }

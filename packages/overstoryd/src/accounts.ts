@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { generateOverstoryID, sha256 } from "@ovst/protocol";
 import type { PairingOffer, ServerDevice } from "@ovst/protocol";
@@ -19,8 +18,6 @@ export interface PairingRecord {
   claimedAt: number | null;
   claimedDevice: string | null;
   accountEnabled: boolean;
-  /** Constant-time comparison of a presented secret against the stored digest. */
-  secretMatches(secret: string): boolean;
 }
 
 /** Accounts, device keys and sessions, and pairing offers: the rows behind every authenticated request. */
@@ -79,7 +76,7 @@ export class AccountDirectory {
     return { account: this.account(device.account_id)!, subject: `device:${device.device_id}` as const, device: device.device_id, expiresAt: device.expires_at };
   }
 
-  /** Each device's clients by product (the name before `/`), as each last named itself since this process started. */
+  /** Each device's clients by product (the name before `/`), as each last named itself; `devices.clients` keeps them. */
   private readonly clients = new Map<string, Map<string, string>>();
 
   /**
@@ -92,13 +89,20 @@ export class AccountDirectory {
     const named = client?.trim().slice(0, 200);
     if (!named) return null;
     const product = named.split(/[/ ]/, 1)[0]!;
-    const clients = this.clients.get(device) ?? new Map<string, string>();
+    let clients = this.clients.get(device);
+    if (!clients) {
+      const stored = (this.db.query("SELECT clients FROM devices WHERE id = ?").get(device) as { clients: string | null } | null)?.clients;
+      clients = new Map(Object.entries(stored ? JSON.parse(stored) as Record<string, string> : {}));
+      this.clients.set(device, clients);
+    }
     if (clients.get(product) === named) return null;
-    this.clients.set(device, clients.set(product, named));
+    clients.set(product, named);
+    // Written only when a product's name changes, so not on every request.
+    this.db.run("UPDATE devices SET clients = ? WHERE id = ?", [JSON.stringify(Object.fromEntries(clients)), device]);
     return named;
   }
 
-  /** The clients a device last named, since this process started. */
+  /** The clients a device last named, as far as this process has seen. */
   deviceClients(device: string): string[] {
     return [...(this.clients.get(device)?.values() ?? [])];
   }
@@ -252,8 +256,9 @@ export class AccountDirectory {
       throw new PlacementAccountError(account.homeHost, `${options.recovery ? "Recovery" : "Pairing"} is not available here: ~${account.handle} is a placement account, and its profile's configuration and devices are at its home host ${account.homeHost}`);
     }
     const id = generateOverstoryID(options.recovery ? "pr" : "pa");
-    const secret = `arp_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
-    const confirmationCode = String(Number.parseInt(sha256(secret).slice(0, 12), 16) % 1_000_000).padStart(6, "0");
+    // The code is the pairing's only name; the host keeps its digest (accounts §4).
+    const code = `${options.recovery ? "arr" : "arp"}_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+    const confirmationCode = String(Number.parseInt(sha256(code).slice(0, 12), 16) % 1_000_000).padStart(6, "0");
     const now = Date.now();
     const expiresAt = now + (options.recovery ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000);
     // An expired unclaimed pairing can never be claimed; a claimed one stays for exact replay.
@@ -261,18 +266,19 @@ export class AccountDirectory {
     this.db.run(`
       INSERT INTO pairings (id, account_id, secret_digest, confirmation_code, expires_at)
       VALUES (?, ?, ?, ?, ?)
-    `, [id, account.id, sha256(secret), confirmationCode, expiresAt]);
-    return { id, secret, confirmationCode, expiresAt };
+    `, [id, account.id, sha256(code), confirmationCode, expiresAt]);
+    return { code, confirmationCode, expiresAt };
   }
 
-  pairing(id: string): PairingRecord | null {
+  /** The pairing a code names, found by the code's digest. */
+  pairingByCode(code: string): PairingRecord | null {
     const row = this.db.query(`
       SELECT p.*, a.enabled AS account_enabled
       FROM pairings p JOIN accounts a ON a.id = p.account_id
-      WHERE p.id = ?
-    `).get(id) as {
+      WHERE p.secret_digest = ?
+    `).get(sha256(code)) as {
+      id: string;
       account_id: string;
-      secret_digest: string;
       confirmation_code: string;
       expires_at: number;
       claimed_at: number | null;
@@ -281,18 +287,13 @@ export class AccountDirectory {
     } | null;
     if (!row) return null;
     return {
-      id,
+      id: row.id,
       accountID: row.account_id,
       confirmationCode: row.confirmation_code,
       expiresAt: row.expires_at,
       claimedAt: row.claimed_at,
       claimedDevice: row.claimed_device,
       accountEnabled: row.account_enabled === 1,
-      secretMatches: (secret) => {
-        const presented = Buffer.from(sha256(secret));
-        const expected = Buffer.from(row.secret_digest);
-        return presented.length === expected.length && timingSafeEqual(presented, expected);
-      },
     };
   }
 

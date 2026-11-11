@@ -33,11 +33,11 @@ export function directorySeed(): { root: string; objects: Map<string, Uint8Array
     const schema = readFileSync(join(source, name, "schema.usl"));
     const encoded = encodeCollection(compileLogicalSchema(schema), {});
     for (const [hash, bytes] of encoded.objects) objects.set(hash, bytes);
-    return { name, directory: directory([{ name: "schema.usl", file: put(schema) }], encoded.reference) };
+    return { name, directory: directory([{ name: "schema.usl", file: put(schema), created: 0, modified: 0 }], encoded.reference) };
   };
   const root = directory([
-    { name: "_index.md", file: put(readFileSync(join(source, "_index.md"))) },
-    { name: "_version", file: put(readFileSync(join(source, "_version"))) },
+    { name: "_index.md", file: put(readFileSync(join(source, "_index.md"))), created: 0, modified: 0 },
+    { name: "_version", file: put(readFileSync(join(source, "_version"))), created: 0, modified: 0 },
     collection("people"),
     collection("trees"),
   ]);

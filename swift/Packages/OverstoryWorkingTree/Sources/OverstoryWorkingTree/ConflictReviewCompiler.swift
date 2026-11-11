@@ -4,7 +4,10 @@ import Foundation
 /// Pure graph compilation after authorized material loading. No live document is
 /// mutated, and no operation history is guessed from a directory diff.
 enum ConflictReviewCompiler {
-    static func compile(_ draft: ConflictReviewDraft, base: ProtocolSnapshot, material: [String: Data], allDecisions: [ConflictReviewDecision] = []) throws -> ConflictReviewPreview {
+    /// `at` (Unix ms) is the resolution's time: a chosen file or page entry is
+    /// stamped against the entry at its old path in `base` (data model §6).
+    static func compile(_ draft: ConflictReviewDraft, base: ProtocolSnapshot, material: [String: Data], allDecisions: [ConflictReviewDecision] = [],
+                        at: Int) throws -> ConflictReviewPreview {
         guard base.root == draft.snapshot.root else { throw ConflictReviewError.changed }
         _ = try ProtocolObjectGraph.validate(base)
         // Keeping current contents chooses no version, so it has no version obligations.
@@ -222,7 +225,11 @@ enum ConflictReviewCompiler {
                     }
                 }
             }
-            root = try rewrite(root, names: parts(assignment.destination), depth: 0, value: assignment.value)
+            var value = assignment.value
+            if let chosen = value, let kind = chosen.kind, kind != .directory, let object = chosen.hash {
+                value = .stamped(kind, name: chosen.name, object: object, previous: try entry(assignment.old, in: base.root), at: at)
+            }
+            root = try rewrite(root, names: parts(assignment.destination), depth: 0, value: value)
             if assignment.value?.directory != nil {
                 for child in assignments where child.old.hasPrefix(assignment.old + "/") {
                     let carriedPath = assignment.destination + child.old.dropFirst(assignment.old.count)

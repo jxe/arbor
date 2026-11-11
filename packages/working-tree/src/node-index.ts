@@ -113,7 +113,7 @@ export class NodeIndex {
         if (entry.directory) return visit(entry.directory as ObjectHash);
         const object = (entry.page ?? entry.file) as ObjectHash | undefined;
         if (!object) return;
-        if (policy === "everything" || entry.page || /\.mdx?$/.test(entry.name)) await fetch(object);
+        if (policy === "everything" || entry.page || entry.name.endsWith(".md")) await fetch(object);
       }));
     };
     await visit(this.rootHash);

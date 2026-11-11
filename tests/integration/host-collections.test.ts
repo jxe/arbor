@@ -26,7 +26,6 @@ const LIST = "10000000-0000-4000-8000-000000000001";
 let sandbox: string, state: string, folder: string, dataRoot: string, tree: string;
 let host: Awaited<ReturnType<typeof serveHost>>;
 let apps: HostCollectionsOptions;
-const document = (id: string) => ({ tree: id, path: "/supplies/List.tsx", version: "doc-v1" });
 /** Views the test adds beside Supplies' own code; its helpers keep their own places. */
 const TEST_VIEWS = `import { view } from "overstory/data"
 import { z } from "zod"
@@ -169,7 +168,7 @@ async function nextResult(stream: AsyncGenerator<{ event: string; data: any }>):
 
 async function requestViews(origin: string, controller: AbortController, views: ViewsRequest["views"]) {
   const session = await deviceSession(origin, token);
-  const request: ViewsRequest = { document: document(tree), views };
+  const request: ViewsRequest = { views };
   return fetch(`${origin}/.overstory/trees/${tree}/views`, {
     method: "QUERY",
     headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
@@ -186,7 +185,7 @@ async function openView(origin: string, controller: AbortController, name = "lis
 
 async function mutate(input: unknown, mutationID: string) {
   const session = await deviceSession(host.url, token);
-  const request: MutationCallRequest = { document: document(tree), handle: handles.createList!, mutationID, input };
+  const request: MutationCallRequest = { handle: handles.createList!, mutationID, input };
   const response = await fetch(`${host.url}/.overstory/trees/${tree}/mutate`, {
     method: "POST",
     headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
@@ -323,6 +322,9 @@ describe.serial("rows on the host", () => {
     expect(submitted).toHaveLength(1);
     expect(submitted[0].updates[0].ifCurrent).toBe(submitted[0].base);
     expect(submitted[0].updates[0].trace[0].operations).toEqual([expect.objectContaining({ kind: "rowCreate", model: "List", at: "2026-10-24T12:00:00.000Z" })]);
+    // The receipt names the update its writes made: the tree's newest.
+    const accepted = host.overstoryd.acceptedUpdates(tree);
+    expect(first.body.affected).toEqual({ tree, update: accepted[accepted.length - 1]!.id });
     const retry = await mutate({ name: "Made on the host", visibility: "Private" }, "host-create");
     expect(retry.body).toEqual(first.body);
     expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 1);
@@ -376,7 +378,7 @@ describe.serial("rows on the host", () => {
       const text = new TextDecoder().decode(snapshot.objects.get(index.file!)!);
       const named = new TextEncoder().encode(text.replace(/^displayName: .*$/m, "displayName: Olive Owner"));
       const file = hashObject(named);
-      const directory = encodeProtocolDirectory({ ...root, entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file } : entry) });
+      const directory = encodeProtocolDirectory({ ...root, entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file, created: 0, modified: 0 } : entry) });
       await owner.submitUpdate(profile, current.tree.update, { root: hashObject(directory), objects: new Map([...snapshot.objects, [file, named], [hashObject(directory), directory]]) } as never);
       expect((await nextResult(stream)).value).toEqual({ id, owner: { id: profile, name: "Olive Owner", handle: "owner" } });
     } finally {
@@ -436,10 +438,10 @@ describe.serial("rows on the host", () => {
         const root = decodeProtocolDirectory(rootBytes);
         const note = new TextEncoder().encode("elsewhere\n");
         const noteHash = hashObject(note);
-        const next = encodeProtocolDirectory({ ...root, entries: [...root.entries.filter((entry) => entry.name !== "note.md"), { name: "note.md", file: noteHash }].sort((x, y) => x.name < y.name ? -1 : 1) });
+        const next = encodeProtocolDirectory({ ...root, entries: [...root.entries.filter((entry) => entry.name !== "note.md"), { name: "note.md", file: noteHash, created: 0, modified: 0 }].sort((x, y) => x.name < y.name ? -1 : 1) });
         const nextHash = hashObject(next);
         // The device's own update, not the sidecar's: outside its execution authority.
-        const other = await host.overstoryd.execution.run(undefined, () => submit(id, { base: head.tree.update, updates: [{ change: `note-${Date.now()}`, candidate: nextHash, trace: null, resolves: [], deltas: [],
+        const other = await host.overstoryd.execution.run(undefined, () => submit(id, { base: head.tree.update, updates: [{ change: `note-${Date.now()}`, at: new Date().toISOString(), candidate: nextHash, trace: null, resolves: [], deltas: [],
           objects: [{ hash: noteHash, bytes: note }, { hash: nextHash, bytes: next }] }] } as any, caller));
         expect(other.status).toBe(201);
       }

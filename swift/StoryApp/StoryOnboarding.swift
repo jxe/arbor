@@ -587,7 +587,7 @@ struct StoryMacOnboarding: View {
     private func chooseTrees(_ account: HostAccount) async throws {
         guard connected else { return }
         let wire = try await workspace.accountService.client(for: account)
-        treeChoices = try await wire.trees().snapshot.filter { $0.id != account.configurationTree }
+        treeChoices = try await wire.trees().trees.filter { $0.id != account.configurationTree }
     }
 
     /// The data home names this Mac's device itself and ignores the label.

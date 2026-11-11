@@ -21,7 +21,7 @@ struct LiveChangeLogTests {
         let descriptor = try await client.descriptor(tree: treeID)
         let graph = try PublicationTests.branchFixture(tree: treeID)[0].graph
         let seed = try await client.prepareUpdates(tree: treeID, base: .init(root: descriptor.tree.root, update: descriptor.tree.update),
-            updates: [.init(candidate: graph.root, change: UUID().uuidString, trace: nil, objects: graph.objects)])
+            updates: [.init(candidate: graph.root, change: UUID().uuidString, at: ProtocolEntryTime.now(), trace: nil, objects: graph.objects)])
         _ = try await client.submitUpdateResponse(seed)
         let tree = try await place(try await client.descriptor(tree: treeID), client: client)
         let coordinator = try UpdateCoordinator(workingTree: tree, transport: transport, stateRoot: root, publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
@@ -81,7 +81,7 @@ struct LiveChangeLogTests {
         let tree = try await WorkingTree.inMemory(tree: TreeID(rawValue: current.tree.id))
         let snapshot = try await client.snapshot(tree: current.tree.id, root: current.tree.root)
         try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: snapshot,
-            tree: TreeID(rawValue: current.tree.id), update: current.tree.update, cursor: current.observedThrough))
+            tree: TreeID(rawValue: current.tree.id), update: current.tree.update, cursor: current.tree.update))
         return tree
     }
 
@@ -197,7 +197,7 @@ struct LiveChangeLogTests {
             })
         }
         #expect(guards.contains { $0.conflict == conflict && Set($0.alternatives) == Set(identities) })
-        let resolution = ProtocolCandidateUpdate(candidate: current.tree.root, trace: [], resolves:guards, objects: [])
+        let resolution = ProtocolCandidateUpdate(candidate: current.tree.root, at: ProtocolEntryTime.now(), trace: [], resolves:guards, objects: [])
         var staleResolution = resolution
         staleResolution.change = UUID().uuidString
         staleResolution.resolves[0].state = firstConflict.tree.update
@@ -372,7 +372,7 @@ extension LiveChangeLogTests {
         guard case let .directory(existing,descriptor) = try ProtocolObjectCodec.decode(#require(objects[snapshot.root]),kind:.directory),
               case let .directory(additions,_) = try ProtocolObjectCodec.decode(#require(fixtureObjects[fixture.graph.root]),kind:.directory) else { Issue.record("Expected directories"); return }
         let bytes = try ProtocolObjectCodec.encode(.directory((existing + additions).sorted { $0.name < $1.name },collection:descriptor))
-        let seed = ProtocolCandidateUpdate(candidate:ProtocolObjectCodec.hash(bytes),change:UUID().uuidString,objects:fixture.graph.objects + [.init(hash:ProtocolObjectCodec.hash(bytes),bytes:bytes)])
+        let seed = ProtocolCandidateUpdate(candidate:ProtocolObjectCodec.hash(bytes),change:UUID().uuidString,at:ProtocolEntryTime.now(),objects:fixture.graph.objects + [.init(hash:ProtocolObjectCodec.hash(bytes),bytes:bytes)])
         _ = try await client.submitUpdateResponse(client.prepareUpdates(tree:treeID,base:.init(root:current.tree.root,update:current.tree.update),updates:[seed]))
         let initial = try await client.descriptor(tree:treeID), tree = try await place(initial,client:client)
         let coordinator = try UpdateCoordinator(workingTree:tree,transport:transport,stateRoot:root ,publicationDelay:.seconds(3600),publicationMaxDelay:.seconds(3600))
@@ -453,7 +453,7 @@ extension LiveChangeLogTests {
             // Keep current contents. It must reach the host despite equal bytes.
             let accepted = try await tree.captureAcceptedGraph()
             let change = UUID().uuidString
-            let update = ProtocolCandidateUpdate(candidate: accepted.graph.root, change: change, trace: nil,
+            let update = ProtocolCandidateUpdate(candidate: accepted.graph.root, change: change, at: ProtocolEntryTime.now(), trace: nil,
                 resolves: [.init(state: inspection.state, conflict: decision.id, alternatives: decision.alternatives.map(\.id))],
                 ifCurrent: inspection.state, objects: [])
             let record = try LocalChange(change: change, tree: treeID, basis: .accepted(accepted.base),
@@ -477,7 +477,7 @@ extension LiveChangeLogTests {
             guard case let .directory(entries, metadata) = try ProtocolObjectCodec.decode(rootBytes, kind: .directory) else { throw ConflictReviewError.unavailable }
             let deletionBytes = try ProtocolObjectCodec.encode(.directory(entries.filter { $0.name != "page.md" }, collection: metadata))
             let deletionRoot = ProtocolObjectCodec.hash(deletionBytes)
-            let deletion = ProtocolCandidateUpdate(candidate: deletionRoot, trace: nil,
+            let deletion = ProtocolCandidateUpdate(candidate: deletionRoot, at: ProtocolEntryTime.now(), trace: nil,
                 objects: [.init(hash: deletionRoot, bytes: deletionBytes)])
             let deletionRequest = try await client.prepareUpdates(tree: treeID,
                 base: .init(root: inspection.root, update: inspection.state), updates: [deletion])

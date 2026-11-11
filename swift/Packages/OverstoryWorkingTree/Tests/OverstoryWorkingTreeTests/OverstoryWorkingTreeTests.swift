@@ -88,7 +88,7 @@ struct WorkingTreeFixtureTests {
             case "file": bytes = Data(base64Encoded: vector.model.bytesBase64!)!
             case "directory":
                 bytes = ProtocolObjectCodec.directoryBytes(
-                    vector.model.entries!.map { ProtocolDirectoryEntry(name: $0.name, file: $0.file, directory: $0.directory, tree: $0.tree) },
+                    vector.model.entries!.map { ProtocolDirectoryEntry(name: $0.name, file: $0.file, directory: $0.directory, tree: $0.tree, page: $0.page, created: $0.created, modified: $0.modified) },
                     collection: vector.model.collection
                 )
             // Table and rows objects are Overstory's to encode; its own vector test covers them.
@@ -868,6 +868,9 @@ private struct ProtocolFixture: Decodable {
                 var file: String?
                 var directory: String?
                 var tree: String?
+                var page: String?
+                var created: Int?
+                var modified: Int?
             }
             var type: String
             var bytesBase64: String?

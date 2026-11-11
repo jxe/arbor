@@ -53,35 +53,24 @@ public struct ProtocolAuthoredCandidate: Codable, Sendable, Equatable {
         }
     }
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case change, candidate, trace, resolves, ifCurrent, objects, deltas
+        case change, at, candidate, trace, resolves, ifCurrent, objects, deltas
     }
     public init(from decoder: Decoder) throws {
         try validateSemanticFields(decoder, allowed: Set(CodingKeys.allCases.map(\.rawValue)))
         let c = try decoder.container(keyedBy: CodingKeys.self)
         var intent: [String: ProtocolSemanticValue] = [:]
-        for key in [CodingKeys.change, .candidate, .trace, .resolves, .ifCurrent] where c.contains(key) {
+        for key in [CodingKeys.change, .at, .candidate, .trace, .resolves, .ifCurrent] where c.contains(key) {
             intent[key.rawValue] = try c.decode(ProtocolSemanticValue.self, forKey: key)
         }
-        // Read bytes by the decoder's encoding: JSON's base64 is validated as
-        // canonical before Foundation's Data decoder could normalize it.
-        let envelopes = try c.decode([EncodedEnvelope].self, forKey: .objects)
-        let payload = ProtocolTransitionPayload(objects: envelopes.map(\.object), deltas: try c.decode([ProtocolObjectDelta].self, forKey: .deltas))
+        // Objects travel as their bytes, read by the decoder's encoding: JSON's
+        // base64 is validated as canonical before Foundation could normalize it.
+        let payload = ProtocolTransitionPayload(objects: try ProtocolWirePayload.objects(c, forKey: .objects),
+                                                deltas: try ProtocolWirePayload.deltas(c, forKey: .deltas))
         try self.init(intent: intent, payload: payload)
     }
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         for (name, value) in intentFields { try c.encode(value, forKey: CodingKeys(rawValue: name)!) }
-        try c.encode(payload.objects, forKey: .objects)
-        try c.encode(payload.deltas, forKey: .deltas)
-    }
-    private struct EncodedEnvelope: Decodable {
-        let object: ProtocolObjectEnvelope
-        private enum CodingKeys: String, CodingKey { case hash, bytes }
-        init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            let hash = try c.decode(String.self, forKey: .hash)
-            let bytes = try decodeProtocolBytes(c, forKey: .bytes, from: decoder, invalid: "Object bytes must use canonical padded base64")
-            object = ProtocolObjectEnvelope(hash: hash, bytes: bytes)
-        }
+        try ProtocolWirePayload.encode(objects: payload.objects, deltas: payload.deltas, into: &c, objectsKey: .objects, deltasKey: .deltas)
     }
 }

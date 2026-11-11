@@ -1,6 +1,8 @@
 import {
   decodeProtocolDirectory,
+  mergedEntryTimes,
   mergeTreeConfigs,
+  stampedEntry,
   readTreeConfigGraph,
   sameTreeConfigValue,
   semanticTreeConfig,
@@ -98,7 +100,16 @@ export async function mergeTreeConfigTrees(
   const [b, c, r] = await Promise.all([base, candidate, current].map(graphAt));
   if (!b || !c || !r) return { root: candidate, objects: new Map(), conflicts: [{ path: "/", reason: TREE_CONFIG_CONFLICT }] };
   const merged = mergeTreeConfigs(b, c, r);
-  const output = snapshotTreeConfig(merged.values);
+  // Each file's times merge as an entry's do (data model §6).
+  const [bd, cd, rd] = await Promise.all([base, candidate, current].map(async (root) =>
+    new Map(decodeProtocolDirectory(await load(root)).entries.map((entry) => [entry.name, entry]))));
+  const latest = Math.max(0, ...[cd!, rd!].flatMap((entries) => [...entries.values()].map((entry) => entry.modified ?? 0)));
+  const output = snapshotTreeConfig(merged.values, (kind, name, object) => {
+    const times = mergedEntryTimes(bd!.get(name), cd!.get(name), rd!.get(name));
+    // A file no input held (a canonical default) takes the newest input time.
+    const entry = stampedEntry(kind, name, object, undefined, times?.modified ?? latest);
+    return times ? { ...entry, ...times } : entry;
+  });
   return {
     root: output.root,
     objects: output.objects,

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { HANDLE_PATH, PROFILE_LOCATOR, parseProfileLocator, type ObjectHash, type RootProfileFacts, type RootProfileRead } from "@ovst/protocol";
-import type { EntryChanges } from "./updates/entry-metadata.ts";
+import type { EntryChanges } from "./updates/document-versions.ts";
 
 // A profile's card facts are read from objects alone, in @ovst/protocol.
 export {

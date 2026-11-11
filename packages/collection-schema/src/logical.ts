@@ -4,7 +4,9 @@
 
 import {
   canonicalCBORHash,
+  CBORTag,
   collectionLogicalHash,
+  pageTimestamp,
   compareUTF8,
   decodeCollectionReference,
   encodeLogicalTable,
@@ -259,6 +261,34 @@ export interface EncodedCollection {
   objects: Map<Hash, Uint8Array>;
 }
 
+/** The Date fields of a model, by name: a rows object tags their values (collections §2). */
+function dateFields(model: LogicalModel): Set<string> {
+  return new Set([...model.keyFields, ...model.fields].filter((field) => field.type === "Date").map((field) => field.name));
+}
+
+/** A Date value as a rows object holds it: tag 1004 around a date, tag 0 around a UTC date-time. */
+function tagDate(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(tagDate);
+  if (typeof value !== "string") return value;
+  const tagged = pageTimestamp(value) ?? (Number.isNaN(Date.parse(value)) ? null : pageTimestamp(new Date(Date.parse(value)).toISOString()));
+  if (!tagged) throw new TypeError(`${JSON.stringify(value)} is not a date`);
+  return tagged;
+}
+function untagDate(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(untagDate);
+  return value instanceof CBORTag ? value.value : value;
+}
+/** Rows with their Date fields tagged, or untagged; rows of a model with none are the same objects. */
+function convertDates(model: LogicalModel, rows: readonly LogicalRow[], convert: (value: unknown) => unknown): LogicalRow[] {
+  const dates = dateFields(model);
+  if (!dates.size) return rows as LogicalRow[];
+  return rows.map((row) => ({
+    ...row,
+    key: row.key.map(([name, value]) => [name, dates.has(name) ? convert(value) : value]) as LogicalRow["key"],
+    fields: Object.fromEntries(Object.entries(row.fields).map(([name, value]) => [name, dates.has(name) ? convert(value) : value])) as LogicalRow["fields"],
+  }));
+}
+
 /**
  * Encode valid tables as the tree holds them: one table per logical model,
  * empty ones included, in model order. Rows may come in any order. Throws
@@ -271,7 +301,7 @@ export function encodeCollection(schema: LogicalSchema, tables: LogicalTables): 
   if (diagnostics.length > 0) throw new LogicalCollectionError(diagnostics);
   const objects = new Map<Hash, Uint8Array>();
   const encoded = schema.models.map((model) => {
-    const table = encodeLogicalTable((sorted[model.name] ?? []) as LogicalRow[]);
+    const table = encodeLogicalTable(convertDates(model, (sorted[model.name] ?? []) as LogicalRow[], tagDate));
     for (const [hash, bytes] of table.objects) objects.set(hash, bytes);
     return { model: model.name, table: table.hash };
   });
@@ -299,7 +329,10 @@ export async function loadCollection(
     throw new TypeError(`collection.tables must name ${expected.join(", ") || "no models"}, in order`);
   }
   const tables: LogicalTables = {};
-  for (const { model, table } of reference.tables) tables[model] = await loadLogicalTable(table, load);
+  for (const { model, table } of reference.tables) {
+    const logical = schema.models.find((m) => m.name === model)!;
+    tables[model] = convertDates(logical, await loadLogicalTable(table, load), untagDate) as unknown as LogicalTables[string];
+  }
   const diagnostics = checkLogicalTables(schema, tables);
   if (diagnostics.length > 0) throw new LogicalCollectionError(diagnostics);
   return { reference, logicalHash: collectionLogicalHash(reference), tables };

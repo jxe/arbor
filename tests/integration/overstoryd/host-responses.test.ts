@@ -63,13 +63,13 @@ beforeAll(async () => {
   const paris = new TextEncoder().encode("# Paris\n");
   objects.set(hashObject(paris), paris);
   const trips = encodeProtocolDirectory({ type: "directory", entries: [
-    { name: "Paris.md", file: hashObject(paris) },
-    { name: "Rome [old].md", file: hashObject(paris) },
+    { name: "Paris.md", file: hashObject(paris), created: 0, modified: 0 },
+    { name: "Rome [old].md", file: hashObject(paris), created: 0, modified: 0 },
   ] });
   objects.set(hashObject(trips), trips);
   const directory = encodeProtocolDirectory({
     ...root,
-    entries: [...root.entries, { name: "Trips", directory: hashObject(trips) }, ...Object.entries(files).map(([name, bytes]) => ({ name, file: hashObject(bytes) }))]
+    entries: [...root.entries, { name: "Trips", directory: hashObject(trips) }, ...Object.entries(files).map(([name, bytes]) => ({ name, file: hashObject(bytes), created: 0, modified: 0 }))]
       .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))),
   });
   objects.set(hashObject(directory), directory);
@@ -228,7 +228,7 @@ describe("the reserved-address page", () => {
     const source = new TextDecoder().decode(snapshot.objects.get(index)!);
     const digest = `sha256:${sha256("abcdefghijklmnopqrstuv")}`;
     const bytes = new TextEncoder().encode(source.replace("members:\n", `members:\n  - handle: "guest"\n    inviteDigest: "${digest}"\n`));
-    const directory = encodeProtocolDirectory({ ...root, entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes) } : entry) });
+    const directory = encodeProtocolDirectory({ ...root, entries: root.entries.map((entry) => entry.name === "_index.md" ? { name: entry.name, file: hashObject(bytes), created: 0, modified: 0 } : entry) });
     await owner.submitUpdate(tree, head.tree.update, { root: hashObject(directory), objects: new Map([...snapshot.objects, [hashObject(bytes), bytes], [hashObject(directory), directory]]) });
     const origin = new URL(host.url).origin;
     expect(host.overstoryd.accountReservation(`${origin}/~founder`)?.profileTree).toBeDefined();
@@ -310,10 +310,11 @@ describe("the reserved-address page", () => {
 });
 
 describe("the rate-limit key", () => {
-  const claim = (url: string, pairing: string, forwardedFor?: string) => fetch(`${url}/.overstory/pairings/${pairing}/claim`, {
+  // Each test's host is its own; `code` only labels the attempt.
+  const claim = (url: string, code: string, forwardedFor?: string) => fetch(`${url}/.overstory/pairings/claim`, {
     method: "PUT",
     headers: { "content-type": "application/json", ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}) },
-    body: "{}",
+    body: JSON.stringify({ code }),
   });
   async function limitedHost(trustedProxyHops?: number) {
     const dataRoot = await mkdtemp(join(sandbox, "limited-"));

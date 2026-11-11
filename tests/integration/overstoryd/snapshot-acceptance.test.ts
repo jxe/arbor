@@ -6,10 +6,12 @@ import { serveHost } from "@ovst/overstoryd";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeLogicalTable, encodeProtocolDirectory, hashObject,
-  type CandidateUpdate, type Hash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
+  type CandidateUpdate, type Hash, type ProtocolDirectory, type ProtocolDirectoryEntry, stampedEntry } from "@ovst/protocol";
 import { compileLogicalSchema, encodeCollection } from "@ovst/collection-schema";
 import { idRow, T0 } from "../../support/collection-trees.ts";
 import { deviceClient, deviceSession, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
@@ -28,13 +30,19 @@ function directory(value: ProtocolDirectory) {
 function change(basis: string, entries: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null>): string {
   const value = decodeProtocolDirectory(objects.get(basis)!);
   for (const [name, entry] of Object.entries(entries)) {
-    value.entries = value.entries.filter(e => e.name !== name);
-    if (entry) value.entries.push({ name, ...entry } as ProtocolDirectoryEntry);
+    const previous = value.entries.find((e) => e.name === name);
+    value.entries = value.entries.filter((e) => e.name !== name);
+    if (!entry) continue;
+    // File and page entries are dated as an edit at TEST_AT would date them.
+    const given = entry as { file?: string; page?: string; created?: number }, content = given.file ?? given.page;
+    value.entries.push(content !== undefined && given.created === undefined
+      ? stampedEntry(given.file !== undefined ? "file" : "page", name, content, previous, TEST_AT)
+      : { name, ...entry } as ProtocolDirectoryEntry);
   }
   return directory(value);
 }
 function snapshot(candidate: string): CandidateUpdate {
-  return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
     objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 async function submit(update: CandidateUpdate, basis = base) {
@@ -61,11 +69,11 @@ afterEach(async () => {
 });
 
 test.each(["binary", "delete-edit", "kind", "nested"])("snapshot %s overlap creates accepted alternatives without prior decisions", async kind => {
-  const nested = directory({ type: "directory", entries: [{ name: "child.bin", file: file("child") }] });
+  const nested = directory({ type: "directory", entries: [{ name: "child.bin", file: file("child"), created: 0, modified: 0 }] });
   const leftValue = kind === "kind" || kind === "nested" ? { directory: nested } : { file: file("left\0") };
   const rightValue = kind === "delete-edit" ? null : kind === "nested"
-    ? { directory: directory({ type: "directory", entries: [{ name: "child.bin", file: file("other") }] }) } : { file: file("right\0") };
-  if (kind === "nested") { root = change(root, { "asset.bin": { directory: directory({ type: "directory", entries: [{ name: "child.bin", file: file("before") }] }) } }); base = (await submit(snapshot(root))).id; }
+    ? { directory: directory({ type: "directory", entries: [{ name: "child.bin", file: file("other"), created: 0, modified: 0 }] }) } : { file: file("right\0") };
+  if (kind === "nested") { root = change(root, { "asset.bin": { directory: directory({ type: "directory", entries: [{ name: "child.bin", file: file("before"), created: 0, modified: 0 }] }) } }); base = (await submit(snapshot(root))).id; }
   const left = snapshot(change(root, { "asset.bin": leftValue })), right = snapshot(change(root, { "asset.bin": rightValue }));
   const first = await submit(left), accepted = await submit(right);
   expect(accepted.conflicted).toBe(true); expect(accepted.root).toBe(first.root); expect(accepted.id).not.toBe(first.id);
@@ -85,6 +93,13 @@ test.each(["binary", "delete-edit", "kind", "nested"])("snapshot %s overlap crea
   const resolved = await submit({ ...snapshot(right.candidate), resolves: [guard(accepted.id, decision)] }, accepted.id);
   expect(resolved.conflicted).toBe(false); expect(resolved.root).toBe(right.candidate);
   await running.overstoryd.verifyIntegrity();
+});
+
+test("an update dated more than five minutes ahead of the host is refused; one just ahead is accepted", async () => {
+  const candidate = change(root, { "note.md": { file: file("Later\n") } });
+  const ahead = (minutes: number) => ({ ...snapshot(candidate), at: new Date(Date.now() + minutes * 60_000).toISOString() });
+  await expect(submit(ahead(6))).rejects.toThrow("dated in the future");
+  expect((await submit(ahead(1))).root).toBe(candidate);
 });
 
 test("an unresolved binary choice preserves successful Markdown rule output and its objects", async () => {
@@ -124,7 +139,7 @@ function collection(basis: string, name: string) {
   for (const [hash, bytes] of encoded.objects) objects.set(hash, bytes);
   const value = decodeProtocolDirectory(objects.get(basis)!);
   value.entries = value.entries.filter(e => e.name === "_index.md");
-  value.entries.push({ name: "schema.usl", file: file(source) });
+  value.entries.push({ name: "schema.usl", file: file(source), created: 0, modified: 0 });
   value.collection = encoded.reference;
   return directory(value);
 }
@@ -201,9 +216,9 @@ test("an exact-state guard still rejects snapshot work without creating accepted
 
 test.each([false, true])("divergent snapshot renames remain a coupled choice (nested: %s)", async nested => {
   const page = file("---\nid: pg_moving\n---\nExact bytes\r\n");
-  const before = directory({ type: "directory", entries: [{ name: "before.md", file: page }] });
-  const left = directory({ type: "directory", entries: [{ name: "left.md", file: page }] });
-  const right = directory({ type: "directory", entries: [{ name: "right.md", file: page }] });
+  const before = directory({ type: "directory", entries: [{ name: "before.md", file: page, created: 0, modified: 0 }] });
+  const left = directory({ type: "directory", entries: [{ name: "left.md", file: page, created: 0, modified: 0 }] });
+  const right = directory({ type: "directory", entries: [{ name: "right.md", file: page, created: 0, modified: 0 }] });
   if (nested) root = change(root, { folder: { directory: before } });
   else root = change(root, { "before.md": { file: page } });
   base = (await submit(snapshot(root))).id;
@@ -225,7 +240,7 @@ test.each([false, true])("divergent snapshot renames remain a coupled choice (ne
 // as it was before every snapshot recorded a merge state.
 function folderOf(entries: Record<string, string | ProtocolDirectoryEntry>) {
   return directory({ type: "directory", entries: Object.entries(entries).map(([name, value]) =>
-    typeof value === "string" ? { name, file: file(value) } : { ...value, name }) });
+    typeof value === "string" ? { name, file: file(value), created: 0, modified: 0 } : { ...value, name }) });
 }
 const movingPage = "---\nid: pg_moving\n---\nExact bytes\r\n";
 async function folderConflict(extra: { left?: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null>; right?: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null> } = {}) {
@@ -247,7 +262,7 @@ test.each(["current", "incoming"])("a nested folder conflict is one choice about
   expect(page.decisions).toHaveLength(1);
   const decision = page.decisions[0]!;
   const parent = { material: { kind: "basis" as const, path: "/", object: accepted.root }, within: ["outer"] };
-  expect(decision).toMatchObject({ kind: "entry", affected: [parent], dependencies: [], actions: ["resolveConflict"] });
+  expect(decision).toMatchObject({ kind: "entry", affected: [parent], dependencies: [] });
   expect(decision.alternatives.map((alternative) => [alternative.value, alternative.placement, alternative.contributions])).toEqual([
     [{ directory: inner("left.md") }, { parent, name: "inner" }, [{ change: a.change, operation: null }]],
     [{ directory: inner("right.md") }, { parent, name: "inner" }, [{ change: b.change, operation: null }]],
@@ -414,7 +429,7 @@ test("the host validates logical collections itself", async () => {
   const people = (rows: ReturnType<typeof idRow>[], modelFingerprint = fingerprint) => {
     const table = encodeLogicalTable(rows);
     for (const [hash, bytes] of table.objects) objects.set(hash, bytes);
-    return directory({ type: "directory", entries: [{ name: "schema.usl", file: file(schema) }],
+    return directory({ type: "directory", entries: [{ name: "schema.usl", file: file(schema), created: 0, modified: 0 }],
       collection: { version: 1, modelFingerprint, tables: [{ model: "Item", table: table.hash }] } });
   };
   // A row the schema rejects, and a reference naming another schema, are both refused.

@@ -20,7 +20,7 @@ function add(snapshot: TreeSnapshot, name: string, text: string): TreeSnapshot {
     ...dir,
     entries: [
       ...dir.entries.filter((e) => e.name !== name),
-      { name, file: hash },
+      { name, file: hash, created: 0, modified: 0 },
     ],
   });
   const root = hashObject(next);
@@ -69,6 +69,8 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
     ).rejects.toThrow();
     const options = {
       change: "execution-create",
+      // A replay is the same request, so it carries the same time.
+      at: new Date().toISOString(),
       ifCurrent: current.tree.update,
     };
     const accepted = await code.submitUpdate(

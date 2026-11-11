@@ -11,7 +11,7 @@ import type { IntentRequest } from "../../../packages/overstoryd-merge/src/inten
 
 /** Store `value` as a log entry of `tree`; returns its hash. */
 async function entry(store: ObjectStore, value: Partial<LogEntry> & Pick<LogEntry, "previous" | "root" | "change">): Promise<string> {
-  const bytes = encodeLogEntry({ format: LOG_ENTRY_FORMAT, tree: "tr_test", trace: null, resolves: [], decisions: [], ...value });
+  const bytes = encodeLogEntry({ format: LOG_ENTRY_FORMAT, tree: "tr_test", at: 0, trace: null, resolves: [], decisions: [], ...value });
   await store.store([{ hash: hashObject(bytes), bytes }]);
   return hashObject(bytes);
 }
@@ -20,7 +20,7 @@ async function entry(store: ObjectStore, value: Partial<LogEntry> & Pick<LogEntr
 function question(request: IntentRequest, base: string, head: string): MergeQuestion {
   return {
     base, head,
-    candidate: { root: request.incoming.object, change: request.incoming.change, trace: request.incoming.trace, resolves: [] },
+    candidate: { root: request.incoming.object, at: request.incoming.at ?? 0, change: request.incoming.change, trace: request.incoming.trace, resolves: [] },
     rules: request.rules,
   };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { authorizePersonConfigTransition, mergeTreeConfigTrees } from "../../../packages/overstoryd/src/tree-config-policy.ts";
 import { readTreeConfigGraph, snapshotTreeConfig, type TreeConfigValues } from "@ovst/protocol";
+import { directoryStamper } from "@ovst/protocol";
 
 const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const admin = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -19,7 +20,7 @@ function person(): TreeConfigValues {
 }
 
 function roundTrip(value = person()): TreeConfigValues {
-  return readTreeConfigGraph(snapshotTreeConfig(value), "person", profile);
+  return readTreeConfigGraph(snapshotTreeConfig(value, directoryStamper(undefined, 0)), "person", profile);
 }
 
 describe("tree-config-v1: a person's own configuration", () => {
@@ -56,7 +57,7 @@ describe("tree-config-v1: a person's own configuration", () => {
   test("overstoryd merges configurations itself: independent labels merge, same-field edits conflict by file", async () => {
     const labels = (a: string, b: string) => snapshotTreeConfig({ ...person(), devices: {
       [admin]: { ...person().devices![admin]!, label: a }, [phone]: { ...person().devices![phone]!, label: b },
-    } });
+    } }, directoryStamper(undefined, 0));
     const snapshots = [labels("Mac", "Phone"), labels("Desktop", "Phone"), labels("Mac", "Mobile"), labels("Laptop", "Phone")];
     const objects = new Map(snapshots.flatMap((s) => [...s.objects]));
     const load = async (hash: string) => objects.get(hash)!;
@@ -69,7 +70,7 @@ describe("tree-config-v1: a person's own configuration", () => {
   });
 
   test("an input that is not a valid configuration is a whole-root conflict; an unreadable one is not", async () => {
-    const mounts = (value: Record<string, string>) => snapshotTreeConfig({ access: [{ who: { profile }, allow: ["admin"] }], mounts: value });
+    const mounts = (value: Record<string, string>) => snapshotTreeConfig({ access: [{ who: { profile }, allow: ["admin"] }], mounts: value }, directoryStamper(undefined, 0));
     const snapshots = [mounts({}), mounts({ a: "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb" }), mounts({ a: "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb", "a/b": "tr_cccccccccccccccccccccccccc" })];
     const objects = new Map(snapshots.flatMap((s) => [...s.objects]));
     const [base, incoming, current] = snapshots.map((s) => s.root);
@@ -84,7 +85,7 @@ describe("tree-config-v1: a person's own configuration", () => {
     const rules = (allow: string[]) => snapshotTreeConfig({
       access: [{ who: { profile }, allow: ["admin"] }, { who: { profile: tree }, allow: allow as any }],
       mounts: {},
-    });
+    }, directoryStamper(undefined, 0));
     const snapshots = [rules(["write"]), rules(["read", "create-child"]), rules(["read", "delete"])];
     const objects = new Map(snapshots.flatMap((s) => [...s.objects]));
     const merged = await mergeTreeConfigTrees("tree", snapshots[0]!.root, snapshots[1]!.root, snapshots[2]!.root, async (hash) => objects.get(hash)!);

@@ -1,16 +1,17 @@
-import { composeSourceEdits, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
+import { composeSourceEdits, deriveTrace, entryTimeOf, type ObjectHash, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolDirectoryEntry, type ProtocolObjectKind, type SourceOperation } from "@ovst/protocol";
+import type { LocalUpdate } from "./local-change.ts";
 import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 
 /** Immutable wire identity plus the durable local records/results it covers. */
 export interface ChangePublication {
   changes: string[];
-  update: CandidateUpdateJSON;
+  update: LocalUpdate;
   operations: Record<string, Record<string, string>>;
 }
 const identity = (prefix: string, changes: string[]) => prefix + hashObject(new TextEncoder().encode(JSON.stringify(changes))).replace("sha256:", "");
 
-type Frame = NonNullable<CandidateUpdateJSON["trace"]>[number];
+type Frame = NonNullable<LocalUpdate["trace"]>[number];
 
 /** Compose the same original span through repeated pure moves, by provenance
  * coordinates. Equal text at a different position never identifies that span. */
@@ -20,7 +21,7 @@ function movePublication(records: LocalChange[]): ChangePublication | undefined 
   const frame = composeMoves(frames, decodeTreeSnapshotJSON(first.graph).objects, decodeTreeSnapshotJSON(last.candidate).objects, "move");
   if (!frame || frame.after !== last.candidate.root) return;
   const changes = records.map(record => record.change), known = new Set(first.graph.objects.map(object => object.hash));
-  return { changes, update: { change: identity("moves-", changes), candidate: frame.after, resolves: [], deltas: [],
+  return { changes, update: { change: identity("moves-", changes), at: last.update.at, candidate: frame.after, resolves: [], deltas: [],
     objects: last.candidate.objects.filter(object => !known.has(object.hash)), trace: [frame] },
     operations: Object.fromEntries(records.map(record => [record.change, Object.fromEntries(record.update.trace!.flatMap(frame => frame.operations).map(op => [op.key, "move"]))])) };
 }
@@ -129,7 +130,9 @@ export function publication(records: LocalChange[], previous: ChangePublication[
   const renamed = records.flatMap(record => record.update.trace!.map(frame => ({...frame, operations: frame.operations.map(op => ({...rewrite(op), key: names[record.change]![op.key]}) as SourceOperation)})));
   const trace = composePlainRuns(renamed, records, change, names);
   if (trace.length > 64 || trace.reduce((n, frame) => n + frame.operations.length, 0) > 1024) return;
-  return { changes, operations: names, update: { change, candidate: last.candidate.root, resolves: first.update.resolves, ...(first.update.ifCurrent !== undefined ? {ifCurrent: first.update.ifCurrent} : {}), deltas,
+  // A coalesced update is as late as its last record; each entry keeps the
+  // time its own record stamped (data model §6).
+  return { changes, operations: names, update: { change, at: last.update.at, candidate: last.candidate.root, resolves: first.update.resolves, ...(first.update.ifCurrent !== undefined ? {ifCurrent: first.update.ifCurrent} : {}), deltas,
     trace,
     objects: [...objects.values()].filter(object => !known.has(object.hash)).sort((a,b) => a.hash.localeCompare(b.hash)) } };
 }
@@ -228,10 +231,19 @@ function composeRun(run: Frame[], path: string, object: string, index: number, t
     const source = page ? page.body : stored;
     const produced = applyPlainEdits(source, edits); if (!produced) return;
     let next = page ? hashObject(encodeProtocolPage({ ...page, body: produced })) : hashObject(produced);
+    // The run's last tree says when the entry changed.
+    let times: { created: number; modified: number } | undefined, at = after;
+    for (const [i, part] of parts.entries()) {
+      const bytes = finish.get(at); if (!bytes) return;
+      const found = decodeProtocolDirectory(bytes).entries.find(entry => entry.name === part);
+      if (i < parts.length - 1) { if (!found?.directory) return; at = found.directory; continue; }
+      if (found?.created === undefined) return;
+      times = { created: found.created, modified: found.modified };
+    }
     for (let depth = parts.length - 1; depth >= 0; depth--) {
       const directory = directories[depth]!.value;
-      const entries = directory.entries.map(item => item.name !== parts[depth] ? item : depth === parts.length - 1
-        ? (page ? { name: item.name, page: next } : { name: item.name, file: next }) : { name: item.name, directory: next });
+      const entries = directory.entries.map((item): ProtocolDirectoryEntry => item.name !== parts[depth] ? item : depth === parts.length - 1
+        ? (page ? { name: item.name, page: next, ...times! } : { name: item.name, file: next, ...times! }) : { name: item.name, directory: next });
       next = hashObject(encodeProtocolDirectory({ ...directory, entries }));
     }
     if (next !== after) return;
@@ -293,17 +305,18 @@ export function branchPublications(group: ChangePublication, shared: number, bra
     [record.graph, record.candidate].flatMap(graph => [...decodeTreeSnapshotJSON(graph).objects])));
   const directory = (hash: string) => decodeProtocolDirectory(objects.get(hash)!);
   // A crossed file or page, by its object; the entry keeps its kind.
-  function file(root: string, path: string): string {
+  function file(root: string, path: string): string { return content(root, path).object; }
+  function content(root: string, path: string): { object: string; created: number; modified: number } {
     const parts = path.slice(1).split("/"); let hash = root;
     for (const [i, part] of parts.entries()) {
       const entry = directory(hash).entries.find(entry => entry.name === part);
-      if (i === parts.length - 1 && (entry?.file ?? entry?.page) !== undefined) return (entry!.file ?? entry!.page)!;
+      if (i === parts.length - 1 && (entry?.file ?? entry?.page) !== undefined) return { object: (entry!.file ?? entry!.page)!, created: entry!.created!, modified: entry!.modified! };
       if (!entry?.directory) throw new UpdateValidationError("Publication branch requires existing files");
       hash = entry.directory;
     }
     throw new UpdateValidationError("Invalid publication branch path");
   }
-  const replacements = [...crossed].sort().map(path => ({path, before: file(split.candidate.root, path), after: file(end.candidate.root, path)}));
+  const replacements = [...crossed].sort().map(path => ({path, before: file(split.candidate.root, path), after: content(end.candidate.root, path)}));
   const result: ChangePublication[] = [];
   for (const record of branch) {
     const supplied = new Map(record.update.objects.map(object => [object.hash, object]));
@@ -318,8 +331,9 @@ export function branchPublications(group: ChangePublication, shared: number, bra
         const parts = replacement.path.slice(1).split("/");
         function replace(hash: string, depth: number): string {
           const value = directory(hash);
-          value.entries = value.entries.map(entry => entry.name !== parts[depth] ? entry : depth === parts.length - 1
-            ? (entry.page !== undefined ? {name: entry.name, page: replacement.after} : {name: entry.name, file: replacement.after}) : {name: entry.name, directory: replace(entry.directory!, depth + 1)});
+          const {object, created, modified} = replacement.after;
+          value.entries = value.entries.map((entry): ProtocolDirectoryEntry => entry.name !== parts[depth] ? entry : depth === parts.length - 1
+            ? (entry.page !== undefined ? {name: entry.name, page: object, created, modified} : {name: entry.name, file: object, created, modified}) : {name: entry.name, directory: replace(entry.directory!, depth + 1)});
           const bytes = encodeProtocolDirectory(value), next = hashObject(bytes);
           objects.set(next, bytes); supplied.set(next, {hash: next, bytes: encodeBase64(bytes)});
           return next;
@@ -344,7 +358,7 @@ export function branchPublications(group: ChangePublication, shared: number, bra
  * The value of an added or replaced entry is kept, because execution reads
  * it rather than producing it. Snapshots and resolutions are left as
  * they are. */
-export function dropIntermediates(update: CandidateUpdateJSON, candidate: LocalChange["candidate"]): CandidateUpdateJSON {
+export function dropIntermediates(update: LocalUpdate, candidate: LocalChange["candidate"]): LocalUpdate {
   if (!update.trace || update.resolves.length || !update.objects.length) return update;
   const envelopes = new Map(update.objects.map(object => [object.hash, object.bytes]));
   const after = decodeTreeSnapshotJSON(candidate).objects, deltas = new Set(update.deltas.map(delta => delta.result));
@@ -373,7 +387,7 @@ export function dropIntermediates(update: CandidateUpdateJSON, candidate: LocalC
 
 /** Compress final reachable envelopes against the element's basis graph.
  * Transport matching never establishes semantic provenance. */
-export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange["graph"], candidate: LocalChange["candidate"]): CandidateUpdateJSON {
+export function compactTransport(update: LocalUpdate, basis: LocalChange["graph"], candidate: LocalChange["candidate"]): LocalUpdate {
   update = dropIntermediates(update, candidate);
   if (!update.objects.length) return update;
   const before = decodeTreeSnapshotJSON(basis).objects, after = decodeTreeSnapshotJSON(candidate).objects;
@@ -403,4 +417,59 @@ export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange
   }
   visit(basis.root, candidate.root, true);
   return {...update, objects: [...envelopes.values()].sort((a,b) => a.hash.localeCompare(b.hash)), deltas};
+}
+
+/**
+ * `update` with its frames replayed from `basis` at its own `at`, as the host
+ * replays them (data model §6): every entry the update touches is stamped
+ * with the update's time, so a batch of edits made at different times
+ * carries the last one's time throughout, and an update after one that was
+ * restamped continues from that root. The objects the new roots reach that
+ * the update does not already carry are added; intermediate frames' objects,
+ * which the host regenerates, are not. Undefined when the frames cannot be
+ * replayed here (row operations, which need a collection replay), so the
+ * update goes as it is.
+ */
+export async function restampUpdate(update: LocalUpdate, basis: string, load: (hash: string) => Promise<Uint8Array>): Promise<{ update: LocalUpdate; generated: Map<string, Uint8Array> } | undefined> {
+  if (!update.trace?.length) return;
+  let derived: Awaited<ReturnType<typeof deriveTrace>>;
+  try {
+    derived = await deriveTrace(basis as ObjectHash, update.trace.map(frame => ({ operations: frame.operations })), load as (hash: ObjectHash) => Promise<Uint8Array>, entryTimeOf(update.at));
+  } catch {
+    // Unsupported here (UnsupportedDerivation) or not reproducible: sent as it is.
+    return;
+  }
+  // What the update carries and the new root still reaches stays; the new
+  // directories the replay made are added whole. Walk only new or carried
+  // objects: anything else the host already holds, with all it reaches.
+  const envelopes = new Map(update.objects.map(object => [object.hash, object])), deltas = new Map(update.deltas.map(delta => [delta.result, delta]));
+  const keptObjects = new Map<string, { hash: string; bytes: string }>(), keptDeltas = new Set<string>(), seen = new Set<string>();
+  const stack: Array<{ kind: ProtocolObjectKind; hash: string }> = [{ kind: "directory", hash: derived.root }];
+  for (let next = stack.pop(); next; next = stack.pop()) {
+    if (seen.has(next.hash)) continue;
+    seen.add(next.hash);
+    const envelope = envelopes.get(next.hash), made = derived.generated.get(next.hash as ObjectHash);
+    let bytes: Uint8Array | undefined;
+    if (envelope) { keptObjects.set(next.hash, envelope); bytes = decodeBase64(envelope.bytes); }
+    else if (deltas.has(next.hash)) { keptDeltas.add(next.hash); bytes = made ?? await load(next.hash).catch(() => undefined); }
+    // A new directory travels whole; new content was already carried, or is
+    // the host's (unchanged by the restamp, which changes only directories).
+    else if (made && next.kind === "directory") { keptObjects.set(next.hash, { hash: next.hash, bytes: encodeBase64(made) }); bytes = made; }
+    if (bytes) stack.push(...protocolObjectReferences(next.kind, bytes));
+  }
+  // Execution reads an added entry's value rather than producing it.
+  for (const frame of derived.frames) for (const operation of frame.operations) {
+    if (operation.kind !== "addEntry" && operation.kind !== "replaceEntry") continue;
+    const value = operation.value as { file?: string; page?: string; directory?: string };
+    for (const hash of [value.file, value.page, value.directory]) {
+      const envelope = hash ? envelopes.get(hash) : undefined;
+      if (envelope) keptObjects.set(envelope.hash, envelope);
+    }
+  }
+  const objects = [...keptObjects.values()].sort((a, b) => a.hash.localeCompare(b.hash));
+  return {
+    update: { ...update, candidate: derived.root, trace: derived.frames.map(frame => ({ before: frame.before, after: frame.after, operations: [...frame.operations] })), objects,
+      deltas: update.deltas.filter(delta => keptDeltas.has(delta.result)) },
+    generated: derived.generated as Map<string, Uint8Array>,
+  };
 }

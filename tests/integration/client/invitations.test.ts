@@ -14,12 +14,12 @@ import {
   ProtocolClient,
   resolveLogicalURL,
   snapshotTreeConfig,
-  treeConfigurationID,
 } from "@ovst/protocol";
 import { serveHost } from "@ovst/overstoryd";
 import { cancelInvitation, createInvitation, editTreeFile, pendingInvitations, renewInvitation } from "@ovst/client";
 import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 import { deviceClient, newTestDevice, testAccount } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 const ownerToken = "invitations-owner";
 const memberToken = "invitations-member";
@@ -54,19 +54,15 @@ async function claim(link: string): Promise<string> {
   if (resolved?.kind !== "overstory" || !resolved.invite) throw new Error("not a join link");
   const inviteCode = resolved.invite;
   const identity = testProfileIdentity();
-  const configurationTree = treeConfigurationID(identity.profileTree);
   const device = newTestDevice("invited");
   const client = new ProtocolClient(running.url);
-  const challenge = await client.createAccountChallenge({ profileTree: identity.profileTree, configurationTree, inviteCode });
+  const challenge = await client.createAccountChallenge({ profileTree: identity.profileTree, inviteCode });
   await client.joinAccount({
-    account: challenge.account,
-    profileTree: identity.profileTree,
-    configurationTree,
     challenge,
     publicKey: identity.publicKey,
     signature: identity.sign(challenge),
     device: { id: device.device, label: "Invited Mac", key: device.key },
-    configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device.device, label: "Invited Mac", key: device.key }))),
+    configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device.device, label: "Invited Mac", key: device.key }), directoryStamper(undefined, 0))),
     inviteCode,
   });
   return identity.profileTree;

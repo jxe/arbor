@@ -61,7 +61,8 @@ public struct EntryActions: Codable, Equatable, Sendable {
         return (try ProtocolGraph.reachable(from: root, in: objects), operation)
     }
 
-    public func prepare(graph: ProtocolSnapshot, candidate: ProtocolSnapshot? = nil, changeID: String) throws -> (candidate: ProtocolSnapshot, operations: [ProtocolSourceOperation]) {
+    /// `at` (Unix ms) stamps what the actions copy (`EntryTransfer.prepare`).
+    public func prepare(graph: ProtocolSnapshot, candidate: ProtocolSnapshot? = nil, changeID: String, at: Int) throws -> (candidate: ProtocolSnapshot, operations: [ProtocolSourceOperation]) {
         _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         func invalid() -> ProtocolValidationError { .invalidValue("Invalid compound entry action") }
         guard !transfers.isEmpty || !removals.isEmpty else { throw invalid() }
@@ -81,8 +82,8 @@ public struct EntryActions: Codable, Equatable, Sendable {
         var current = promotion.graph
         var operations = promotion.operation.map { [$0] } ?? []
         for (index, transfer) in transfers.enumerated() {
-            let original = try transfer.prepare(graph: promotion.graph, candidate: candidate, changeID: changeID)
-            current = try transfer.prepare(graph: current, candidate: candidate, changeID: changeID).candidate
+            let original = try transfer.prepare(graph: promotion.graph, candidate: candidate, changeID: changeID, at: at)
+            current = try transfer.prepare(graph: current, candidate: candidate, changeID: changeID, at: at).candidate
             // Only keys and same-change operation references are renamed. Basis
             // references remain the original graph, never intermediate hashes.
             func bind(_ value: ProtocolSemanticValue) -> ProtocolSemanticValue {

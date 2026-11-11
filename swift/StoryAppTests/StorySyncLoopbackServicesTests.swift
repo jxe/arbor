@@ -76,7 +76,7 @@ struct LoopbackServicesTests {
     private func installPlacedTree(root: ProtocolObjectEnvelope, objects: [ProtocolObjectEnvelope], current: Int = 200) async {
         let listing = Data(#"{"snapshot":[{"id":"tr_notes7f3q2ab7c","configurationTree":"tr_cfg","kind":"ordinary","access":"write","canonical":{"path":"/~joe/notes","endpoint":"https://notes.example","parentTree":null},"name":"notes","osPath":"/Users/joe/notes","placement":"placed"}],"observedThrough":"c:1"}"#.utf8)
         let descriptor = Data("""
-        {"tree":{"id":"tr_notes7f3q2ab7c","kind":"ordinary","access":"write","root":"\(root.hash)","update":"up_1","conflicted":false,"canonical":{"path":"/~joe/notes","endpoint":"https://notes.example","parentTree":null}},"observedThrough":"host-cursor-7"}
+        {"tree":{"id":"tr_notes7f3q2ab7c","kind":"ordinary","access":"write","root":"\(root.hash)","update":"up_1","conflicted":false,"canonical":{"path":"/~joe/notes","endpoint":"https://notes.example","parentTree":null}}}
         """.utf8)
         let unsynchronized = Data(#"{"error":"conflict","message":"unsynchronized","retryable":false,"details":{"kind":"unsynchronized"}}"#.utf8)
         let byHash = Dictionary(uniqueKeysWithValues: objects.map { ($0.hash, $0.bytes) })
@@ -98,15 +98,15 @@ struct LoopbackServicesTests {
         let index = try ProtocolObjectCodec.object(.file(Data("# Notes\n".utf8)))
         let photo = try ProtocolObjectCodec.object(.file(Data([1, 2, 3])))
         let root = try ProtocolObjectCodec.object(.directory([
-            .init(name: "_index.md", file: index.hash),
-            .init(name: "photo.bin", file: photo.hash),
+            .init(name: "_index.md", file: index.hash, created: 0, modified: 0),
+            .init(name: "photo.bin", file: photo.hash, created: 0, modified: 0),
         ]))
         await installPlacedTree(root: root, objects: [root, index, photo])
         let opening = try await StoryWorkspaceState.readPlacedTree("tr_notes7f3q2ab7c", client: stubbedClient())
 
         #expect(opening.placed.osPath == "/Users/joe/notes")
         #expect(opening.current.tree.root == root.hash)
-        #expect(opening.current.observedThrough == "host-cursor-7")
+        #expect(opening.current.tree.update == "up_1")
         // Directories load when the session opens them, not here.
         let paths = await LoopbackStub.state.requests().map(\.path)
         #expect(paths.contains("/.overstory/trees/tr_notes7f3q2ab7c"))

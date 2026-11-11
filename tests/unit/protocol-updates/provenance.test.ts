@@ -27,7 +27,7 @@ class Objects {
     if (typeof spec === "string") return this.put(new TextEncoder().encode(spec));
     if (isPage(spec)) return this.put(encodeProtocolPage({ type: "page", properties: [], body: new TextEncoder().encode(spec.page) }));
     const entries: ProtocolDirectoryEntry[] = Object.entries(spec).sort(([a], [b]) => (a < b ? -1 : 1)).map(([name, child]) =>
-      typeof child === "string" ? { name, file: this.build(child) } : isPage(child) ? { name, page: this.build(child) } : { name, directory: this.build(child) });
+      typeof child === "string" ? { name, file: this.build(child), created: 0, modified: 0 } : isPage(child) ? { name, page: this.build(child), created: 0, modified: 0 } : { name, directory: this.build(child) });
     return this.put(encodeProtocolDirectory({ type: "directory", entries }));
   }
   load = async (hash: string) => this.map.get(hash) ?? Promise.reject(new Error(`missing ${hash}`));
@@ -135,9 +135,9 @@ async function moduleIndex(c: Case) {
 /** The index of the state the merge engine reaches for the same history. */
 async function engineIndex(c: Case, m: ReturnType<typeof materialize>): Promise<ProvenanceNode> {
   const put = (entry: Parameters<typeof encodeLogEntry>[0]) => m.objects.put(encodeLogEntry(entry));
-  const genesis = put({ format: LOG_ENTRY_FORMAT, tree: TREE, previous: null, root: m.before, change: "genesis", trace: null, resolves: [], decisions: [] });
+  const genesis = put({ format: LOG_ENTRY_FORMAT, tree: TREE, previous: null, root: m.before, at: 0, change: "genesis", trace: null, resolves: [], decisions: [] });
   const last = m.frames.length || m.snapshot ? put({ format: LOG_ENTRY_FORMAT, tree: TREE, previous: genesis,
-    root: m.snapshot ?? m.frames.at(-1)!.after, change: "c", trace: m.snapshot ? null : m.frames, resolves: [], decisions: [] }) : genesis;
+    root: m.snapshot ?? m.frames.at(-1)!.after, at: 0, change: "c", trace: m.snapshot ? null : m.frames, resolves: [], decisions: [] }) : genesis;
   const sidecar = new Sidecar({ shared: { find: async (h) => m.objects.map.get(h) ?? null, has: async (h) => m.objects.map.has(h) },
     staging: { find: async () => null, stage: async () => {} } }) as unknown as {
       stateOf(h: string, r: unknown): Promise<{ state: string }>; recorded: Map<string, Parameters<typeof viewState>[0]> };

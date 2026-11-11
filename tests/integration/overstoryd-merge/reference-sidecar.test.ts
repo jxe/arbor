@@ -2,8 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
-import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate } from "@ovst/protocol";
+import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, stampedEntry, type CandidateUpdate } from "@ovst/protocol";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 /** overstoryd's rule-agnostic acceptance behavior against the reference sidecar
  * in test support, which reads only the object store and the question. */
@@ -33,11 +35,12 @@ function snapshot(root: string, files: Record<string, string>): CandidateUpdate 
   for (const [name, text] of Object.entries(files)) {
     const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
     objects.set(file, bytes);
-    directory.entries = [...directory.entries.filter((e) => e.name !== name), { name, file }].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+    const previous = directory.entries.find((e) => e.name === name);
+    directory.entries = [...directory.entries.filter((e) => e.name !== name), stampedEntry("file", name, file, previous, TEST_AT)].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   }
   const bytes = encodeProtocolDirectory(directory), candidate = hashObject(bytes);
   objects.set(candidate, bytes);
-  return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [], objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 const submit = async (base: string, update: CandidateUpdate) => (await client.submitUpdates(tree, { base, updates: [update] })).results[0]!.update;
 

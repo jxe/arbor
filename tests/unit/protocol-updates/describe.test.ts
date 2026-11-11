@@ -18,10 +18,10 @@ const page = (middle: string) => `# Page\n\n${Array.from({ length: 400 }, (_, in
 test("a file delta reads against its base text and a directory lists its entries by name", async () => {
   const s = store();
   const kept = s.file("kept\n");
-  const before = s.dir([{ name: "page.md", file: s.file(page("Old middle.")) }, { name: "gone.txt", file: s.file("bye\n") }, { name: "kept.md", file: kept }]);
+  const before = s.dir([{ name: "page.md", file: s.file(page("Old middle.")), created: 0, modified: 0 }, { name: "gone.txt", file: s.file("bye\n"), created: 0, modified: 0 }, { name: "kept.md", file: kept, created: 0, modified: 0 }]);
   const basis = new Set(s.objects.keys());
-  const after = s.dir([{ name: "page.md", file: s.file(page("New middle.")) }, { name: "kept.md", file: kept },
-    { name: "notes", directory: s.dir([{ name: "new.md", file: s.file("# Fresh\n\nHello.\n") }]) }]);
+  const after = s.dir([{ name: "page.md", file: s.file(page("New middle.")), created: 0, modified: 0 }, { name: "kept.md", file: kept, created: 0, modified: 0 },
+    { name: "notes", directory: s.dir([{ name: "new.md", file: s.file("# Fresh\n\nHello.\n"), created: 0, modified: 0 }]) }]);
   const payload = await transitionPayload(before, after, async (hash) => s.objects.get(hash)!);
   expect(payload.deltas.length).toBeGreaterThan(0);
   const text = await describeTransitionPayload({ before, after, payload, load: async (hash) => basis.has(hash) ? s.objects.get(hash) : undefined });
@@ -42,7 +42,7 @@ test("a file delta reads against its base text and a directory lists its entries
 test("a whole binary object is summarized, never printed", async () => {
   const s = store();
   const before = s.dir([]);
-  const after = s.dir([{ name: "blob.bin", file: s.file(new Uint8Array([0xff, 0xfe, 0x00, 0x01])) }]);
+  const after = s.dir([{ name: "blob.bin", file: s.file(new Uint8Array([0xff, 0xfe, 0x00, 0x01])), created: 0, modified: 0 }]);
   const payload = await transitionPayload(before, after, async (hash) => s.objects.get(hash)!);
   const text = await describeTransitionPayload({ before, after, payload, load: async (hash) => hash === before ? s.objects.get(hash) : undefined });
   expect(text).toContain("file /blob.bin (new, 4 bytes)\n  binary");
@@ -52,10 +52,10 @@ test("a whole binary object is summarized, never printed", async () => {
 
 test("a directory delta is decoded and listed by name, never printed as CBOR", async () => {
   const s = store();
-  const entries = Array.from({ length: 60 }, (_, index) => ({ name: `page-${String(index).padStart(2, "0")}.md`, file: s.file(`# Page ${index}\n`) }));
+  const entries = Array.from({ length: 60 }, (_, index) => ({ name: `page-${String(index).padStart(2, "0")}.md`, file: s.file(`# Page ${index}\n`), created: 0, modified: 0 }));
   const before = s.dir(entries);
   const basis = new Set(s.objects.keys());
-  const after = s.dir([...entries.filter((entry) => entry.name !== "page-07.md"), { name: "page-60.md", file: s.file("# Page 60\n") }]);
+  const after = s.dir([...entries.filter((entry) => entry.name !== "page-07.md"), { name: "page-60.md", file: s.file("# Page 60\n"), created: 0, modified: 0 }]);
   const payload = await transitionPayload(before, after, async (hash) => s.objects.get(hash)!);
   expect(payload.deltas.map((delta) => delta.result)).toEqual([after]);
   const text = await describeTransitionPayload({ before, after, payload, load: async (hash) => basis.has(hash) ? s.objects.get(hash) : undefined });
@@ -66,7 +66,7 @@ test("a directory delta is decoded and listed by name, never printed as CBOR", a
 
 test("an empty payload between equal roots describes only its endpoints", async () => {
   const s = store();
-  const root = s.dir([{ name: "a.md", file: s.file("A\n") }]);
+  const root = s.dir([{ name: "a.md", file: s.file("A\n"), created: 0, modified: 0 }]);
   const text = await describeTransitionPayload({ before: root, after: root, payload: { objects: [], deltas: [] }, load: async (hash) => s.objects.get(hash) });
   expect(text.split("\n")).toEqual([`Basis      ${root}`, `Candidate  ${root}`, "0 objects, 0 deltas"]);
 });

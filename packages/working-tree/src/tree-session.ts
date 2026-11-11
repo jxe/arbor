@@ -117,12 +117,12 @@ export class TreeSession {
    */
   async follow(signal: AbortSignal, onChange: (current: CurrentTree) => void = () => {}): Promise<void> {
     if (!this.client.watch) throw new Error("This client cannot watch");
-    let after: string | null = this.currentTree.observedThrough;
+    let after: string | null = this.currentTree.tree.update;
     while (!signal.aborted) {
       for await (const event of this.client.watch(this.tree, after, { signal, objects: "none" })) {
         if (event.kind === "resync-required") {
           this.advance(await this.client.descriptor(this.tree));
-          after = this.currentTree.observedThrough;
+          after = this.currentTree.tree.update;
           onChange(this.currentTree);
           break;
         }
@@ -130,7 +130,6 @@ export class TreeSession {
         this.advance({
           tree: { ...this.currentTree.tree, root: event.transition.update.root as CurrentTree["tree"]["root"], update: event.transition.update.id,
             conflicted: event.transition.update.conflicted, access: event.access, canonical: event.canonical },
-          observedThrough: event.cursor,
         });
         onChange(this.currentTree);
       }

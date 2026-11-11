@@ -55,8 +55,8 @@ describe("a person's domain", () => {
   test("is served only once her profile lists it and it reaches the host", async () => {
     const source = await (await fetch(`${running.url}/.overstory/peer/domain-check`)).json() as { host: string };
     expect(source.host).toBe(running.overstoryd.customDomains.token);
-    // The old path answers the same until plans/soon/protocol-001 removes it.
-    expect(await (await fetch(`${running.url}/.overstory/domain-check`)).json()).toEqual(source);
+    // The old path is gone.
+    expect((await fetch(`${running.url}/.overstory/domain-check`)).status).toBe(404);
     await running.overstoryd.customDomains.refresh();
     expect(running.overstoryd.customDomains.list()).toEqual([]);
     expect((await alice.descriptor(profile)).tree.canonical?.url).toBeUndefined();
@@ -73,7 +73,7 @@ describe("a person's domain", () => {
     expect(canonicalURL(canonical)).toBe(`${domainURL}/`);
     const community = (await alice.account()).account.community;
     expect(community.canonical?.url).toBeUndefined();
-    const people = (await alice.directory()).snapshot;
+    const people = (await alice.directory()).people;
     expect(people.find((entry) => entry.profile === profile)?.domain).toBe(domain);
   });
 

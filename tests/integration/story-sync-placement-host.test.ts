@@ -232,7 +232,7 @@ describe("Story Sync places folders under a placement root", () => {
     const offer = await (await accountProtocolClient({ configurationTree }, { required: true })).client.createPairing();
     const profilePhone = join(sandbox, "profile-phone");
     await post(phone.url, "/v1/me/restore", { path: profilePhone, backup: JSON.parse(await readFile(backup, "utf8")), passphrase: PASSPHRASE });
-    await post(phone.url, "/v1/bootstrap/pairings/claim", { payload: { version: 1, origin: new URL(a.url).origin, pairing: { id: offer.id, secret: offer.secret } } });
+    await post(phone.url, "/v1/bootstrap/pairings/claim", { payload: { version: 1, origin: new URL(a.url).origin, pairing: { code: offer.code } } });
     // The account is already B's: the second device connects to it with its own key on first use.
     researchPhone = join(sandbox, "research-phone");
     const output = await story(statePhone, phone.url, ["place", `${bOrigin}/~joe/research`, researchPhone]);

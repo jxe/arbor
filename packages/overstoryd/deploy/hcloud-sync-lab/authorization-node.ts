@@ -20,8 +20,8 @@ import {
   initialPersonConfig,
   personProfileTreeID,
   ProtocolClient,
+  readTreeConfigGraph,
   snapshotTreeConfig,
-  treeConfigurationID,
   type AccountChallenge,
 } from "@ovst/protocol";
 import {
@@ -38,6 +38,7 @@ import {
   rootText,
   withRootFile,
 } from "./lab-node.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 const ROLES = ["alice", "bob", "carol"] as const;
 type Role = typeof ROLES[number];
@@ -94,22 +95,18 @@ async function setup(): Promise<void> {
   const result = {} as Record<Role, Identity>;
   for (const role of ROLES) {
     const identity = identities[role];
-    const configurationTree = treeConfigurationID(identity.profileTree);
     const device = generateOverstoryID("dv");
     const label = `${role} authorization device`;
     const seed = generateDeviceKeySeed();
     const key = deviceKeyFromSeed(seed);
     const anonymous = new ProtocolClient(LOCAL_COMMUNITY, undefined, TIMEOUT);
-    const challenge = await anonymous.createAccountChallenge({ profileTree: identity.profileTree, configurationTree });
+    const challenge = await anonymous.createAccountChallenge({ profileTree: identity.profileTree});
     await anonymous.joinAccount({
-      account: challenge.account,
-      profileTree: identity.profileTree,
-      configurationTree,
       challenge,
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),
       device: { id: device, label, key },
-      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label, key }))),
+      configuration: activationElement(snapshotTreeConfig(initialPersonConfig(identity.profileTree, { id: device, label, key }), directoryStamper(undefined, 0))),
     });
     const held: LabDevice = { profileTree: identity.profileTree, device, seed };
     const client = await labClient(LOCAL_COMMUNITY, held, TIMEOUT);
@@ -146,7 +143,9 @@ async function create(): Promise<void> {
   });
   const current = await client.descriptor(tree);
   if (current.tree.access !== "write" || !current.tree.canonical) throw new Error("Alice did not receive administrator write access");
-  const { policy } = await client.access(tree);
+  // Administrators read the rules from the tree's configuration (access control §4).
+  const { snapshot } = await client.treeConfiguration(tree);
+  const policy = readTreeConfigGraph(snapshot, "tree", tree).access;
   if (policy.some((rule) => typeof rule.who !== "object" || !("profile" in rule.who))) throw new Error("Private authorization tree grants a non-profile subject");
   const granted = (profile: string) => policy.find((rule) => typeof rule.who === "object" && "profile" in rule.who && rule.who.profile === profile)?.allow;
   if (!granted(value.bob)?.includes("read")) throw new Error("Bob read access is missing");
@@ -217,7 +216,7 @@ async function verifyWriter(): Promise<void> {
 async function verifyOwner(): Promise<void> {
   const value = await input<{ device: LabDevice; tree: string; root: string; canonical: string }>();
   const owner = await labClient(LOCAL_COMMUNITY, value.device, TIMEOUT);
-  if ((await owner.list()).snapshot.some((tree) => tree.id === value.tree)) {
+  if ((await owner.list()).trees.some((tree) => tree.id === value.tree)) {
     throw new Error("No-access owner could list Alice private tree");
   }
   await expectNotFound(() => owner.descriptor(value.tree), "No-access owner could read Alice private descriptor");

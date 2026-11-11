@@ -1,5 +1,4 @@
-import { EntryMetadataStore, entryChanges, type EntryChanges } from "./updates/entry-metadata.ts";
-import { EntryTimeIndex } from "./updates/entry-times.ts";
+import { entryChanges, type EntryChanges } from "./updates/document-versions.ts";
 import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { PackMaintenance } from "./pack-maintenance.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
@@ -52,6 +51,9 @@ import {
   validateUpdateRequestIntent,
   decodeProtocolDirectory,
   encodeProtocolDirectory,
+  entryTimeOf,
+  directoryStamper,
+  stampedEntry,
   hashObject,
   updateRequestDigests,
   type AcceptedTransition,
@@ -278,12 +280,12 @@ function mountBelow(parentPath: string, mount: string): string {
   return parentPath === "/" ? `/${mount}` : `${parentPath}/${mount}`;
 }
 
-function directSnapshot(source: string): TreeSnapshot {
+function directSnapshot(source: string, at = Date.now()): TreeSnapshot {
   const fileBytes = new TextEncoder().encode(source);
   const fileHash = hashObject(fileBytes);
   const rootBytes = encodeProtocolDirectory({
     type: "directory",
-    entries: [{ name: "_index.md", file: fileHash }],
+    entries: [stampedEntry("file", "_index.md", fileHash, undefined, at)],
   });
   const rootHash = hashObject(rootBytes);
   return { root: rootHash, objects: new Map([[fileHash, fileBytes], [rootHash, rootBytes]]) };
@@ -414,8 +416,6 @@ export class HostDaemon implements AsyncDisposable {
   private remoteGroupTimer: ReturnType<typeof setTimeout> | undefined;
   /** Background object packing (overstoryd 001). */
   readonly packing: PackMaintenance;
-  /** When each entry's content first appeared at its path (tree operations §1.1.2a). */
-  readonly entryTimes: EntryTimeIndex;
   private disposed = false;
   /** Where this host serves `pages-v1`: every tree, or the trees listed. */
   readonly pages: boolean | readonly string[] = false;
@@ -440,7 +440,6 @@ export class HostDaemon implements AsyncDisposable {
       new ProvenanceStore(dataRoot, this.objects, (hash) => this.history.entry(hash)),
       (tree) => this.fillProvenance(tree));
     this.packing = new PackMaintenance(db, this.objects, join(dataRoot, "objects"));
-    this.entryTimes = new EntryTimeIndex(join(dataRoot, "entry-times.sqlite3"), db, () => this.storedReader());
     this.observations = new ObservationLog(db);
     this.accounts = new AccountDirectory(db);
     this.access = new AccessControl(db, {
@@ -550,8 +549,6 @@ export class HostDaemon implements AsyncDisposable {
     overstoryd.scheduleRemoteGroupRefresh();
     void overstoryd.refreshRemoteGroups();
     overstoryd.packing.start();
-    // Indexed in the background; a timed read of a tree not yet caught up is refused until it is.
-    void overstoryd.entryTimes.catchUpAll();
     if (overstoryd.provenanceFill) for (const tree of overstoryd.list()) overstoryd.fillProvenance(tree.id);
     return overstoryd;
   }
@@ -641,7 +638,7 @@ export class HostDaemon implements AsyncDisposable {
       access: [...communityAdmins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), { who: "everyone", allow: ["read"] }],
       mounts: {},
       apps: {},
-    }));
+    }, directoryStamper(undefined, Date.now())));
     const now = Date.now();
     this.db.transaction(() => {
       this.db.run("INSERT INTO meta (key, value) VALUES ('community_handle', ?)", [config.handle]);
@@ -657,7 +654,7 @@ export class HostDaemon implements AsyncDisposable {
       const profileConfig = await this.prepareConfig(profileTree, "person", snapshotTreeConfig({
         ...initialPersonConfig(profileTree, { id: deviceID, label, key: account.device.key }),
         access: [{ who: { profile: profileTree }, allow: ["admin"] }, { who: "everyone", allow: ["read"] }],
-      }));
+      }, directoryStamper(undefined, Date.now())));
       this.insertMemberMount(community.id, account.handle, profileTree);
       await this.insertTree(directSnapshot(profileSource("person", account.name ?? account.handle)), {
         id: profileTree,
@@ -758,7 +755,7 @@ export class HostDaemon implements AsyncDisposable {
     if (!basis || !update || !tip || tip.ordinal <= after) return null;
     const requestDigest = this.matchingRequestDigest(update.id, credentialSubject);
     const payload = await this.acceptedTransitionPayload(basis.root, update.root);
-    return {record: tip, transition: {update, from: {id: basis.id, root: basis.root}, ...payload,
+    return {record: tip, transition: {update, from: {update: basis.id, root: basis.root}, ...payload,
       ...(requestDigest ? {requestDigest} : {})}};
   }
 
@@ -774,7 +771,7 @@ export class HostDaemon implements AsyncDisposable {
     const open = await this.history.decisions(update);
     const page = decisionPage(open.map((d) => d.inspection), tree, state, after, conflict);
     if (!page) return null;
-    return { tree, state, root: update.root, conflicted: update.conflicted, decisions: page.selected, next: page.next };
+    return { tree, update: state, root: update.root, conflicted: update.conflicted, decisions: page.selected, next: page.next };
   }
 
   /** Complete graph for one retained accepted root, without exposing history metadata. */
@@ -795,28 +792,6 @@ export class HostDaemon implements AsyncDisposable {
       if (!bytes) throw new Error(`Retained root ${root} is missing ${hash}`);
       return bytes;
     });
-  }
-
-  /** The entry times of a snapshot or path read's directories (tree operations §1.1.2a). */
-  entryTimesFor(treeID: string, root: ObjectHash, objects: Map<ObjectHash, Uint8Array>): Promise<Record<string, number>> {
-    return this.entryTimes.times(treeID, root, objects);
-  }
-
-  /** Descriptive metadata of the current accepted root's file entries, keyed
-   * by entry path. Not part of any hash; read in one turn with its update. */
-  entryMetadata(treeID: string, along?: string): { update: string; entries: Record<string, { modifiedAt: number }> } | null {
-    const current = this.acceptedStore.current(treeID);
-    if (!current) return null;
-    // `along`: only the entries of the directories a path read of it walks
-    // (tree operations §1.1.2a), the root's and each one down to the node's own.
-    const segments = along === undefined ? null : along.split("/").filter(Boolean);
-    const directories = segments ? new Set(["/", ...segments.map((_, index) => `/${segments.slice(0, index + 1).join("/")}`)]) : null;
-    const entries: Record<string, { modifiedAt: number }> = {};
-    for (const [path, entry] of new EntryMetadataStore(this.db).entries(treeID)) {
-      if (directories && !directories.has(path.slice(0, path.lastIndexOf("/")) || "/")) continue;
-      entries[path] = { modifiedAt: entry.modifiedAt };
-    }
-    return { update: current.id, entries };
   }
 
   boundary(path: string): HostTree | null {
@@ -898,13 +873,15 @@ export class HostDaemon implements AsyncDisposable {
 
   createAccountChallenge(input: {
     origin: string;
+    purpose: "account" | "placement";
     account?: string;
     profileTree: string;
-    configurationTree: string;
     inviteCode?: string;
-    /** The profile's locator at its home host, to accept an invitation as a placement (accounts §1.4). */
+    /** A placement's profile: its canonical locator at its home host (federation §3). */
     profile?: string;
   }): AccountChallenge {
+    if ((input.purpose === "placement") !== (input.profile !== undefined)) throw new Error("A placement challenge, and only one, names the profile's locator");
+    if (input.purpose === "placement" && input.inviteCode === undefined) throw new Error("A placement challenge names the invitation's code");
     const inviteDigest = input.inviteCode ? inviteCodeDigest(input.inviteCode) : null;
     if (input.profile !== undefined) this.checkPlacementLocator(input.profile, input.origin, inviteDigest);
     const matches = input.account === undefined
@@ -921,7 +898,6 @@ export class HostDaemon implements AsyncDisposable {
       throw new Error("Account challenge requires an exact profile reservation");
     }
     if (!isPersonProfileTreeID(input.profileTree)) throw new Error("Account challenge requires a self-certifying person Profile TreeID");
-    if (input.configurationTree !== treeConfigurationID(input.profileTree)) throw new Error("Account challenge requires the profile's configuration TreeID");
     if (this.accounts.account(input.profileTree) || this.get(input.profileTree)) throw new AlreadyClaimedError(null);
     if (new URL(input.origin).origin !== input.origin || new URL(account).origin !== input.origin) {
       throw new Error("Account challenge target must use canonical host URLs");
@@ -930,11 +906,14 @@ export class HostDaemon implements AsyncDisposable {
     const issuedAt = Date.now();
     const challenge: AccountChallenge = {
       version: 1,
+      purpose: input.purpose,
       id: generateOverstoryID("ax"),
       origin: input.origin,
       account,
       profileTree: input.profileTree,
-      configurationTree: input.configurationTree,
+      // The host derives it; the challenge still binds it (accounts §1.2).
+      configurationTree: treeConfigurationID(input.profileTree),
+      ...(input.profile !== undefined ? { profile: input.profile } : {}),
       nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
       issuedAt,
       expiresAt: issuedAt + 5 * 60 * 1000,
@@ -944,6 +923,9 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   private verifyAccountIdentityProof(input: {
+    /** The signed purpose this route accepts: a claim's is never a placement's. */
+    purpose: AccountChallenge["purpose"];
+    profile?: string;
     accountLocator: string;
     profileTree: string;
     configurationTree: string;
@@ -953,7 +935,9 @@ export class HostDaemon implements AsyncDisposable {
   }): { challenge: AccountChallenge; proofDigest: string } {
     const challenge = validateAccountChallenge(input.challenge);
     if (
-      challenge.account !== input.accountLocator
+      challenge.purpose !== input.purpose
+      || challenge.profile !== input.profile
+      || challenge.account !== input.accountLocator
       || challenge.origin !== new URL(input.accountLocator).origin
       || challenge.profileTree !== input.profileTree
       || challenge.configurationTree !== input.configurationTree
@@ -965,34 +949,33 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   async claimPairing(input: {
-    id: string;
-    secret: string;
+    code: string;
     deviceID: string;
     key: string;
     label: string;
   }): Promise<{ device: ServerDevice; confirmationCode: string }> {
-    const { id, secret, label } = input;
+    const { label } = input;
     const safeLabel = label.trim();
     if (!safeLabel || safeLabel.length > 100) throw new Error("Device label is required and must be at most 100 characters");
     if (!isGeneratedOverstoryID(input.deviceID, "dv")) throw new Error("Pairing requires a client-generated 128-bit DeviceID");
     parseDeviceKey(input.key);
-    const pairing = this.accounts.pairing(id);
-    const secretMatches = pairing?.secretMatches(secret) ?? false;
+    const pairing = this.accounts.pairingByCode(input.code);
     if (pairing?.claimedAt && pairing.claimedDevice === input.deviceID) {
       const replay = this.accounts.deviceBinding(input.deviceID, pairing.accountID);
-      if (replay && replay.publicKey === input.key && replay.label === safeLabel && secretMatches) {
+      if (replay && replay.publicKey === input.key && replay.label === safeLabel) {
         return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
       }
     }
     if (this.accounts.deviceExists(input.deviceID)) {
       throw new Error(`Retired DeviceID cannot be reused: ${input.deviceID}`);
     }
-    if (!pairing || !pairing.accountEnabled || pairing.claimedAt || pairing.expiresAt <= Date.now() || !secretMatches) {
+    if (!pairing || !pairing.accountEnabled || pairing.claimedAt || pairing.expiresAt <= Date.now()) {
       throw new Error("Pairing is invalid, expired, or already used");
     }
     const account = this.account(pairing.accountID)!;
     const now = Date.now();
     // A recovery pairing's device becomes the account's only one, an administrator (accounts §5.3).
+    const { id } = pairing;
     const recovery = isRecoveryPairing(id);
     const accepted = await this.advanceConfig(account.id, `pairing:${id}`, (values) => {
       if (values.devices?.[input.deviceID]) throw new Error("DeviceID is already active");
@@ -1213,7 +1196,7 @@ export class HostDaemon implements AsyncDisposable {
     const issuedAt = Date.now();
     const challenge: DeviceSessionChallenge = {
       version: 1,
-      purpose: "device-session",
+      purpose: "session",
       id: generateOverstoryID("ax"),
       origin: input.origin,
       profileTree,
@@ -1490,8 +1473,8 @@ export class HostDaemon implements AsyncDisposable {
     const kind = this.treeConfigKind(tree);
     const current = await this.configGraphAt(configuration.ref, kind, tree, undefined, true);
     const next = change(current);
-    const canonical = snapshotTreeConfig(next);
     const directory = decodeProtocolDirectory(await this.objects.load(configuration.ref));
+    const canonical = snapshotTreeConfig(next, directoryStamper(directory, Date.now()));
     const generated = decodeProtocolDirectory(canonical.objects.get(canonical.root)!);
     const same = (name: string) => JSON.stringify((current as unknown as Record<string, unknown>)[name.replace(".yaml", "")])
       === JSON.stringify((next as unknown as Record<string, unknown>)[name.replace(".yaml", "")]);
@@ -1737,11 +1720,6 @@ export class HostDaemon implements AsyncDisposable {
     return this.access.directExecution(account, tree, subject, active, linkDigest);
   }
 
-  /** A tree's rules as its administrators see them; links redacted. */
-  resourcePolicy(account: HostAccount, tree: string) {
-    return this.canAdminister(account, tree) ? this.access.safePolicy(tree) : undefined;
-  }
-
   /** Every profile an `access.yaml` rule of the tree names, whatever its
    * scope, app or operations. */
   ruleProfiles(tree: string): string[] {
@@ -1816,7 +1794,7 @@ export class HostDaemon implements AsyncDisposable {
     /** The activation element's `change`, recorded on the configuration's first accepted update. */
     configurationChange?: string;
   }): Promise<{ account: HostAccount; configuration: HostTree }> {
-    const proof = this.verifyAccountIdentityProof(input);
+    const proof = this.verifyAccountIdentityProof({ ...input, purpose: "account" });
     const claimDigest = sha256(stableJSONString({
       handle: input.handle,
       accountLocator: input.accountLocator,
@@ -1912,7 +1890,7 @@ export class HostDaemon implements AsyncDisposable {
     const object = hashObject(bytes);
     const nextDirectory = encodeProtocolDirectory({
       ...directory,
-      entries: directory.entries.map((item, i) => i !== index ? item : entry.page ? { name: item.name, page: object } : { name: item.name, file: object }),
+      entries: directory.entries.map((item, i) => i !== index ? item : stampedEntry(entry.page ? "page" : "file", item.name, object, item, Date.now())),
     });
     const root = hashObject(nextDirectory);
     return { root, generated: new Map<ObjectHash, Uint8Array>([[object, bytes], [root, nextDirectory]]) };
@@ -1955,7 +1933,7 @@ export class HostDaemon implements AsyncDisposable {
     signature: string;
     inviteCode: string;
   }): Promise<HostAccount> {
-    const proof = this.verifyAccountIdentityProof(input);
+    const proof = this.verifyAccountIdentityProof({ ...input, purpose: "placement" });
     const homeHost = parseProfileLocator(input.profile)?.origin;
     const existing = this.accounts.account(input.profileTree);
     // Exact retry after success: the challenge was consumed with the acceptance.
@@ -2070,7 +2048,7 @@ export class HostDaemon implements AsyncDisposable {
       if (root === null || update.trace === null) throw new UpdateProtocolError("unsupported-operation", `Update ${updates.length} (${update.change}) leaves roots out without a basis`);
       let result: Awaited<ReturnType<typeof deriveTrace>>;
       try {
-        result = await deriveTrace(root, update.trace, (hash) => this.objects.load(hash, supplied), replayCollectionRows);
+        result = await deriveTrace(root, update.trace, (hash) => this.objects.load(hash, supplied), entryTimeOf(update.at), replayCollectionRows);
       } catch (error) {
         if (error instanceof UnsupportedDerivation) throw new UpdateProtocolError("unsupported-operation", error.message);
         throw error;
@@ -2320,6 +2298,7 @@ export class HostDaemon implements AsyncDisposable {
     return {
       root: update.candidate,
       change: update.change,
+      at: entryTimeOf(update.at),
       trace: update.trace,
       resolves,
       ...(alternatives.length ? { alternatives } : {}),
@@ -2349,7 +2328,7 @@ export class HostDaemon implements AsyncDisposable {
     // to acceptance. It depends only on the trace and the objects it names.
     let checked = this.plainTraces.get(update.trace);
     if (!checked) {
-      checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), replayCollectionRows);
+      checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), entryTimeOf(update.at), replayCollectionRows);
       this.plainTraces.set(update.trace, checked);
     }
     if (!checked.plain) return miss(checked.reason);
@@ -2405,8 +2384,10 @@ export class HostDaemon implements AsyncDisposable {
     if (this.acceptedStore.acceptedChange(treeID, request.change)) {
       throw new Error("Authored change identity is already bound to a different accepted request");
     }
-    // A row operation's time may not run ahead of this host's clock.
+    // An update's time, and a row operation's, may not run more than five
+    // minutes ahead of this host's clock (data model §6).
     const latest = Date.now() + 5 * 60_000;
+    if (entryTimeOf(request.at) > latest) throw new Error(`Update ${request.change} is dated in the future`);
     for (const frame of request.trace ?? [])
       for (const operation of frame.operations)
         if (isRowOperation(operation) && operation.at !== undefined && Date.parse(operation.at) > latest)
@@ -2430,7 +2411,7 @@ export class HostDaemon implements AsyncDisposable {
   ): { status: number; result: UpdateConflictResult } {
     return {
       status: 409,
-      result: { error: "conflict", message, retryable: false, tree: treeID, details: { kind, completed: [], failedIndex: 0, current, conflicts } },
+      result: { error: "conflict", message, retryable: false, tree: treeID, details: { kind, completed: [], failedIndex: 0, head: { update: current.id, root: current.root as ObjectHash, conflicted: current.conflicted }, conflicts } },
     };
   }
 
@@ -2561,6 +2542,7 @@ export class HostDaemon implements AsyncDisposable {
         previous: head.hash,
         root,
         change: request.change,
+        at: entryTimeOf(request.at),
         trace: request.trace,
         resolves: guards,
         decisions,
@@ -2822,7 +2804,6 @@ export class HostDaemon implements AsyncDisposable {
       try { listener(update); } catch (error) { console.error("overstoryd accepted-update listener failed", error); }
     }
     this.packing.notify();
-    this.entryTimes.notify(update.tree);
     const record = this.observations.get(update.id);
     if (record) this.notifyObservation(record);
     // A configuration may name a remote group this host has no copy of yet.
@@ -2974,6 +2955,7 @@ export class HostDaemon implements AsyncDisposable {
     root: ObjectHash,
     change: string,
     staged: Map<ObjectHash, Uint8Array>,
+    at = Date.now(),
   ): Promise<{ hash: ObjectHash; conflicted: boolean }> {
     let previous: ObjectHash | null = null, decisions: LogDecision[] = [], evidence: unknown;
     if (from) {
@@ -2983,7 +2965,7 @@ export class HostDaemon implements AsyncDisposable {
         const rules = this.rules();
         const { answer, objects } = await this.mergeTool.ask({
           base: head.hash, head: head.hash,
-          candidate: { root, change, trace: null, resolves: [] },
+          candidate: { root, change, at, trace: null, resolves: [] },
           rules: { ...rules, config: { ...(rules.config as object), conflictProjection: "incoming" } },
         }, staged, [head.entry.root]);
         if (answer.root !== root) throw new ServerFaultError("The merge sidecar did not accept overstoryd's own root");
@@ -2993,7 +2975,7 @@ export class HostDaemon implements AsyncDisposable {
       }
     }
     return this.history.write({
-      format: LOG_ENTRY_FORMAT, tree, previous, root, change, trace: null, resolves: [], decisions,
+      format: LOG_ENTRY_FORMAT, tree, previous, root, change, at, trace: null, resolves: [], decisions,
       ...(evidence !== undefined && evidence !== null ? { evidence } : {}),
     }, [...staged].map(([hash, bytes]) => ({ hash, bytes })));
   }
@@ -3217,7 +3199,7 @@ export class HostDaemon implements AsyncDisposable {
       const root = await this.prepareConfig(generateOverstoryID("tr"), "tree", snapshotTreeConfig({
         access: [{ who: { profile: profileTree }, allow: ["admin"] }],
         mounts: {},
-      }));
+      }, directoryStamper(undefined, Date.now())));
       accounts.push({ handle, profileTree, homeHost, root });
     }
     return { pins, locators, accounts };
@@ -3354,7 +3336,6 @@ export class HostDaemon implements AsyncDisposable {
     clearTimeout(this.deviceKeyTimer);
     clearTimeout(this.remoteGroupTimer);
     await this.packing[Symbol.asyncDispose]();
-    await this.entryTimes.close();
     await this.mergeTool[Symbol.asyncDispose]();
     this.wireSchemas.clear();
     this.objects.packs.close();

@@ -65,10 +65,11 @@ public struct ProtocolLogicalRow: Equatable, Sendable {
 
     public var key: [KeyPart]
     public var fields: [String: ProtocolReadValue]
-    public var created: String
-    public var modified: String
+    /// Unix milliseconds in UTC, like a file or page entry's times (collections §2).
+    public var created: Int
+    public var modified: Int
 
-    public init(key: [KeyPart], fields: [String: ProtocolReadValue], created: String, modified: String) {
+    public init(key: [KeyPart], fields: [String: ProtocolReadValue], created: Int, modified: Int) {
         self.key = key
         self.fields = fields
         self.created = created
@@ -94,15 +95,54 @@ public struct ProtocolDirectoryEntry: Hashable, Codable, Sendable {
     public var page: String?
     public var directory: String?
     public var tree: String?
+    /// A file or page entry's times, Unix milliseconds in UTC (data model §6):
+    /// when its content first appeared, and when it last changed. Directory
+    /// and tree entries carry none.
+    public var created: Int?
+    public var modified: Int?
     public var hash: String? { file ?? page ?? directory }
     public var kind: ProtocolEntryKind? { file != nil ? .file : page != nil ? .page : directory != nil ? .directory : nil }
+    /// Whether this entry holds content, so carries times.
+    public var isContent: Bool { file != nil || page != nil }
 
-    public init(name: String, file: String? = nil, directory: String? = nil, tree: String? = nil, page: String? = nil) {
+    public init(name: String, file: String? = nil, directory: String? = nil, tree: String? = nil, page: String? = nil, created: Int? = nil, modified: Int? = nil) {
         self.name = name
         self.file = file
         self.page = page
         self.directory = directory
         self.tree = tree
+        self.created = created
+        self.modified = modified
+    }
+
+    /// The entry for `object` named `name`, stamped against the entry that was
+    /// there before (data model §6): the same object keeps both times; changed
+    /// content keeps the earlier `created` and is modified `at`; new content is
+    /// created and modified `at`. `keep` keeps `previous`'s times whatever the
+    /// object (a move or rename). `source`, a file date, is used when no later
+    /// than `at`.
+    public static func stamped(_ kind: ProtocolEntryKind, name: String, object: String, previous: ProtocolDirectoryEntry?, at: Int, keep: Bool = false, source: Int? = nil) -> ProtocolDirectoryEntry {
+        precondition(kind == .file || kind == .page, "only file and page entries carry times")
+        var entry = kind == .file ? ProtocolDirectoryEntry(name: name, file: object) : ProtocolDirectoryEntry(name: name, page: object)
+        if let previous, previous.isContent, let created = previous.created, let modified = previous.modified,
+           keep || previous.hash == object {
+            entry.created = created
+            entry.modified = modified
+            return entry
+        }
+        let stamp = source.map { min($0, at) } ?? at
+        let before = previous?.isContent == true ? previous?.created : nil
+        entry.created = before.map { min($0, stamp) } ?? stamp
+        entry.modified = stamp
+        return entry
+    }
+
+    /// This entry without its times: what a comparison of content ignores.
+    public var untimed: ProtocolDirectoryEntry {
+        var entry = self
+        entry.created = nil
+        entry.modified = nil
+        return entry
     }
 
     /// The entry for Markdown `bytes` named `name`: in a tree that holds pages
@@ -113,6 +153,12 @@ public struct ProtocolDirectoryEntry: Hashable, Codable, Sendable {
             return ProtocolDirectoryEntry(name: name, page: try store(encoded))
         }
         return ProtocolDirectoryEntry(name: name, file: try store(bytes))
+    }
+
+    /// `markdown`, stamped against `previous` at `at` (`stamped`).
+    public static func markdown(name: String, bytes: Data, pages: Bool, previous: ProtocolDirectoryEntry?, at: Int, source: Int? = nil, store: (Data) throws -> String) rethrows -> ProtocolDirectoryEntry {
+        let entry = try markdown(name: name, bytes: bytes, pages: pages, store: store)
+        return stamped(entry.kind!, name: name, object: entry.hash!, previous: previous, at: at, source: source)
     }
 }
 
@@ -151,13 +197,16 @@ public enum ProtocolObjectCodec {
         var fields: [(String, CanonicalCBORValue)] = [
             ("type", .text("directory")),
             ("entries", .array(entries.map { entry in
-                .map([
+                var fields: [(String, CanonicalCBORValue)] = [
                     ("name", .text(entry.name)),
                     entry.file.map { ("file", .text($0)) }
                         ?? entry.page.map { ("page", .text($0)) }
                         ?? entry.directory.map { ("directory", .text($0)) }
                         ?? ("tree", .text(entry.tree!))
-                ])
+                ]
+                if let created = entry.created { fields.append(("created", .integer(created))) }
+                if let modified = entry.modified { fields.append(("modified", .integer(modified))) }
+                return .map(fields)
             }))
         ]
         if let collection { fields.append(("collection", collectionValue(collection))) }
@@ -207,10 +256,16 @@ public enum ProtocolObjectCodec {
                 let page = item["page"].flatMap { if case let .text(value) = $0 { value } else { nil } }
                 let directory = item["directory"].flatMap { if case let .text(value) = $0 { value } else { nil } }
                 let tree = item["tree"].flatMap { if case let .text(value) = $0 { value } else { nil } }
-                guard item.count == 2, [file != nil, page != nil, directory != nil, tree != nil].filter({ $0 }).count == 1 else {
+                let content = file != nil || page != nil
+                guard item.count == (content ? 4 : 2), [file != nil, page != nil, directory != nil, tree != nil].filter({ $0 }).count == 1 else {
                     throw ProtocolValidationError.invalidCBOR("Directory entry target is invalid")
                 }
-                return ProtocolDirectoryEntry(name: name, file: file, directory: directory, tree: tree, page: page)
+                let created = content ? entryTime(item["created"]) : nil
+                let modified = content ? entryTime(item["modified"]) : nil
+                if content, created == nil || modified == nil {
+                    throw ProtocolValidationError.invalidCBOR("Directory entry times are invalid")
+                }
+                return ProtocolDirectoryEntry(name: name, file: file, directory: directory, tree: tree, page: page, created: created, modified: modified)
             }
             let collection = try values["collection"].map(decodeCollection)
             object = .directory(decoded, collection: collection)
@@ -322,15 +377,17 @@ public enum ProtocolObjectCodec {
     }
 
     /// A `rows` chunk's rows, decoded strictly: each key a list of
-    /// `[field, value]` pairs, fields a map, and both times text. Values are
-    /// JSON values; anything else (bytes, non-finite numbers) is refused.
+    /// `[field, value]` pairs, fields a map, and both times Unix milliseconds
+    /// with created ≤ modified. Values are JSON values, except that a Date
+    /// field's value is tagged (tag 1004 around a date, tag 0 around a UTC
+    /// date-time) and reads as its text; anything else is refused.
     public static func decodeRows(_ bytes: Data) throws -> [ProtocolLogicalRow] {
         try rowList(bytes).map { fields in
             let row = Dictionary(uniqueKeysWithValues: fields)
             guard case let .array(pairs)? = row["key"], !pairs.isEmpty,
                   case let .map(values)? = row["fields"],
-                  case let .text(created)? = row["created"],
-                  case let .text(modified)? = row["modified"]
+                  let created = entryTime(row["created"]),
+                  let modified = entryTime(row["modified"]), created <= modified
             else { throw ProtocolValidationError.invalidCBOR("Row fields are invalid") }
             let key = try pairs.map { pair -> ProtocolLogicalRow.KeyPart in
                 guard case let .array(part) = pair, part.count == 2, case let .text(field) = part[0] else {
@@ -360,6 +417,12 @@ public enum ProtocolObjectCodec {
             var object: [String: ProtocolReadValue] = [:]
             for (name, item) in entries { object[name] = try readValue(item, depth: depth + 1) }
             return .object(object)
+        case let .tagged(1004, .text(date)):
+            guard ProtocolPage.validCanonicalDate(date) else { throw ProtocolValidationError.invalidCBOR("A tagged row date is invalid") }
+            return .string(date)
+        case let .tagged(0, .text(time)):
+            guard ProtocolPage.validCanonicalDateTime(time) else { throw ProtocolValidationError.invalidCBOR("A tagged row date-time is invalid") }
+            return .string(time)
         case .bytes, .tagged: throw ProtocolValidationError.invalidCBOR("A row value must be a JSON value")
         }
     }
@@ -368,6 +431,18 @@ public enum ProtocolObjectCodec {
     private static func isModelName(_ name: String) -> Bool {
         guard let first = name.unicodeScalars.first, first.isASCII, CharacterSet.letters.contains(first) || first == "_" else { return false }
         return name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_") }
+    }
+
+    /// Whether `value` can be an entry time: Unix milliseconds a JSON number holds exactly.
+    public static func isEntryTime(_ value: Int) -> Bool { abs(value) <= 9_007_199_254_740_991 }
+
+    /// An entry time from CBOR: an integer `isEntryTime` accepts, or nil.
+    private static func entryTime(_ value: CanonicalCBORValue?) -> Int? {
+        switch value {
+        case let .unsigned(number)?: return isEntryTime(number) ? number : nil
+        case let .negative(number)?: return isEntryTime(-1 - number) ? -1 - number : nil
+        default: return nil
+        }
     }
 
     private static func validate(_ object: ProtocolObject) throws {
@@ -392,6 +467,14 @@ public enum ProtocolObjectCodec {
             }
             if let hash = entry.hash { try validateObjectHash(hash) }
             if let tree = entry.tree, tree.isEmpty { throw ProtocolValidationError.invalidValue("Nested tree ID is empty") }
+            if entry.isContent {
+                guard let created = entry.created, let modified = entry.modified,
+                      isEntryTime(created), isEntryTime(modified), created <= modified else {
+                    throw ProtocolValidationError.invalidValue("A file or page entry carries created ≤ modified, in Unix milliseconds")
+                }
+            } else if entry.created != nil || entry.modified != nil {
+                throw ProtocolValidationError.invalidValue("Only file and page entries carry times")
+            }
         }
         if let collection {
             guard collection.version == 1 else { throw ProtocolValidationError.invalidValue("Collection version must be 1") }
@@ -451,63 +534,18 @@ public enum ProtocolSnapshotBundleCodec {
         ]))
     }
 
+    /// A snapshot bundle: exactly `{ version: 1, objects }`, objects ordered by hash.
     public static func decode(
         _ data: Data,
         root: String,
         mode: ProtocolObjectGraph.ValidationMode = .complete
     ) throws -> ProtocolSnapshot {
-        let (snapshot, times) = try decodeBundle(data, root: root, mode: mode)
-        guard times == nil else { throw ProtocolValidationError.invalidCBOR("Snapshot bundle fields are invalid") }
-        return snapshot
-    }
-
-    /// A snapshot read with `?times` (tree operations §1.1.2a): the snapshot,
-    /// and the Unix-millisecond time of every file and page entry of its
-    /// directories, keyed by entry path (`/Trips/_index.md`).
-    public static func decodeTimed(_ data: Data, root: String) throws -> (snapshot: ProtocolSnapshot, times: [String: Double]) {
-        let (snapshot, times) = try decodeBundle(data, root: root, mode: .complete)
-        guard let times else { throw ProtocolValidationError.invalidCBOR("Snapshot bundle has no times") }
-        // Exactly the file and page entries the bundle's directories hold.
-        let bytes = Dictionary(uniqueKeysWithValues: snapshot.objects.map { ($0.hash, $0.bytes) })
-        var entries = Set<String>()
-        func walk(_ hash: String, _ path: String) throws {
-            guard let data = bytes[hash], case let .directory(children, _) = try ProtocolObjectCodec.decode(data, kind: .directory) else { return }
-            for entry in children {
-                let child = "\(path)/\(entry.name)"
-                if let directory = entry.directory { try walk(directory, child) }
-                else if entry.file != nil || entry.page != nil { entries.insert(child) }
-            }
-        }
-        try walk(root, "")
-        guard Set(times.keys) == entries else {
-            throw ProtocolValidationError.invalidValue("Snapshot bundle times do not match its entries")
-        }
-        return (snapshot, times)
-    }
-
-    private static func decodeBundle(
-        _ data: Data,
-        root: String,
-        mode: ProtocolObjectGraph.ValidationMode
-    ) throws -> (ProtocolSnapshot, [String: Double]?) {
         try validateObjectHash(root)
         guard case let .map(fields) = try CanonicalCBOR.decode(data) else {
             throw ProtocolValidationError.invalidCBOR("Snapshot bundle is not a map")
         }
         let values = Dictionary(uniqueKeysWithValues: fields)
-        var times: [String: Double]?
-        if let encodedTimes = values["times"] {
-            guard case let .map(pairs) = encodedTimes else { throw ProtocolValidationError.invalidCBOR("Snapshot bundle times must be a map") }
-            var decoded: [String: Double] = [:]
-            for (path, value) in pairs {
-                guard path.hasPrefix("/"), case let .unsigned(at) = value else {
-                    throw ProtocolValidationError.invalidCBOR("Snapshot bundle time is invalid: \(path)")
-                }
-                decoded[path] = Double(at)
-            }
-            times = decoded
-        }
-        guard values.count == (times == nil ? 2 : 3),
+        guard values.count == 2,
               case .unsigned(1)? = values["version"],
               case let .array(encodedObjects)? = values["objects"] else {
             throw ProtocolValidationError.invalidCBOR("Snapshot bundle fields are invalid")
@@ -530,7 +568,7 @@ public enum ProtocolSnapshotBundleCodec {
         }
         let snapshot = ProtocolSnapshot(root: root, objects: objects)
         _ = try ProtocolObjectGraph.validate(snapshot, mode: mode)
-        return (snapshot, times)
+        return snapshot
     }
 }
 
@@ -645,7 +683,8 @@ public extension ProtocolSnapshot {
         return try verifiedBytes(hash)
     }
 
-    func replacingRootFile(named name: String, with bytes: Data) throws -> ProtocolSnapshot {
+    /// This snapshot with its root file `name` holding `bytes`, stamped at `at` (Unix ms).
+    func replacingRootFile(named name: String, with bytes: Data, at: Int) throws -> ProtocolSnapshot {
         let objects = try ProtocolObjectGraph.validate(self)
         guard case let .directory(entries, collection)? = objects[root],
               entries.contains(where: { $0.name == name && $0.hash != nil }) else {
@@ -653,7 +692,7 @@ public extension ProtocolSnapshot {
         }
         let file = try ProtocolObjectCodec.object(.file(bytes))
         let nextEntries = entries.map { entry in
-            entry.name == name ? ProtocolDirectoryEntry(name: name, file: file.hash) : entry
+            entry.name == name ? ProtocolDirectoryEntry.stamped(.file, name: name, object: file.hash, previous: entry, at: at) : entry
         }
         let nextRoot = try ProtocolObjectCodec.object(.directory(nextEntries, collection: collection))
         var bytesByHash = Dictionary(self.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })

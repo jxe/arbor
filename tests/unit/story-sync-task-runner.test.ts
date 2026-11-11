@@ -43,7 +43,7 @@ function runnerClient(): RunnerPresenceClient {
   return {
     async *presence(tree, options) {
       opened.push({ tree, runner: options.runner });
-      const queue: PresenceEvent[] = [{ kind: "presence.ready", ready: { self: `pr_runner_${tree}`, stream: `pr_runner_${tree}`, peers: [] } }];
+      const queue: PresenceEvent[] = [{ kind: "presence.ready", ready: { self: `pr_runner_${tree}`, peers: [] } }];
       let wake: (() => void) | undefined;
       deliver.set(tree, (event) => { queue.push(event); wake?.(); });
       let stopped = false;

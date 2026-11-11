@@ -2,10 +2,10 @@ import { Database } from "bun:sqlite";
 import { protocolContentBytes, treeReader, walkTreeDiff, type LoadObject, type ObjectHash, type TreeReader } from "@ovst/protocol";
 
 /**
- * Descriptive metadata of a tree's file entries, kept beside the hashes and
- * never inside them (overstoryd 013), plus the document-version index that
- * overstoryd 007's history routes read. Both are filled from one walk over
- * consecutive accepted roots, inside the accepted update's transaction.
+ * The document-version index (overstoryd 007): each Markdown document's
+ * accepted content versions, filled from one walk over consecutive accepted
+ * roots inside the accepted update's transaction. Pack maintenance groups
+ * objects by it, and retention keeps what it names.
  */
 
 /** One file entry the accepted update wrote. Markdown entries carry their
@@ -84,18 +84,10 @@ export async function entryChanges(
   return changes;
 }
 
-export class EntryMetadataStore {
+export class DocumentVersionStore {
   constructor(private readonly db: Database) {}
 
   static createSchema(db: Database): void {
-    db.run(`
-      CREATE TABLE IF NOT EXISTS entry_metadata (
-        tree_id TEXT NOT NULL REFERENCES trees(id),
-        path TEXT NOT NULL,
-        modified_at INTEGER NOT NULL,
-        PRIMARY KEY (tree_id, path)
-      ) WITHOUT ROWID
-    `);
     // Insertion order (rowid) is accepted order: the newest version of a
     // document is its largest rowid, independent of clock ties. `update_id`
     // is the accepted update that wrote the version, as opaque text: a
@@ -116,12 +108,6 @@ export class EntryMetadataStore {
 
   /** Apply one accepted update's entry changes. Runs inside its transaction. */
   apply(tree: string, update: string, acceptedAt: number, changes: EntryChanges): void {
-    const remove = this.db.prepare("DELETE FROM entry_metadata WHERE tree_id = ? AND path = ?");
-    for (const path of changes.removed) remove.run(tree, path);
-    const upsert = this.db.prepare(`
-      INSERT INTO entry_metadata (tree_id, path, modified_at) VALUES (?, ?, ?)
-      ON CONFLICT (tree_id, path) DO UPDATE SET modified_at = excluded.modified_at
-    `);
     const latest = this.db.prepare(`
       SELECT content_hash FROM document_versions WHERE tree_id = ? AND stable_key = ? ORDER BY rowid DESC LIMIT 1
     `);
@@ -130,19 +116,11 @@ export class EntryMetadataStore {
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     for (const change of changes.set) {
-      upsert.run(tree, change.path, acceptedAt);
       if (!change.document) continue;
       // A move without a content change is not a new version.
       const previous = latest.get(tree, change.document.key) as { content_hash: string } | null;
       if (previous?.content_hash !== change.hash)
         version.run(tree, change.document.key, update, change.path, change.hash, acceptedAt);
     }
-  }
-
-  /** The tree's file entries and when each last changed, keyed by entry path. */
-  entries(tree: string): Map<string, { modifiedAt: number }> {
-    const rows = this.db.query("SELECT path, modified_at FROM entry_metadata WHERE tree_id = ?").all(tree) as
-      Array<{ path: string; modified_at: number }>;
-    return new Map(rows.map((row) => [row.path, { modifiedAt: row.modified_at }]));
   }
 }

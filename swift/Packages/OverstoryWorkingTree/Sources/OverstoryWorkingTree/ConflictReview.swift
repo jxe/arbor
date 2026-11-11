@@ -22,6 +22,27 @@ public struct ConflictReviewMaterial: Codable, Equatable, Sendable {
     public let material: Material
     public let within: [String]?
     public let range: [Int]?
+
+    private enum CodingKeys: String, CodingKey { case material, within, range, path, object, change, operation, update }
+    /// A decision page's reference is told apart by its keys (tree operations
+    /// §1.2.2); a stored draft keeps the in-memory `material` form.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        within = try c.decodeIfPresent([String].self, forKey: .within)
+        range = try c.decodeIfPresent([Int].self, forKey: .range)
+        if c.contains(.material) { material = try c.decode(Material.self, forKey: .material); return }
+        if c.contains(.path) {
+            material = Material(kind: "basis", path: try c.decode(String.self, forKey: .path), object: try c.decode(String.self, forKey: .object))
+        } else if c.contains(.change) { material = Material(kind: "operation", path: nil, object: nil) }
+        else if c.contains(.update) { material = Material(kind: "alternative", path: nil, object: nil) }
+        else { throw ProtocolValidationError.invalidValue("Unknown reference") }
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(material, forKey: .material)
+        try c.encodeIfPresent(within, forKey: .within)
+        try c.encodeIfPresent(range, forKey: .range)
+    }
     public var path: String? {
         guard material.kind == "basis", let path = material.path else { return nil }
         return ([path == "/" ? "" : path] + (within ?? [])).joined(separator: "/") .nonemptyRoot
@@ -72,7 +93,6 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
     public let selected: String
     public let alternatives: [ConflictReviewAlternative]
     public let dependencies: [String]
-    public let actions: [String]
     /// A property choice's property of the page `affected` names.
     public var property: String? = nil
     public var path: String? {
@@ -85,8 +105,8 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
         var parts = path.split(separator: "/").map(String.init)
         guard let name = parts.popLast() else { return path }
         // A folder's page is named by its folder; the tree's own page is Home.
-        if name == "_index.md" || name == "_index.mdx" { return parts.last ?? "Home" }
-        for suffix in [".md", ".mdx"] where name.hasSuffix(suffix) { return String(name.dropLast(suffix.count)) }
+        if name == "_index.md" { return parts.last ?? "Home" }
+        if name.hasSuffix(".md") { return String(name.dropLast(3)) }
         return name
     }
     public var summary: String {
@@ -115,8 +135,9 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
     /// Whether this decision can be resolved without other declarations.
     /// Group compilation separately checks every structural and material obligation.
     public var supportsIndependentResolution: Bool {
-        if sourceRange != nil || kind == "property" { return dependencies.isEmpty && actions.contains("resolveConflict") }
-        return dependencies.isEmpty && actions.contains("resolveConflict") &&
+        // Every decision is resolvable; its dependencies and material decide how.
+        if sourceRange != nil || kind == "property" { return dependencies.isEmpty }
+        return dependencies.isEmpty &&
         affected.allSatisfy { $0.range == nil } &&
         (kind == "entry" && Set(alternatives.compactMap { $0.placement?.path }).count == 1 &&
          alternatives.allSatisfy { $0.value.file != nil || $0.value.page != nil || $0.value.absent == true })
@@ -162,7 +183,6 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
     public var keepCurrent: Bool?
     public var supportsKeepingCurrent: Bool {
         decisions.allSatisfy { decision in
-            decision.actions.contains("resolveConflict") &&
             decision.dependencies.allSatisfy { dependency in decisions.contains(where: { $0.id == dependency }) }
         }
     }
@@ -203,7 +223,7 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
             guard let selection = selection(for: decision.id), decision.alternatives.contains(where: { $0.id == selection.alternative }) else {
                 issues.append("Choose a version for \(decision.title)."); continue
             }
-            if !decision.actions.contains("resolveConflict") || (decision.sourceRange == nil && decision.affected.contains(where: { $0.range != nil })) {
+            if decision.sourceRange == nil && decision.affected.contains(where: { $0.range != nil }) {
                 issues.append("The scope of \(decision.title) is not supported by this reviewer.")
             }
             for dependency in decision.dependencies where !decisions.contains(where: { $0.id == dependency }) {

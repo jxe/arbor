@@ -2,8 +2,8 @@ import { hostname } from "node:os";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { configurationCheckoutPath, overstoryPrivateRoot, deviceKeyFromSeed, generateDeviceKeySeed, HostAccountStore, generateOverstoryID,
-  openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, ProtocolClient } from "@ovst/protocol";
-import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
+  openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, ProtocolClient, sha256 } from "@ovst/protocol";
+import { basisDirectories, materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
 import type { AccountBootstrapDeps } from "./ports.ts";
@@ -11,12 +11,13 @@ import type { AccountBootstrapDeps } from "./ports.ts";
 export interface LocalPairingPayload {
   version: 1;
   origin: string;
-  pairing: { id: string; secret: string };
+  pairing: { code: string };
 }
 interface PendingPairing {
   version: 1;
   origin: string;
-  pairingID: string;
+  /** The code's digest: which pairing this journal resumes, without the code itself. */
+  pairingDigest: string;
   credentialSlot: string;
 }
 /** A device pairs with a new key, whose seed is saved before the first request. */
@@ -25,7 +26,7 @@ const pendingPath = () => join(overstoryPrivateRoot(), "bootstrap-pairing.json")
 async function readPending(): Promise<PendingPairing | null> {
   try {
     const value = JSON.parse(await readFile(pendingPath(), "utf8"));
-    if (value.version !== 1 || typeof value.origin !== "string" || typeof value.pairingID !== "string"
+    if (value.version !== 1 || typeof value.origin !== "string" || typeof value.pairingDigest !== "string"
       || typeof value.credentialSlot !== "string") throw new Error("Malformed pending pairing");
     return value;
   } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
@@ -37,7 +38,7 @@ export async function pendingLocalPairing(): Promise<{ origin: string } | null> 
 function validatePayload(input: unknown): LocalPairingPayload {
   const value = input as LocalPairingPayload | null;
   if (!value || value.version !== 1 || typeof value.origin !== "string" || !value.pairing
-    || typeof value.pairing.id !== "string" || !value.pairing.id || typeof value.pairing.secret !== "string" || !value.pairing.secret) {
+    || typeof value.pairing.code !== "string" || !value.pairing.code) {
     throw new ProtocolError("invalid-request", "Malformed pairing code", 400);
   }
   const url = new URL(value.origin);
@@ -45,7 +46,7 @@ function validatePayload(input: unknown): LocalPairingPayload {
   if ((url.protocol !== "https:" && !loopback) || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
     throw new ProtocolError("invalid-request", "Pairing requires a canonical HTTPS community origin", 400);
   }
-  return { version: 1, origin: url.origin, pairing: { id: value.pairing.id, secret: value.pairing.secret } };
+  return { version: 1, origin: url.origin, pairing: { code: value.pairing.code } };
 }
 
 /** Pair an already claimed account into the same account store used by Story Sync. */
@@ -61,7 +62,7 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
       if (!source) throw new ProtocolError("credential-unavailable", "Unlock the credential store to resume this pairing", 409);
       secrets = JSON.parse(source);
       const matches = typeof secrets.seed === "string" && deviceKeyFromSeed(secrets.seed) === secrets.device.key;
-      if (secrets.payload.origin !== pending.origin || secrets.payload.pairing.id !== pending.pairingID || !matches) {
+      if (secrets.payload.origin !== pending.origin || sha256(secrets.payload.pairing.code) !== pending.pairingDigest || !matches) {
         throw new ProtocolError("conflict", "Pending pairing does not match its saved credential", 409);
       }
       if (payload && JSON.stringify(payload) !== JSON.stringify(secrets.payload)) {
@@ -71,7 +72,7 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
       if (!payload) throw new ProtocolError("invalid-request", "Paste a pairing code from an authorized device", 400);
       const seed = generateDeviceKeySeed();
       secrets = { payload, seed, device: { id: generateOverstoryID("dv"), label: hostname() || "Story Mac", key: deviceKeyFromSeed(seed) } };
-      pending = { version: 1, origin: payload.origin, pairingID: payload.pairing.id, credentialSlot: generateOverstoryID("tr") };
+      pending = { version: 1, origin: payload.origin, pairingDigest: sha256(payload.pairing.code), credentialSlot: generateOverstoryID("tr") };
       const store = new HostAccountStore(pending.credentialSlot);
       const source = JSON.stringify(secrets);
       await store.storeProvisionalCredential(source);
@@ -82,7 +83,7 @@ export async function claimLocalPairing(deps: AccountBootstrapDeps, input?: unkn
     }
     // Persisted before the first request. Replays retain the same secret,
     // device and credential even if the host accepted a lost response.
-    await new ProtocolClient(pending.origin).claimPairing(pending.pairingID, secrets.payload.pairing.secret, secrets.device);
+    await new ProtocolClient(pending.origin).claimPairing(secrets.payload.pairing.code, secrets.device);
     await connectDevice(pending.origin, identity.profileTree, secrets.device.id, secrets.seed,
       "The paired account does not belong to this Mac’s profile identity and community");
     await deps.trees.refreshConfiguration();
@@ -120,7 +121,9 @@ export async function connectDevice(
     if (error.code === "ENOENT") return false; throw error;
   });
   if (exists) {
-    const local = await resolveSnapshot(await snapshotDirectory(checkout));
+    // Against the host's root, so unchanged entries keep its times.
+    const local = await resolveSnapshot(await snapshotDirectory(checkout, undefined, undefined, undefined, undefined, undefined, undefined,
+      { at: Date.now(), basis: basisDirectories(snapshot.root, async (hash) => snapshot.objects.get(hash)!) }));
     if (local.root !== snapshot.root) {
       throw new ProtocolError("conflict", "The existing account checkout has different contents. Preserve and reconcile it before connecting this device.", 409);
     }

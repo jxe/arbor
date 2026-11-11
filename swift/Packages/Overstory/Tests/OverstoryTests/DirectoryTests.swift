@@ -8,11 +8,8 @@ struct ProfileDirectoryProtocolTests {
     func fixture() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appending(path: "../../../../../tests/fixtures/overstoryd/directory.json").standardizedFileURL
-        let value = try JSONDecoder().decode(
-            ProtocolRemoteSnapshot<[ProtocolProfileDirectoryEntry]>.self,
-            from: Data(contentsOf: url)
-        )
-        #expect(value.snapshot.first?.summary == "Builds shared gardens.")
-        #expect(value.snapshot.first?.avatar?.path == "images/avatar.webp")
+        let value = try JSONDecoder().decode(ProtocolPeopleList.self, from: Data(contentsOf: url))
+        #expect(value.people.first?.summary == "Builds shared gardens.")
+        #expect(value.people.first?.avatar?.path == "images/avatar.webp")
     }
 }

@@ -56,7 +56,7 @@
       "key": "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
       "challenge": {
         "version": 1,
-        "purpose": "device-session",
+        "purpose": "session",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://canopy.example",
         "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
@@ -65,10 +65,10 @@
         "issuedAt": 1790000000000,
         "expiresAt": 1790000120000
       },
-      "cborHex": "a9626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b4141414141414141414141414141414141414141414141414141414141414141414141414141414141414166646576696365781d64765f6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d666f726967696e7668747470733a2f2f63616e6f70792e6578616d706c6567707572706f73656e6465766963652d73657373696f6e6776657273696f6e016869737375656441741b000001a0c4506c00696578706972657341741b000001a0c45240c06b70726f66696c6554726565783774725f6c61666e3276703263723367356d7878797637356e7167746e75646132326534796c6936336d353468717977616b6471677a6d61",
-      "signature": "aY3CQK-wcaLcCf6tAyBATCMMeyINopb5SYNpmvWuV_5Et6IKHwBePx_EEC3R-9OAWkw6KkhlBDKEzIQAXpaBDQ",
+      "cborHex": "a9626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b4141414141414141414141414141414141414141414141414141414141414141414141414141414141414166646576696365781d64765f6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d6d666f726967696e7668747470733a2f2f63616e6f70792e6578616d706c6567707572706f73656773657373696f6e6776657273696f6e016869737375656441741b000001a0c4506c00696578706972657341741b000001a0c45240c06b70726f66696c6554726565783774725f6c61666e3276703263723367356d7878797637356e7167746e75646132326534796c6936336d353468717977616b6471677a6d61",
+      "signature": "2YJ3vrrS95XhAFCg0_XdcHSj3ckvvhufem3nX6pS1j-f3BiuRjWj8VGZAJRIxK7JFP3A3EyUkB7U2_hQZxzRAw",
       "deterministic": true,
-      "tamperedSignature": "aY3CQK-wcaLcCf-tAyBATCMMeyINopb5SYNpmvWuV_5Et6IKHwBePx_EEC3R-9OAWkw6KkhlBDKEzIQAXpaBDQ"
+      "tamperedSignature": "2IJ3vrrS95XhAFCg0_XdcHSj3ckvvhufem3nX6pS1j-f3BiuRjWj8VGZAJRIxK7JFP3A3EyUkB7U2_hQZxzRAw"
     },
     {
       "name": "p256",
@@ -76,7 +76,7 @@
       "key": "p256:AlUPRxAD89-Xw99QaseX9nIfsaH7e49vg9IkSYplyI4k",
       "challenge": {
         "version": 1,
-        "purpose": "device-session",
+        "purpose": "session",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://canopy.example",
         "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
@@ -85,10 +85,10 @@
         "issuedAt": 1790000000000,
         "expiresAt": 1790000120000
       },
-      "cborHex": "a9626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b4141414141414141414141414141414141414141414141414141414141414141414141414141414141414166646576696365781d64765f6969696969696969696969696969696969696969696969696969666f726967696e7668747470733a2f2f63616e6f70792e6578616d706c6567707572706f73656e6465766963652d73657373696f6e6776657273696f6e016869737375656441741b000001a0c4506c00696578706972657341741b000001a0c45240c06b70726f66696c6554726565783774725f6c61666e3276703263723367356d7878797637356e7167746e75646132326534796c6936336d353468717977616b6471677a6d61",
-      "signature": "ogMSckuv6Ldv3DPolab_D7eYoiK5ZKLC0eBXhp6nBH1BrTmqDowCNGdjeHJWGtTMoTu_8wtJD_OOVNNrSX_iTw",
+      "cborHex": "a9626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b4141414141414141414141414141414141414141414141414141414141414141414141414141414141414166646576696365781d64765f6969696969696969696969696969696969696969696969696969666f726967696e7668747470733a2f2f63616e6f70792e6578616d706c6567707572706f73656773657373696f6e6776657273696f6e016869737375656441741b000001a0c4506c00696578706972657341741b000001a0c45240c06b70726f66696c6554726565783774725f6c61666e3276703263723367356d7878797637356e7167746e75646132326534796c6936336d353468717977616b6471677a6d61",
+      "signature": "VW-oGnypPwKlub01rEtHdbI9W9YLmk9rpSGqKOdHQfwzIHmpUqaE-BopMJbjfZgimngO8GZQNvvaGY9hwmvS9w",
       "deterministic": false,
-      "tamperedSignature": "ogMSckuv6Ldv3DLolab_D7eYoiK5ZKLC0eBXhp6nBH1BrTmqDowCNGdjeHJWGtTMoTu_8wtJD_OOVNNrSX_iTw"
+      "tamperedSignature": "VG-oGnypPwKlub01rEtHdbI9W9YLmk9rpSGqKOdHQfwzIHmpUqaE-BopMJbjfZgimngO8GZQNvvaGY9hwmvS9w"
     }
   ],
   "invalidSessionChallenges": [
@@ -96,7 +96,7 @@
       "name": "extra-field",
       "challenge": {
         "version": 1,
-        "purpose": "device-session",
+        "purpose": "session",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://canopy.example",
         "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
@@ -111,7 +111,7 @@
       "name": "wrong-purpose",
       "challenge": {
         "version": 1,
-        "purpose": "profile-reset",
+        "purpose": "device-session",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://canopy.example",
         "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
@@ -125,7 +125,7 @@
       "name": "non-canonical-origin",
       "challenge": {
         "version": 1,
-        "purpose": "device-session",
+        "purpose": "session",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://canopy.example/",
         "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
@@ -139,7 +139,7 @@
       "name": "expired-before-issued",
       "challenge": {
         "version": 1,
-        "purpose": "device-session",
+        "purpose": "session",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://canopy.example",
         "profileTree": "tr_lafn2vp2cr3g5mxxyv75nqgtnuda22e4yli63m54hqywakdqgzma",
@@ -153,7 +153,7 @@
       "name": "device-for-profile",
       "challenge": {
         "version": 1,
-        "purpose": "device-session",
+        "purpose": "session",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://canopy.example",
         "profileTree": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",

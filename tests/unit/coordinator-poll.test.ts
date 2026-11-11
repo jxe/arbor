@@ -18,7 +18,7 @@ test("a clean tree polls the host only while its watch is not open", async () =>
     async submitUpdates(): Promise<UpdateResponse> { throw new Error("nothing to submit"); },
     async descriptor(tree: string): Promise<CurrentTree> {
       descriptors += 1;
-      return { tree: { id: tree, kind: "ordinary", access: "write", canonical: null, root: initial.root, update: "up_initial", conflicted: false } as never, observedThrough: "up_initial" };
+      return { tree: { id: tree, kind: "ordinary", access: "write", canonical: null, root: initial.root, update: "up_initial", conflicted: false } as never };
     },
   };
   const working = new MemoryWorkingTree({ base: { root: initial.root, update: "up_initial", cursor: "up_initial" }, snapshot: initial });

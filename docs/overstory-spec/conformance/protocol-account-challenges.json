@@ -3,11 +3,12 @@
     {
       "name": "community-address",
       "request": {
-        "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca"
+        "purpose": "account",
+        "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq"
       },
       "response": {
         "version": 1,
+        "purpose": "account",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://community.example",
         "account": "https://community.example/~alice",
@@ -21,12 +22,13 @@
     {
       "name": "exact-account",
       "request": {
+        "purpose": "account",
         "account": "https://community.example/~alice",
-        "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca"
+        "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq"
       },
       "response": {
         "version": 1,
+        "purpose": "account",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://community.example",
         "account": "https://community.example/~alice",
@@ -40,12 +42,13 @@
     {
       "name": "invitation-code",
       "request": {
+        "purpose": "account",
         "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
-        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca",
         "inviteCode": "abcdefghijklmnopqrstuv"
       },
       "response": {
         "version": 1,
+        "purpose": "account",
         "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "origin": "https://community.example",
         "account": "https://community.example/~alice",
@@ -54,6 +57,29 @@
         "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "issuedAt": 1,
         "expiresAt": 300001
+      }
+    },
+    {
+      "name": "placement",
+      "request": {
+        "purpose": "placement",
+        "account": "https://community.example/~alice",
+        "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+        "inviteCode": "abcdefghijklmnopqrstuv",
+        "profile": "https://home.example/~alice"
+      },
+      "response": {
+        "version": 1,
+        "purpose": "placement",
+        "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin": "https://community.example",
+        "account": "https://community.example/~alice",
+        "profileTree": "tr_2pnrfg7hncrmqbeojpqt7qzhcf67ofz3vlqse6aw46sr3kxlvsiq",
+        "configurationTree": "tr_5huybo3bjxyloxdeohrtlyfwrkwbotahsxjnhy74722jqirpo7ca",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "issuedAt": 1,
+        "expiresAt": 300001,
+        "profile": "https://home.example/~alice"
       }
     }
   ],
@@ -66,6 +92,7 @@
         "name": "home",
         "challenge": {
           "version": 1,
+          "purpose": "account",
           "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
           "origin": "https://community.example",
           "account": "https://community.example/~alice",
@@ -75,8 +102,26 @@
           "issuedAt": 1,
           "expiresAt": 300001
         },
-        "canonicalCBORHex": "a9626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b41414141414141414141414141414141414141414141414141414141414141414141414141414141414141666f726967696e781968747470733a2f2f636f6d6d756e6974792e6578616d706c65676163636f756e74782068747470733a2f2f636f6d6d756e6974792e6578616d706c652f7e616c6963656776657273696f6e0168697373756564417401696578706972657341741a000493e16b70726f66696c6554726565783774725f636765636d35326b62656a72377569377a3574326a3235616932356836666574337834777976667276787a6a79636f716267796171636f6e66696775726174696f6e54726565783774725f333571777468787673347971657a6968366477707933687962367876736234646e676d7a797977747379746a676a766d64687061",
-        "signature": "amjzJK37CYDEawLico-K92Vb-LUogLde868nAKsW4b5gTGeuGUtKpCgw5GI0M6BwrraE-azWYtjIgp3qy3JLBA"
+        "canonicalCBORHex": "aa626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b41414141414141414141414141414141414141414141414141414141414141414141414141414141414141666f726967696e781968747470733a2f2f636f6d6d756e6974792e6578616d706c65676163636f756e74782068747470733a2f2f636f6d6d756e6974792e6578616d706c652f7e616c69636567707572706f7365676163636f756e746776657273696f6e0168697373756564417401696578706972657341741a000493e16b70726f66696c6554726565783774725f636765636d35326b62656a72377569377a3574326a3235616932356836666574337834777976667276787a6a79636f716267796171636f6e66696775726174696f6e54726565783774725f333571777468787673347971657a6968366477707933687962367876736234646e676d7a797977747379746a676a766d64687061",
+        "signature": "BwQSQiZO94qiH1tyQKAFVNhV2ZbOWhcXkj4EDYmtThSDs3IpffJZbpqi7q_Qtoeh_UMQQ44UaDUwremiJA5KBQ"
+      },
+      {
+        "name": "placement",
+        "challenge": {
+          "version": 1,
+          "purpose": "placement",
+          "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "origin": "https://community.example",
+          "account": "https://community.example/~alice",
+          "profileTree": "tr_cgecm52kbejr7ui7z5t2j25ai25h6fet3x4wyvfrvxzjycoqbgya",
+          "configurationTree": "tr_35qwthxvs4yqezih6dwpy3hyb6xvsb4dngmzyywtsytjgjvmdhpa",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "issuedAt": 1,
+          "expiresAt": 300001,
+          "profile": "https://home.example/~alice"
+        },
+        "canonicalCBORHex": "ab626964781d61785f6161616161616161616161616161616161616161616161616161656e6f6e6365782b41414141414141414141414141414141414141414141414141414141414141414141414141414141414141666f726967696e781968747470733a2f2f636f6d6d756e6974792e6578616d706c65676163636f756e74782068747470733a2f2f636f6d6d756e6974792e6578616d706c652f7e616c6963656770726f66696c65781b68747470733a2f2f686f6d652e6578616d706c652f7e616c69636567707572706f736569706c6163656d656e746776657273696f6e0168697373756564417401696578706972657341741a000493e16b70726f66696c6554726565783774725f636765636d35326b62656a72377569377a3574326a3235616932356836666574337834777976667276787a6a79636f716267796171636f6e66696775726174696f6e54726565783774725f333571777468787673347971657a6968366477707933687962367876736234646e676d7a797977747379746a676a766d64687061",
+        "signature": "69AQqPkil-97RpwbynsujLfj6MBGoyjdjpa2GOhsB6Lrs-PROWU6X_Vx9-kpgDYL_3aBO0onDnb6DgnWq8knAQ"
       }
     ]
   }

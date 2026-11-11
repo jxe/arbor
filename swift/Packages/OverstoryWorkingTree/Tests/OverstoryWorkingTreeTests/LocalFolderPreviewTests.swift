@@ -41,7 +41,7 @@ struct LocalFolderPreviewTests {
                 } else {
                     let object = try ProtocolObjectCodec.object(.file(try Data(contentsOf: url)))
                     objects.append(object)
-                    entries.append(.init(name: name, file: object.hash))
+                    entries.append(.init(name: name, file: object.hash, created: 0, modified: 0))
                 }
             }
             let object = try ProtocolObjectCodec.object(.directory(entries.sorted { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }))

@@ -1,5 +1,5 @@
 import { decodeTransitionBasis, decodeAcceptedUpdate } from "./accepted-contract.ts";
-import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, isStatedUpdate, type AuthoredUpdateIntent, type DerivableRequestIntent, type DerivableUpdateIntent } from "./authored-contract.ts";
+import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, encodeAuthoredCandidateIntent, isStatedUpdate, type DerivableRequestIntent, } from "./authored-contract.ts";
 import { hashObject, protocolObjectReferences, type ProtocolObjectKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import { decodeCanonicalCBOR, encodeCanonicalCBOR } from "../model/cbor.ts";
 import type {
@@ -75,7 +75,8 @@ export interface ObjectEnvelopeJSON<B extends string | Uint8Array = string> {
 export interface ObjectDeltaJSON<B extends string | Uint8Array = string> {
   base: ObjectHash;
   result: ObjectHash;
-  instructions: Array<{ copy: { offset: number; length: number } } | { insert: B }>;
+  /** A copy is `[offset, length]` of the base (tree operations §2.5). */
+  instructions: Array<{ copy: [number, number] } | { insert: B }>;
 }
 
 export interface UpdateRequestJSON<B extends string | Uint8Array = string> {
@@ -83,12 +84,26 @@ export interface UpdateRequestJSON<B extends string | Uint8Array = string> {
   updates: DerivableCandidateUpdateJSON<B>[];
 }
 
-export interface CandidateUpdateJSON<B extends string | Uint8Array = string> extends AuthoredUpdateIntent, TransitionPayloadJSON<B> {}
-export interface DerivableCandidateUpdateJSON<B extends string | Uint8Array = string> extends DerivableUpdateIntent, TransitionPayloadJSON<B> {}
+/** A candidate's intent as it travels: references told apart by their keys,
+ * `trace` and `resolves` omissible (tree operations §2.1). Decoding gives the
+ * in-memory `DerivableUpdateIntent`. */
+export interface WireUpdateIntent {
+  change: string; at: string; candidate: string | null;
+  trace?: Array<{ before?: string; after?: string; operations: Record<string, unknown>[] }> | null;
+  resolves?: Array<{ update: string; conflict: string; alternatives: string[] }>;
+  ifCurrent?: string;
+}
+export interface CandidateUpdateJSON<B extends string | Uint8Array = string> extends WireUpdateIntent, TransitionPayloadJSON<B> { candidate: string }
+export interface DerivableCandidateUpdateJSON<B extends string | Uint8Array = string> extends WireUpdateIntent, TransitionPayloadJSON<B> {}
 
+/**
+ * Objects travel as their bytes alone (tree operations §2.1); the receiver
+ * hashes them. Either list may be omitted, meaning empty, and a sender omits
+ * an empty one.
+ */
 export interface TransitionPayloadJSON<B extends string | Uint8Array = string> {
-  objects: ObjectEnvelopeJSON<B>[];
-  deltas: ObjectDeltaJSON<B>[];
+  objects?: B[];
+  deltas?: ObjectDeltaJSON<B>[];
 }
 
 export interface AcceptedTransitionJSON extends TransitionPayloadJSON {
@@ -163,14 +178,14 @@ export function decodeObjectDeltas(value: unknown, encoding: WireEncoding = "jso
       const value = instruction as { copy?: unknown; insert?: unknown };
       if ((value.copy === undefined) === (value.insert === undefined)) throw new Error("Object delta instruction requires exactly one operation");
       if (value.copy !== undefined) {
-        if (!value.copy || typeof value.copy !== "object") throw new Error("Invalid object delta copy");
-        const copy = value.copy as { offset?: unknown; length?: unknown };
-        if (!Number.isSafeInteger(copy.offset) || (copy.offset as number) < 0
-          || !Number.isSafeInteger(copy.length) || (copy.length as number) <= 0
-          || !Number.isSafeInteger((copy.offset as number) + (copy.length as number))) {
+        if (!Array.isArray(value.copy) || value.copy.length !== 2) throw new Error("Invalid object delta copy");
+        const [offset, length] = value.copy as unknown[];
+        if (!Number.isSafeInteger(offset) || (offset as number) < 0
+          || !Number.isSafeInteger(length) || (length as number) <= 0
+          || !Number.isSafeInteger((offset as number) + (length as number))) {
           throw new Error("Invalid object delta copy");
         }
-        return { copy: { offset: copy.offset as number, length: copy.length as number } };
+        return { copy: { offset: offset as number, length: length as number } };
       }
       const insert = decodeWireBytes(value.insert, encoding, "Object delta insert");
       if (insert.byteLength === 0) throw new Error("Object delta insert is empty");
@@ -187,7 +202,7 @@ export function encodeObjectDeltaJSON<E extends WireEncoding = "json">(delta: Ob
     base: delta.base,
     result: delta.result,
     instructions: delta.instructions.map((instruction) => "copy" in instruction
-      ? { copy: { offset: instruction.copy.offset, length: instruction.copy.length } }
+      ? { copy: [instruction.copy.offset, instruction.copy.length] as [number, number] }
       : { insert: encodeWireBytes(instruction.insert, encoding) }),
   };
 }
@@ -200,19 +215,31 @@ function assertDistinctResults(objects: Array<{ hash: ObjectHash }>, deltas: Obj
   }
 }
 
+/** A transition's `objects`: each member is an object's bytes, named by their hash. Absent means none. */
+export function decodeWireObjects(value: unknown, encoding: WireEncoding = "json"): Array<{ hash: ObjectHash; bytes: Uint8Array }> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("objects must be an array");
+  const objects = new Map<ObjectHash, Uint8Array>();
+  for (const item of value) {
+    const bytes = decodeWireBytes(item, encoding);
+    objects.set(hashObject(bytes), bytes);
+  }
+  return [...objects].map(([hash, bytes]) => ({ hash, bytes }));
+}
+
 export function decodeTransitionPayloadJSON(value: unknown, encoding: WireEncoding = "json"): TransitionPayload {
   if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
   const record = value as Record<string, unknown> & { objects?: unknown; deltas?: unknown };
-  const objects = decodeObjectEnvelopes(record.objects, encoding);
-  const deltas = decodeObjectDeltas(record.deltas, encoding);
+  const objects = decodeWireObjects(record.objects, encoding);
+  const deltas = record.deltas === undefined ? [] : decodeObjectDeltas(record.deltas, encoding);
   assertDistinctResults(objects, deltas, "Transition result supplied more than once");
   return { objects, deltas };
 }
 
 export function encodeTransitionPayloadJSON<E extends WireEncoding = "json">(payload: TransitionPayload, encoding: E = "json" as E): TransitionPayloadJSON<WireBytes<E>> {
   return {
-    objects: payload.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeWireBytes(bytes, encoding) })),
-    deltas: payload.deltas.map(delta => encodeObjectDeltaJSON(delta, encoding)),
+    ...(payload.objects.length ? { objects: payload.objects.map(({ bytes }) => encodeWireBytes(bytes, encoding)) } : {}),
+    ...(payload.deltas.length ? { deltas: payload.deltas.map(delta => encodeObjectDeltaJSON(delta, encoding)) } : {}),
   };
 }
 
@@ -261,7 +288,7 @@ export function authoredIntentFromTransport(raw: unknown): DerivableRequestInten
 
 /** Validate semantic claims without re-encoding large transport payloads. */
 export function validateUpdateRequestIntent(request: DerivableUpdateRequest): void {
-  authoredIntentFromTransport(request);
+  decodeAuthoredRequestIntent({ base: request.base, updates: request.updates.map(encodeAuthoredCandidateIntent) });
 }
 
 /** Decode a request as an authority receives it, roots it may derive left out
@@ -294,7 +321,7 @@ export function decodeDerivableCandidateUpdateJSON(value: unknown, activation = 
   const { objects, deltas, ...fields } = value as Record<string, unknown>;
   const intent = decodeAuthoredCandidateIntent(fields);
   const payload = decodeTransitionPayloadJSON({ objects, deltas }, encoding);
-  if (payload.objects.length !== (objects as unknown[]).length) throw new Error("Duplicate complete object");
+  if (objects !== undefined && payload.objects.length !== (objects as unknown[]).length) throw new Error("Duplicate complete object");
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error("Complete object hash mismatch");
   }
@@ -311,10 +338,11 @@ export function decodeDerivableCandidateUpdateJSON(value: unknown, activation = 
  * checked as they are, not encoded and decoded again.
  */
 export function encodeUpdateRequestJSON<E extends WireEncoding = "json">(request: DerivableUpdateRequest, encoding: E = "json" as E): UpdateRequestJSON<WireBytes<E>> {
-  const intent = authoredIntentFromTransport(request);
-  if (intent.base === null && request.updates[0]?.deltas.length) throw new Error("Activation has no delta basis");
+  const updates = request.updates.map(encodeAuthoredCandidateIntent);
+  decodeAuthoredRequestIntent({ base: request.base, updates });
+  if (request.base === null && request.updates[0]?.deltas.length) throw new Error("Activation has no delta basis");
   request.updates.forEach(verifyCandidateObjects);
-  return { base: intent.base, updates: intent.updates.map((update, index) => ({ ...update, ...encodeTransitionPayloadJSON(request.updates[index]!, encoding) })) };
+  return { base: request.base, updates: updates.map((update, index) => ({ ...update, ...encodeTransitionPayloadJSON(request.updates[index]!, encoding) })) as DerivableCandidateUpdateJSON<WireBytes<E>>[] };
 }
 
 export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: CandidateUpdate, encoding?: E): CandidateUpdateJSON<WireBytes<E>>;
@@ -322,7 +350,9 @@ export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(updat
 export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: DerivableCandidateUpdate, encoding: E = "json" as E): DerivableCandidateUpdateJSON<WireBytes<E>> {
   const { objects: _objects, deltas: _deltas, ...fields } = update;
   verifyCandidateObjects(update);
-  return { ...decodeAuthoredCandidateIntent(fields), ...encodeTransitionPayloadJSON(update, encoding) };
+  const intent = encodeAuthoredCandidateIntent(fields);
+  decodeAuthoredCandidateIntent(intent);
+  return { ...intent, ...encodeTransitionPayloadJSON(update, encoding) } as DerivableCandidateUpdateJSON<WireBytes<E>>;
 }
 
 function verifyCandidateObjects(candidate: TransitionPayload): void {
@@ -349,7 +379,8 @@ export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
 /** Decode a transition payload once, verifying every complete object's hash and refusing one listed twice. */
 function decodeVerifiedTransitionPayload(value: unknown, encoding: WireEncoding = "json"): TransitionPayload {
   const payload = decodeTransitionPayloadJSON(value, encoding);
-  if (payload.objects.length !== (value as { objects: unknown[] }).objects.length) throw new Error("Transition object supplied more than once");
+  const listed = (value as { objects?: unknown[] }).objects;
+  if (listed !== undefined && payload.objects.length !== listed.length) throw new Error("Transition object supplied more than once");
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
   }
@@ -438,7 +469,7 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
       kind: details.kind as UpdateConflictResult["details"]["kind"],
       completed: completed.map(result => decodeUpdateResultJSON(result)),
       failedIndex: failedIndex as number,
-      current: decodeAcceptedUpdateJSON(details.current),
+      head: decodeUpdateHead(details.head),
       conflicts: details.conflicts as UpdateConflict[],
     },
   };
@@ -480,12 +511,10 @@ export function encodeUpdateResponseJSON<E extends WireEncoding = "json">(respon
 function decodeUpdateHead(value: unknown): UpdateHead {
   const head = value as Partial<UpdateHead> | null;
   if (!head || typeof head !== "object" || typeof head.update !== "string" || !head.update
-    || typeof head.root !== "string" || !HASH.test(head.root) || typeof head.conflicted !== "boolean"
-    || typeof head.observedThrough !== "string" || !head.observedThrough
-    || new TextEncoder().encode(head.observedThrough).length > 1024) {
+    || typeof head.root !== "string" || !HASH.test(head.root) || typeof head.conflicted !== "boolean") {
     throw new Error("Invalid update head");
   }
-  return { update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.observedThrough };
+  return { update: head.update, root: head.root, conflicted: head.conflicted };
 }
 
 export function decodeUpdateResponseJSON(value: unknown, encoding: WireEncoding = "json"): UpdateResponse {

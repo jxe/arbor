@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { collectObjects, PackMaintenance, serveHost } from "@ovst/overstoryd";
 import { ObjectStore } from "@ovst/object-store";
 import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
-  type CandidateUpdate, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
+  type CandidateUpdate, type ProtocolDirectory, type ProtocolDirectoryEntry, stampedEntry } from "@ovst/protocol";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 const DAY = 24 * 60 * 60 * 1000;
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient, store: ObjectStore;
@@ -35,13 +37,19 @@ function directory(value: ProtocolDirectory) {
 function change(basis: string, entries: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null>): string {
   const value = decodeProtocolDirectory(objects.get(basis)!);
   for (const [name, entry] of Object.entries(entries)) {
+    const previous = value.entries.find((e) => e.name === name);
     value.entries = value.entries.filter((e) => e.name !== name);
-    if (entry) value.entries.push({ name, ...entry } as ProtocolDirectoryEntry);
+    if (!entry) continue;
+    // File and page entries are dated as an edit at TEST_AT would date them.
+    const given = entry as { file?: string; page?: string; created?: number }, content = given.file ?? given.page;
+    value.entries.push(content !== undefined && given.created === undefined
+      ? stampedEntry(given.file !== undefined ? "file" : "page", name, content, previous, TEST_AT)
+      : { name, ...entry } as ProtocolDirectoryEntry);
   }
   return directory(value);
 }
 function snapshot(candidate: string, omit: string[] = []): CandidateUpdate {
-  return { change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate, trace: null, resolves: [], deltas: [],
     objects: [...objects].filter(([hash]) => !omit.includes(hash)).map(([hash, bytes]) => ({ hash, bytes })) };
 }
 async function submit(update: CandidateUpdate, basis = base) {
@@ -88,7 +96,7 @@ afterEach(async () => {
 test("collection deletes only old unreferenced objects and leaves an intact, replayable history", async () => {
   // Dead objects: a body and a directory no accepted update names.
   const junk = bytesOf("never accepted");
-  const junkBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "x", file: junk.hash }] });
+  const junkBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "x", file: junk.hash, created: 0, modified: 0 }] });
   const junkDirectory = { hash: hashObject(junkBytes), bytes: junkBytes };
   // A document version whose body no retained root holds any more, as after migration 016.
   const oldBody = bytesOf("---\nid: note\n---\nSquashed\n");

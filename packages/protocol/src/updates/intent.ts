@@ -1,19 +1,23 @@
 import { canonicalCBORHash, encodeCanonicalCBOR } from "../index.ts";
 import type { ObjectHash } from "../objects.ts";
+import { encodeAuthoredTrace, encodeResolutionDeclarations } from "./authored-contract.ts";
 import type { DerivableCandidateUpdate, DerivableUpdateRequest } from "./types.ts";
 
 export type UpdateIntentBase = string | null | { requestDigest: ObjectHash; candidate: ObjectHash | null };
-export type UpdateIntent = Pick<DerivableCandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "trace"> & { base: UpdateIntentBase };
+export type UpdateIntent = Pick<DerivableCandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "at" | "trace"> & { base: UpdateIntentBase };
 
+/** Identity is computed over the values as they travel, with an omitted
+ * `trace` filled in as null and `resolves` as empty (tree operations §2.1). */
 function intent(tree: string, request: UpdateIntent) {
   return {
-    domain: "arbor-update/2",
+    domain: "overstory-update/1",
     change: request.change,
-    trace: request.trace,
+    at: request.at,
+    trace: encodeAuthoredTrace(request.trace),
     tree,
     base: request.base,
     candidate: request.candidate,
-    resolves: request.resolves,
+    resolves: encodeResolutionDeclarations(request.resolves),
     ifCurrent: request.ifCurrent ?? null,
   };
 }

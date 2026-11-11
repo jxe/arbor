@@ -1,6 +1,6 @@
 import {
   decodePathReadPath,
-  encodeAcceptedTransitionJSON,
+  encodeAcceptedWatchChange,
   encodePathReadBundle,
   encodePathReadPath,
   encodeSnapshotBundle,
@@ -11,7 +11,7 @@ import {
 import { json } from "./http.ts";
 import type { StorySyncDaemon } from "./service.ts";
 
-type ReadHTTPService = Pick<StorySyncDaemon, "acceptedTree" | "snapshot" | "pathRead" | "objectBytes" | "entryMetadata" | "hostClient">;
+type ReadHTTPService = Pick<StorySyncDaemon, "acceptedTree" | "snapshot" | "pathRead" | "objectBytes" | "hostClient">;
 
 const TREE = "([^/]+)";
 const HASH = "(sha256:[a-f0-9]{64})";
@@ -20,7 +20,6 @@ const routes = {
   snapshot: new RegExp(`^/\\.overstory/trees/${TREE}/snapshots/${HASH}$`),
   path: new RegExp(`^/\\.overstory/trees/${TREE}/snapshots/${HASH}/path(/.*)?$`),
   object: new RegExp(`^/\\.overstory/trees/${TREE}/objects/${HASH}$`),
-  metadata: new RegExp(`^/\\.overstory/trees/${TREE}/entry-metadata$`),
   watch: new RegExp(`^/\\.overstory/trees/${TREE}/watch$`),
 };
 
@@ -50,12 +49,6 @@ export function readHandler(service: ReadHTTPService) {
     if ((match = routes.snapshot.exec(url.pathname))) {
       const root = match[2] as ObjectHash;
       const tree = decodeURIComponent(match[1]!);
-      // Entry times are the host's acceptance times (§1.1.2a): a timed read
-      // is the host's, checked by the client and passed on.
-      if (url.searchParams.has("times")) {
-        const { snapshot, times } = await (await service.hostClient(tree)).timedSnapshot(tree, root);
-        return new Response(encodeSnapshotBundle(snapshot, times) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", `${root};times`) });
-      }
       const snapshot = await service.snapshot(tree, root);
       return new Response(encodeSnapshotBundle(snapshot) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", root) });
     }
@@ -65,10 +58,6 @@ export function readHandler(service: ReadHTTPService) {
       try { path = decodePathReadPath(match[3] ?? "/"); }
       catch { throw new ProtocolError("invalid-request", "The path is not a valid logical path", 400); }
       const tree = decodeURIComponent(match[1]!);
-      if (url.searchParams.has("times")) {
-        const { objects, times } = await (await service.hostClient(tree)).timedPathRead(tree, root, path);
-        return new Response(encodePathReadBundle(objects, times) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", `${root}${encodePathReadPath(path)};times`) });
-      }
       const objects = await service.pathRead(tree, root, path);
       return new Response(encodePathReadBundle(objects) as Uint8Array<ArrayBuffer>, { headers: immutable("application/cbor", `${root}${encodePathReadPath(path)}`) });
     }
@@ -80,9 +69,6 @@ export function readHandler(service: ReadHTTPService) {
       return new Response(Buffer.from(bytes), {
         headers: { ...immutable("application/octet-stream", hash), "content-length": String(bytes.byteLength) },
       });
-    }
-    if ((match = routes.metadata.exec(url.pathname))) {
-      return json(await service.entryMetadata(decodeURIComponent(match[1]!)));
     }
     if ((match = routes.watch.exec(url.pathname))) {
       const tree = decodeURIComponent(match[1]!);
@@ -118,7 +104,7 @@ export function readHandler(service: ReadHTTPService) {
             controller.enqueue(encoder.encode(encodeSSEFrame({
               id: event.cursor,
               event: "tree.update",
-              data: { transition: encodeAcceptedTransitionJSON(event.transition), access: event.access, canonical: event.canonical },
+              data: encodeAcceptedWatchChange({ transition: event.transition, access: event.access, canonical: event.canonical }),
             })));
           } catch (error) {
             if (abort.signal.aborted) return controller.close();

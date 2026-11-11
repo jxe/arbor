@@ -74,10 +74,12 @@ async function remoteSet(row: string, field: string, before: unknown, value: unk
   const current = await owner.descriptor(tree), snapshot = await owner.snapshot(tree, current.tree.root);
   const objects = new Map(snapshot.objects);
   const items = decodeProtocolDirectory(objects.get(snapshot.root)!).entries.find((e) => e.name === path)!.directory!;
+  // Edited now, as the folder's own edits are: the operation and its update share the time.
+  const now = Date.now(), at = new Date(now).toISOString();
   const operations = [{ key: "set", kind: "set", collection: { material: { kind: "basis", path: `/${path}`, object: items } },
-    model, row: JSON.stringify([["id", row]]), field, before, value, at: new Date().toISOString() } as SourceOperation];
-  const result = await executeRowOperations(snapshot.root, operations, async (hash) => objects.get(hash)!, replayCollectionRows);
-  await owner.submitUpdates(tree, { base: current.tree.update, updates: [{ change: crypto.randomUUID(), candidate: result.root,
+    model, row: JSON.stringify([["id", row]]), field, before, value, at } as SourceOperation];
+  const result = await executeRowOperations(snapshot.root, operations, async (hash) => objects.get(hash)!, now, replayCollectionRows);
+  await owner.submitUpdates(tree, { base: current.tree.update, updates: [{ at, change: crypto.randomUUID(), candidate: result.root,
     trace: [{ before: snapshot.root, after: result.root, operations }], resolves: [], deltas: [],
     objects: [...result.generated].map(([hash, bytes]) => ({ hash, bytes })) }] });
 }
@@ -197,9 +199,11 @@ test("the supplies database edited on two devices: both edits land, and both cop
     // Device B publishes first, as row operations on its basis.
     const edited = await scanOther();
     for (const [hash, bytes] of edited.objects) objects.set(hash, bytes);
-    const operations = await deriveRowOperations(basis.tree.root as ObjectHash, edited.root, (hash) => load(hash));
+    // The scan dated the row now, so the update is made now too.
+    const now = Date.now();
+    const operations = (await deriveRowOperations(basis.tree.root as ObjectHash, edited.root, (hash) => load(hash), now))?.operations;
     expect(operations).toEqual([expect.objectContaining({ kind: "set", model: "List", field: "openToEdits", value: true })]);
-    await owner.submitUpdates(tree, { base: basis.tree.update, updates: [{ change: crypto.randomUUID(), candidate: edited.root,
+    await owner.submitUpdates(tree, { base: basis.tree.update, updates: [{ at: new Date(now).toISOString(), change: crypto.randomUUID(), candidate: edited.root,
       trace: [{ before: basis.tree.root, after: edited.root, operations: operations!.map((op, i) => ({ ...op, key: `op${i}` })) }],
       resolves: [], deltas: [], objects: [...edited.objects].map(([hash, bytes]) => ({ hash, bytes })) }] });
 

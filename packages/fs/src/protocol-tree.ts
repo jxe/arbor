@@ -1,5 +1,5 @@
 import type { BigIntStats } from "node:fs";
-import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rm, stat, utimes } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { CollectionReference } from "@ovst/protocol";
 import {
@@ -10,6 +10,7 @@ import {
   encodeProtocolPage,
   hashObject,
   isPageName,
+  stampedEntry,
   parsePage,
   writePageFile,
   type LazyTreeSnapshot,
@@ -75,7 +76,8 @@ export class UnavailableCloudContentError extends Error {
 export interface SnapshotObjectIndex {
   fileHash(absolute: string, stat: BigIntStats): ObjectHash | undefined;
   /** A page's row names the page object its Markdown file reads as. */
-  remember(absolute: string, kind: "file" | "page" | "directory", stat: BigIntStats | undefined, hash: ObjectHash): void;
+  /** A directory comes with its bytes: its times are in no file, so they are kept here. */
+  remember(absolute: string, kind: "file" | "page" | "directory", stat: BigIntStats | undefined, hash: ObjectHash, bytes?: Uint8Array): void;
   directoryHash?(absolute: string): ObjectHash | undefined;
 }
 
@@ -112,6 +114,14 @@ export async function snapshotDirectory(
    * writer is in page mode when its basis holds a page entry.
    */
   pages = false,
+  /**
+   * How entries are stamped (data model §6): `at` is the update's time, and
+   * `basis` gives the basis directory at a tree path, whose entries keep
+   * their times when unchanged. A new or changed file takes its mtime, never
+   * later than `at`. Without it every entry is stamped with its mtime, as
+   * for a folder no tree holds yet.
+   */
+  stamp: { at: number; basis?: (path: string) => Promise<ProtocolDirectory | undefined> } = { at: Date.now() },
 ): Promise<LazyTreeSnapshot> {
   const resolvedInputRoot = resolve(inputRoot);
   const root = await realpath(inputRoot);
@@ -129,11 +139,13 @@ export async function snapshotDirectory(
   if (!(await stat(root)).isDirectory()) throw new Error(`Tree root is not a directory: ${root}`);
   const objects = new Map<ObjectHash, ProtocolObjectSource>();
 
+  const directoryBytes = new Map<ObjectHash, Uint8Array>();
   const store = (object: ProtocolDirectory): ObjectHash => {
     const bytes = encodeProtocolDirectory(object);
     decodeProtocolDirectory(bytes);
     const hash = hashObject(bytes);
     objects.set(hash, { hash, bytes: () => Promise.resolve(bytes) });
+    directoryBytes.set(hash, bytes);
     return hash;
   };
 
@@ -184,6 +196,7 @@ export async function snapshotDirectory(
     const entries: ProtocolDirectoryEntry[] = [];
     const fileNames: string[] = [];
     const seen = new Set<string>();
+    const basis = new Map((await stamp.basis?.(treePath))?.entries.map((entry) => [entry.name, entry]));
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => compareProtocolNames(a.name, b.name))) {
       if (isTransactionTemporaryName(entry.name) || isPlatformMetadataName(entry.name)) continue;
       if (isCloudPlaceholderName(entry.name)) {
@@ -207,7 +220,11 @@ export async function snapshotDirectory(
       } else if (entry.isFile()) {
         const page = await pageSource(absolute, entry.name);
         fileNames.push(entry.name);
-        entries.push(page ? { name: entry.name, page } : { name: entry.name, file: await fileSource(absolute, entry.name) });
+        const object = page ?? await fileSource(absolute, entry.name);
+        const before = basis.get(entry.name);
+        const unchanged = before && (before.file ?? before.page) === object;
+        const source = unchanged ? undefined : Math.floor(Number((await stat(absolute, { bigint: true })).mtimeNs / 1_000_000n));
+        entries.push(stampedEntry(page ? "page" : "file", entry.name, object, before, stamp.at, { source }));
         seen.add(entry.name);
       }
     }
@@ -240,7 +257,7 @@ export async function snapshotDirectory(
       entries: entries.sort((a, b) => compareProtocolNames(a.name, b.name)),
       ...(described ? { collection: described.collection } : {}),
     });
-    objectIndex?.remember(directory, "directory", undefined, hash);
+    objectIndex?.remember(directory, "directory", undefined, hash, directoryBytes.get(hash));
     return hash;
   };
 
@@ -302,7 +319,9 @@ export async function materializeTree(
     const candidate = resolve(path);
     return exclusions.some((excluded) => candidate === excluded || candidate.startsWith(`${excluded}${sep}`));
   };
-  const visit = async (path: string, hash: ObjectHash, kind: "file" | "page" | "directory"): Promise<void> => {
+  /** `modified` is a written file or page entry's time (data model §6), which
+   * becomes the file's modification time, so a scan reads the date back. */
+  const visit = async (path: string, hash: ObjectHash, kind: "file" | "page" | "directory", modified?: number): Promise<void> => {
     if (isExcluded(path)) return;
     const bytes = await load(hash);
     if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
@@ -318,6 +337,7 @@ export async function materializeTree(
       if (existing?.equals(Buffer.from(content))) return;
       if (existing && keep && await keep(toTreePath(canonicalDestination, path), existing)) return;
       await writeAtomic(path, content);
+      if (modified !== undefined) await utimes(path, new Date(), new Date(modified));
       return;
     }
     const object = decodeProtocolDirectory(bytes);
@@ -342,8 +362,8 @@ export async function materializeTree(
       const target = contained(canonicalDestination, join(path, entry.name));
       if (isExcluded(target)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);
-      else if (entry.file) await visit(target, entry.file, "file");
-      else if (entry.page) await visit(target, entry.page, "page");
+      else if (entry.file) await visit(target, entry.file, "file", entry.modified);
+      else if (entry.page) await visit(target, entry.page, "page", entry.modified);
       else if (entry.directory) await visit(target, entry.directory, "directory");
     }
   };

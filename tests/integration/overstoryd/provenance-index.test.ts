@@ -12,6 +12,8 @@ import { ProvenanceStore } from "../../../packages/overstoryd/src/updates/proven
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 let tree: string, base: string, root: ObjectHash, objects: Map<ObjectHash, Uint8Array>, store: ObjectStore;
@@ -33,7 +35,7 @@ beforeEach(async () => {
   objects = new Map(snapshot.objects);
   const bytes = new TextEncoder().encode("abc\r\n"), file = hashObject(bytes);
   const directory = decodeProtocolDirectory(objects.get(snapshot.root)!);
-  directory.entries.push({ name: "note.md", file });
+  directory.entries.push({ name: "note.md", file, created: 0, modified: 0 });
   directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
   const encoded = encodeProtocolDirectory(directory); root = hashObject(encoded);
   objects.set(file, bytes); objects.set(root, encoded);
@@ -44,9 +46,9 @@ afterEach(async () => { await stop(); await rm(dir, { recursive: true, force: tr
 async function edit(text: string, basis: ObjectHash, range: [number, number]): Promise<CandidateUpdate> {
   const file = decodeProtocolDirectory(objects.get(basis)!).entries.find((e) => e.name === "note.md")!.file!;
   const operations = [{ key: "edit", kind: "editSource" as const, source: { material: { kind: "basis" as const, path: "/note.md", object: file }, range }, text }];
-  const executed = await executeExactSourceEdits(basis, operations, async (hash) => objects.get(hash)!);
+  const executed = await executeExactSourceEdits(basis, operations, async (hash) => objects.get(hash)!, TEST_AT);
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
-  return { change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: basis, after: executed.root, operations }], resolves: [],
+  return { at: TEST_TIME, change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: basis, after: executed.root, operations }], resolves: [],
     objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
 }
 

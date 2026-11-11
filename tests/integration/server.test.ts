@@ -10,6 +10,8 @@ import { StorySyncRESTClient } from "../../packages/cli/src/daemon-client.ts";
 import type { Workspace } from "@ovst/story-sync";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 import { storySyncFetch } from "../helpers/story-sync-fetch.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 let root: string;
 let state: string;
@@ -268,20 +270,20 @@ describe("story-sync object route (the standard read on loopback)", () => {
   });
 
   test("serves objects held only by a pending local change", async () => {
-    const { hashObject, encodeCandidateUpdateJSON } = await import("@ovst/protocol");
-    const { snapshotJSON } = await import("@ovst/working-tree");
+    const { hashObject } = await import("@ovst/protocol");
+    const { snapshotJSON, localUpdate } = await import("@ovst/working-tree");
     const { ChangeLog } = await import("@ovst/working-tree/node");
     const { folderStateRoot } = await import("../../packages/story-sync/src/folder-sync.ts");
     const bytes = new TextEncoder().encode("pending-only-object");
     const hash = hashObject(bytes);
     const empty = encodeProtocolDirectory({ type: "directory", entries: [] }), emptyHash = hashObject(empty);
-    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "pending.bin", file: hash }] }), directoryHash = hashObject(directory);
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "pending.bin", file: hash, created: 0, modified: 0 }] }), directoryHash = hashObject(directory);
     const change = "folder-pending-object";
     const log = new ChangeLog(scope, folderStateRoot(scope));
     await log.retain({ change, tree: scope, basis: { kind: "accepted", root: emptyHash, update: "up_pending_fixture" },
       graph: snapshotJSON({ root: emptyHash, objects: new Map([[emptyHash, empty]]) }), sourcePath: null, document: null,
       candidate: snapshotJSON({ root: directoryHash, objects: new Map([[directoryHash, directory], [hash, bytes]]) }),
-      update: encodeCandidateUpdateJSON({ change, candidate: directoryHash, trace: null, resolves: [], deltas: [],
+      update: localUpdate({ at: TEST_TIME, change, candidate: directoryHash, trace: null, resolves: [], deltas: [],
         objects: [{ hash: directoryHash, bytes: directory }, { hash, bytes }].sort((a, b) => a.hash.localeCompare(b.hash)) }) });
     try {
       expect(await (await loopbackReads()).object(scope, hash)).toEqual(bytes);
@@ -388,7 +390,7 @@ describe("story-sync standard reads", () => {
     expect(current.tree).toMatchObject({ id: tree, root: descriptor.root!, update: descriptor.update!, access: "write", conflicted: false });
     expect(current.tree.canonical?.endpoint).toBe(new URL(overstoryd.url).origin);
     // The cursor seeds a watch on the host itself.
-    expect(typeof current.observedThrough).toBe("string");
+    expect(typeof current.tree.update).toBe("string");
   });
 
   test("serves the snapshot, path reads and objects of a placed tree, all verified", async () => {
@@ -406,14 +408,6 @@ describe("story-sync standard reads", () => {
       sub.entries.find((entry) => entry.name === "child.md")!.file!]));
     const photoHash = hashObject(new Uint8Array([1, 2, 3, 4, 5]));
     expect(hashObject(await reads.object(tree, photoHash))).toBe(photoHash);
-    expect((await reads.entryMetadata(tree)).update).toBe(current.update);
-    // Entry times (§1.1.2a) are the host's, passed on with the same objects.
-    const timed = await reads.timedSnapshot(tree, current.root);
-    expect(timed.snapshot).toEqual(snapshot);
-    expect(Object.keys(timed.times)).toContain("/sub/child.md");
-    const timedPage = await reads.timedPathRead(tree, current.root, "/sub/child");
-    expect(new Set(timedPage.objects.keys())).toEqual(new Set(page.keys()));
-    expect(timedPage.times["/sub/child.md"]).toBe(timed.times["/sub/child.md"]!);
   });
 
   test("answers the accepted host root while the folder has an unpublished edit", async () => {
@@ -435,7 +429,7 @@ describe("story-sync standard reads", () => {
 
   test("passes the host's watch through, with or without objects", async () => {
     const reads = await loopbackReads(placedBase);
-    const { observedThrough } = await reads.descriptor(tree);
+    const observedThrough = (await reads.descriptor(tree)).tree.update;
     const abort = new AbortController();
     let opened = false;
     const events = reads.watch(tree, observedThrough, { signal: abort.signal, objects: "none", onOpen: () => { opened = true; } });

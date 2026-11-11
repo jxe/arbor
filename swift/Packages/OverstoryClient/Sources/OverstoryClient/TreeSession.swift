@@ -164,12 +164,12 @@ public struct TreeSession: Sendable {
         })
         let transport = ProtocolReplicaTransport(client: client)
         let workingTree: WorkingTree
-        var observedThrough = opening?.current.observedThrough
+        var observedThrough = opening?.current.tree.update
         switch settings.index {
         case .memory:
             let current: ProtocolCurrentTree
             if let given = opening?.current { current = given } else { current = try await client.descriptor(tree: tree.id) }
-            observedThrough = current.observedThrough
+            observedThrough = current.tree.update
             workingTree = try await WorkingTree.inMemory(tree: treeID, platform: objects)
             if settings.prefetch == .openedPages { await workingTree.loadDirectoriesLazily() }
             await workingTree.readPages(from: settings.folder)
@@ -185,7 +185,7 @@ public struct TreeSession: Sendable {
                 snapshot: graph,
                 tree: treeID,
                 update: current.tree.update,
-                cursor: current.observedThrough,
+                cursor: current.tree.update,
                 mode: .lazyDirectories
             ))
             if settings.prefetch != .openedPages { try await workingTree.loadEverything() }
@@ -259,24 +259,10 @@ public struct TreeSession: Sendable {
             snapshot: snapshot,
             tree: TreeID(rawValue: tree.id),
             update: current.tree.update,
-            cursor: current.observedThrough
+            cursor: current.tree.update
         ))
         try storage.format.write(to: formatMarker, atomically: true, encoding: .utf8)
         return workingTree
-    }
-
-    /// The host's entry dates for the tree's current root, applied to the
-    /// working tree: a timed snapshot read (tree operations §1.1.2a), so each
-    /// date is when that content first appeared at its path. Returns them so
-    /// the caller can cache them; nil when the read failed (a host still
-    /// indexing answers 503, and the dates the tree has stay).
-    @discardableResult
-    public func refreshEntryDates() async -> (update: String, dates: [String: Date])? {
-        guard let current = try? await client.descriptor(tree: tree.id),
-              let read = try? await client.timedSnapshot(tree: tree.id, root: current.tree.root) else { return nil }
-        let dates = read.times.mapValues { Date(timeIntervalSince1970: $0 / 1_000) }
-        try? await workingTree.applyEntryDates(dates, update: current.tree.update)
-        return (current.tree.update, dates)
     }
 
     /// Follow the host's watch for a read-only session. An accepted update
@@ -333,9 +319,9 @@ public struct TreeSession: Sendable {
         let current = try await client.descriptor(tree: tree.id)
         let heads = try await workingTree.heads()
         if current.tree.root != heads.materializedRoot {
-            try await pull(root: current.tree.root, update: current.tree.update, cursor: current.observedThrough)
+            try await pull(root: current.tree.root, update: current.tree.update, cursor: current.tree.update)
         }
-        return current.observedThrough
+        return current.tree.update
     }
 
     /// Move to the accepted state at `root`: the directories the session

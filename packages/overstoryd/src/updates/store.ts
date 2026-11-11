@@ -1,7 +1,7 @@
 import { ServerFaultError } from "../errors.ts";
 import { Database } from "bun:sqlite";
 import type { AcceptedUpdate, ObjectHash, UpdateResult } from "@ovst/protocol";
-import { EntryMetadataStore, type EntryChanges } from "./entry-metadata.ts";
+import { DocumentVersionStore, type EntryChanges } from "./document-versions.ts";
 import { updateOrdinal } from "./observations.ts";
 
 export interface StoredAcceptedResponse {
@@ -73,7 +73,7 @@ export class AcceptedUpdateStore {
     // `ordinal` is the rowid, so the tree index alone serves `(tree_id, ordinal)` order.
     db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree ON accepted_updates(tree_id)");
     db.run("CREATE INDEX IF NOT EXISTS accepted_updates_root ON accepted_updates(tree_id, root)");
-    EntryMetadataStore.createSchema(db);
+    DocumentVersionStore.createSchema(db);
   }
 
   private row(value: unknown): AcceptedUpdate | null {
@@ -92,7 +92,7 @@ export class AcceptedUpdateStore {
       id: String(record.ordinal),
       tree: record.tree_id,
       root: record.root,
-      previous: record.previous_ordinal === null ? null : { id: String(record.previous_ordinal), root: record.previous_root! },
+      previous: record.previous_ordinal === null ? null : { update: String(record.previous_ordinal), root: record.previous_root! },
       conflicted: Boolean(record.conflicted),
       acceptedAt: record.accepted_at,
       subject: record.subject,
@@ -180,7 +180,7 @@ export class AcceptedUpdateStore {
       input.entry.hash,
     ]);
     const id = String(inserted.lastInsertRowid);
-    new EntryMetadataStore(this.db).apply(input.tree, id, input.acceptedAt, input.entryChanges);
+    new DocumentVersionStore(this.db).apply(input.tree, id, input.acceptedAt, input.entryChanges);
     return this.get(id)!;
   }
 

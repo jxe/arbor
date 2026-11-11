@@ -3,6 +3,7 @@ import {
   decodeProtocolDirectory,
   encodeProtocolDirectory,
   hashObject,
+  type EntryStamper,
   type ObjectHash,
   type ProtocolDirectory,
   type TreeSnapshot,
@@ -301,15 +302,17 @@ export function treeConfigSources(values: TreeConfigValues): Partial<Record<Tree
   };
 }
 
-/** A snapshot of the given files; objects include the root directory. */
-export function snapshotTreeConfigFiles(files: Partial<Record<TreeConfigFile, string>>): TreeSnapshot {
+/** A snapshot of the given files; objects include the root directory. Its
+ * entries are stamped by `stamp`: against the configuration's current root
+ * directory and the update's `at` (`directoryStamper`). */
+export function snapshotTreeConfigFiles(files: Partial<Record<TreeConfigFile, string>>, stamp: EntryStamper): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
   const entries: ProtocolDirectory["entries"] = [];
   for (const name of Object.keys(files).sort() as TreeConfigFile[]) {
     const bytes = new TextEncoder().encode(files[name]!);
     const hash = hashObject(bytes);
     objects.set(hash, bytes);
-    entries.push({ name, file: hash });
+    entries.push(stamp("file", name, hash));
   }
   const rootBytes = encodeProtocolDirectory({ type: "directory", entries } satisfies ProtocolDirectory);
   const root = hashObject(rootBytes);
@@ -317,8 +320,8 @@ export function snapshotTreeConfigFiles(files: Partial<Record<TreeConfigFile, st
   return { root, objects };
 }
 
-export function snapshotTreeConfig(values: TreeConfigValues): TreeSnapshot {
-  return snapshotTreeConfigFiles(treeConfigSources(values));
+export function snapshotTreeConfig(values: TreeConfigValues, stamp: EntryStamper): TreeSnapshot {
+  return snapshotTreeConfigFiles(treeConfigSources(values), stamp);
 }
 
 /** The initial configuration of a person's profile: that person administers

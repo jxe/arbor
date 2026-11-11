@@ -317,7 +317,7 @@ export class Sidecar {
         ...(asked?.prefix ? { prefix: asked.prefix } : {}),
         candidate: {
           root: asked?.candidate ?? entry.trace?.at(-1)?.after ?? entry.root,
-          change: entry.change, trace: entry.trace, resolves: entry.resolves,
+          change: entry.change, at: entry.at, trace: entry.trace, resolves: entry.resolves,
           ...(asked?.alternatives ? { alternatives: asked.alternatives } : {}),
         },
         rules: asked?.rules ?? rules,
@@ -423,7 +423,7 @@ export class Sidecar {
       base: { object: base.object, state: base.state },
       current: { object: current.object, state: current.state },
       incoming: {
-        change: candidate.change, object: candidate.root, trace: candidate.trace ?? [],
+        change: candidate.change, object: candidate.root, at: candidate.at, trace: candidate.trace ?? [],
         ...(candidate.resolves.length ? { resolves: candidate.resolves } : {}),
       },
       rules,
@@ -447,7 +447,7 @@ export class Sidecar {
     if (trace[0]!.before !== basis) throw new MergeRefusal("invalid", "Trace does not follow its basis");
     if (trace.at(-1)!.after !== candidate.root) throw new MergeRefusal("invalid", "Trace does not end at the candidate");
     try {
-      const checked = await validateSourceTrace(trace as SourceFrame[], (hash) => this.objects.read(hash), replayCollectionRows);
+      const checked = await validateSourceTrace(trace as SourceFrame[], (hash) => this.objects.read(hash), candidate.at, replayCollectionRows);
       for (const [hash, bytes] of checked.generated) this.remember(hash, bytes);
     } catch (error) {
       if (error instanceof MergeRefusal) throw error;

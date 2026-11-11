@@ -11,8 +11,10 @@ import { serveHost } from "@ovst/overstoryd";
 import { HostAccountStore, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@ovst/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { interceptedBody, wireResponseValue } from "../support/wire-body.ts";
-import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
+import { basisDirectories, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 const token = "self-sync-owner";
 let sandbox: string;
@@ -89,7 +91,7 @@ beforeAll(async () => {
   const peer = testDevice(tokenB);
   deviceB = peer.device;
   const pairing = await owner.createPairing();
-  await owner.claimPairing(pairing.id, pairing.secret, { id: deviceB, label: "Self-sync peer", key: peer.key });
+  await owner.claimPairing(pairing.code, { id: deviceB, label: "Self-sync peer", key: peer.key });
   await installAccountHome(stateA, owner, deviceA, testDevice(token).seed, { [treeA]: tree });
   await installAccountHome(stateB, await deviceClient(host.url, tokenB, { profileTree: profile }), deviceB, peer.seed, { [treeB]: tree });
 });
@@ -259,12 +261,12 @@ describe("private self-sync", () => {
       expect(decision.alternatives.map(a => a.value)).toContainEqual({ file: hashObject(new TextEncoder().encode("binary-from-b")) });
       const bytes = new TextEncoder().encode("binary-from-b"), file = hashObject(bytes);
       const directory = decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!);
-      directory.entries = directory.entries.map(e => e.name === "sample.bin" ? { name: e.name, file } : e);
+      directory.entries = directory.entries.map(e => e.name === "sample.bin" ? { name: e.name, file, created: 0, modified: 0 } : e);
       const encoded = encodeProtocolDirectory(directory), root = hashObject(encoded);
       current.snapshot.objects.set(file, bytes); current.snapshot.objects.set(root, encoded);
       await owner.submitUpdates(tree, { base: current.descriptor.tree.update, updates: [{
-        change: crypto.randomUUID(), candidate: root, trace: null, deltas: [],
-        resolves: [{ state: page.state, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }],
+        at: TEST_TIME, change: crypto.randomUUID(), candidate: root, trace: null, deltas: [],
+        resolves: [{ state: page.update, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }],
         objects: [...current.snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       }] });
       await waitFor(async () => (await readFile(join(treeB, "sample.bin"), "utf8")) === "binary-from-b");
@@ -305,7 +307,7 @@ describe("private self-sync", () => {
     const file = new TextEncoder().encode("delivered by watch\n");
     const nextRoot = encodeProtocolDirectory({
       type: "directory",
-      entries: [...rootObject.entries, { name: "watched.txt", file: hashObject(file) }]
+      entries: [...rootObject.entries, { name: "watched.txt", file: hashObject(file), created: 0, modified: 0 }]
         .sort((left, right) => compareProtocolNames(left.name, right.name)),
     });
     const objects = current.snapshot.objects;
@@ -377,16 +379,21 @@ describe("private self-sync", () => {
       const chain = decodeUpdateRequestJSON(daemonBodies[0].value, daemonBodies[0].encoding);
 
       // The peer's successor adds one file on top of the chain's final root.
-      const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA));
+      // Scanned as the daemon scans, against the accepted state the chain starts
+      // from, so unchanged entries keep their times (a bare scan has only mtimes).
+      const accepted = await (await deviceClient(host.url, token)).snapshot(tree, host.overstoryd.acceptedUpdates(tree).find((u) => u.id === chain.base)!.root);
+      const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA, new Map(), [], undefined, undefined, undefined, false,
+        { at: Date.parse(chain.updates.at(-1)!.at), basis: basisDirectories(accepted.root, async (hash) => accepted.objects.get(hash)!) }));
       expect(chainEnd.root).toBe(chain.updates.at(-1)!.candidate);
       const chainRoot = decodeProtocolDirectory(chainEnd.objects.get(chainEnd.root)!);
       const extraFile = new TextEncoder().encode("peer successor\n");
       const successorRoot = encodeProtocolDirectory({
         type: "directory",
-        entries: [...chainRoot.entries, { name: "peer-successor.txt", file: hashObject(extraFile) }]
+        entries: [...chainRoot.entries, { name: "peer-successor.txt", file: hashObject(extraFile), created: 0, modified: 0 }]
           .sort((left, right) => compareProtocolNames(left.name, right.name)),
       });
-      const successor: CandidateUpdate = { change: crypto.randomUUID(), trace: null,
+      // Made after the chain it extends, so dated after it.
+      const successor: CandidateUpdate = { at: new Date().toISOString(), change: crypto.randomUUID(), trace: null,
         candidate: hashObject(successorRoot), resolves: [], deltas: [],
         objects: [{ hash: hashObject(extraFile), bytes: extraFile }, { hash: hashObject(successorRoot), bytes: successorRoot }],
       };
@@ -431,7 +438,7 @@ describe("private self-sync", () => {
         const directory = decodeProtocolDirectory(initial.snapshot.objects.get(initial.snapshot.root)!);
         const bytes = new TextEncoder().encode(text), file = hashObject(bytes);
         directory.entries = directory.entries.filter(e => e.name !== "metadata.bin");
-        directory.entries.push({ name: "metadata.bin", file }); directory.entries.sort((a,b) => compareProtocolNames(a.name,b.name));
+        directory.entries.push({ name: "metadata.bin", file, created: 0, modified: 0 }); directory.entries.sort((a,b) => compareProtocolNames(a.name,b.name));
         const encoded = encodeProtocolDirectory(directory), root = hashObject(encoded);
         return { root, objects: new Map([...initial.snapshot.objects, [file, bytes], [root, encoded]]) };
       };
@@ -448,7 +455,7 @@ describe("private self-sync", () => {
       await daemon.synchronizeNow();
       expect(await daemon.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
       expect(store.current(tree)!.conflicted).toBe(true);
-      expect(store.current(tree)!.previous!.id).toBe(metadata.id);
+      expect(store.current(tree)!.previous!.update).toBe(metadata.id);
     } finally { await daemon[Symbol.asyncDispose](); db.close(); }
     const restarted = await StorySyncDaemon.openControl({ autoSync: false });
     try {
@@ -535,7 +542,7 @@ describe("private self-sync", () => {
       const root = decodeProtocolDirectory(current.snapshot.objects.get(current.snapshot.root)!);
       const remoteBytes = new TextEncoder().encode("from another client\n");
       const nextRoot = encodeProtocolDirectory({ type: "directory", entries: [...root.entries,
-        { name: "remote.txt", file: hashObject(remoteBytes) }, { name: "refused.txt", file: hashObject(remoteBytes) }]
+        { name: "remote.txt", file: hashObject(remoteBytes), created: 0, modified: 0 }, { name: "refused.txt", file: hashObject(remoteBytes), created: 0, modified: 0 }]
         .sort((left, right) => compareProtocolNames(left.name, right.name)) });
       current.snapshot.objects.set(hashObject(remoteBytes), remoteBytes);
       current.snapshot.objects.set(hashObject(nextRoot), nextRoot);
@@ -621,7 +628,7 @@ describe("ignore rules in a placed folder", () => {
       else if (value !== null) {
         const bytes = new TextEncoder().encode(value);
         objects.set(hashObject(bytes), bytes);
-        entries.push({ name: name!, file: hashObject(bytes) });
+        entries.push({ name: name!, file: hashObject(bytes), created: 0, modified: 0 });
       }
       const encoded = encodeProtocolDirectory({ ...directory, entries: entries.sort((a, b) => compareProtocolNames(a.name, b.name)) });
       objects.set(hashObject(encoded), encoded);

@@ -27,8 +27,9 @@ export type LogicalValue = null | boolean | number | string | LogicalValue[] | {
 export interface LogicalRow {
   key: [string, LogicalValue][];
   fields: Record<string, LogicalValue>;
-  created: string;
-  modified: string;
+  /** Unix milliseconds in UTC, like a file or page entry's times. */
+  created: number;
+  modified: number;
 }
 
 /** Rows by model name, each table in stable-key order. */
@@ -187,16 +188,18 @@ class Converter {
 }
 
 /** Reads a timestamp column's value as RFC 3339 UTC with milliseconds, or null. */
-function timestamp(value: unknown): string | null {
-  if (value instanceof Date) return value.toISOString();
+/** A stored row time as Unix milliseconds: stores hold RFC 3339 text, a Date or milliseconds. */
+function timestamp(value: unknown): number | null {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
   if (typeof value !== "string" || value === "") return null;
   const time = Date.parse(value);
-  return Number.isNaN(time) ? null : new Date(time).toISOString();
+  return Number.isNaN(time) ? null : time;
 }
 
 export interface FromRowsOptions {
-  /** The time given to rows that store no `created` or `modified`, in RFC 3339 UTC. */
-  now: string;
+  /** The time given to rows that store no `created` or `modified`, in Unix milliseconds. */
+  now: number;
 }
 
 /**
@@ -303,8 +306,9 @@ export function rowsFromLogical(result: CheckResult, layout: Table[], tables: Lo
         else if (f.kind === "members") record[f.name] = (value as LogicalValue[]).map((v) => c.referenceOut(f.type, v));
         else record[f.name] = value;
       }
-      record.created = row.created;
-      record.modified = row.modified;
+      // Stores hold row times as RFC 3339 text.
+      record.created = new Date(row.created).toISOString();
+      record.modified = new Date(row.modified).toISOString();
       list.push(record);
       index.set(JSON.stringify(row.key.length === 1 ? row.key[0]![1] : row.key), record);
     }

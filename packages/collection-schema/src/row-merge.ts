@@ -22,10 +22,6 @@ const json = (value: unknown) => stableJSONString(value ?? null);
 const same = (left: unknown, right: unknown) => json(left) === json(right);
 
 /** Whether time `a` is after `b`, by instant and then by text. */
-const later = (a: string, b: string) => {
-  const [x, y] = [Date.parse(a), Date.parse(b)];
-  return x !== y ? x > y : a > b;
-};
 
 function list(value: JSONValue | undefined): JSONValue[] | null {
   if (value === undefined || value === null) return [];
@@ -77,7 +73,7 @@ function mergeRow(
     let value: JSONValue | undefined;
     // Times never conflict: `created` keeps current's, `modified` the later.
     if (field === "created") value = u ?? c;
-    else if (field === "modified") value = typeof c === "string" && typeof u === "string" ? (later(c, u) ? c : u) : u ?? c;
+    else if (field === "modified") value = typeof c === "number" && typeof u === "number" ? Math.max(c, u) : u ?? c;
     else if (same(c, u) || same(c, b)) value = u;
     else if (same(u, b)) value = c;
     else {
@@ -119,7 +115,7 @@ function logical(model: LogicalModel, key: LogicalRow["key"], row: Row): Logical
     const next = f.arity === "many" && Array.isArray(value) ? canonicalMany(f, value) : value;
     if (next !== undefined) fields[f.name] = next;
   }
-  return { key, fields, created: created as string, modified: modified as string };
+  return { key, fields, created: created as number, modified: modified as number };
 }
 
 /**

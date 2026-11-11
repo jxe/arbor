@@ -17,7 +17,6 @@ import {
   type PresenceID,
   type PresenceUpdate, type PresenceMessageBody,
   decodePublishedDeviceKeys,
-  type SafeResourceAccessRule,
   type OverstoryError,
   type EventCursor,
   type LocatorResolution,
@@ -47,16 +46,16 @@ import {
 } from "./updates/json.ts";
 import { updateRequestDigests } from "./updates/intent.ts";
 import { CONFIGURATION_PARAMETER, parseTreeReference, treeConfigurationID } from "./config/tree-config.ts";
-import { decodeSnapshotBundle, decodeTimedSnapshotBundle, type EntryTimes } from "./snapshots.ts";
-import { decodePathReadBundle, decodeTimedPathReadBundle, encodePathReadPath } from "./path-read.ts";
+import { decodeSnapshotBundle } from "./snapshots.ts";
+import { decodePathReadBundle, encodePathReadPath } from "./path-read.ts";
 
 
 /** Three missed keepalives. */
 const WATCH_IDLE_TIMEOUT_MS = 60_000;
 
+/** The current tree; its `update` is also where a watch resumes. */
 export interface CurrentTree {
   tree: RemoteTreeDescriptor;
-  observedThrough: EventCursor;
 }
 
 export class ProtocolUpdateConflict extends Error {
@@ -74,12 +73,20 @@ export class ProtocolUnsupportedOperation extends Error {
   }
 }
 
+/**
+ * The account descriptor (locators §5) has one shape at every host: `homeHost`
+ * always (this host's own origin at the profile's home), `configuration`
+ * only at the home host, `placementRoot` only at a placement host. This is
+ * the home host's view; `RemotePlacementAccountDescriptor` is a placement host's.
+ */
 export interface RemoteAccountDescriptor {
   id: string;
   /** Optional host-specific presentation hint; never account identity. */
   handle?: string;
   profileTree: string | null;
   profileURL: string | null;
+  /** The origin of the profile's home host: this host, here. */
+  homeHost: string;
   community: RemoteTreeDescriptor;
   configuration: RemoteTreeDescriptor;
   writableProfiles: RemoteTreeDescriptor[];
@@ -104,8 +111,6 @@ export interface RemotePlacementRoot {
  * `configuration`: the profile's configuration lives only at `homeHost`.
  */
 export interface RemotePlacementAccountDescriptor extends Omit<RemoteAccountDescriptor, "configuration"> {
-  /** The origin of the profile's home host, whose device keys this host reads. */
-  homeHost: string;
   placementRoot: RemotePlacementRoot;
 }
 
@@ -119,23 +124,16 @@ export interface RemotePlacementAccountSnapshot {
   account: RemotePlacementAccountDescriptor;
 }
 
-/** A host list read: `/.overstory/trees` and `/.overstory/account/directory`. */
-export interface RemoteSnapshot<T> {
-  snapshot: T;
-}
-
-/** `/.overstory/trees/{TreeID}/access` (access control §4): the tree's rules, and
- * the `overstory://` locator of each profile a rule names by TreeID. */
-export interface RemoteTreeAccess {
-  policy: SafeResourceAccessRule[];
-  locators: Record<TreeID, string>;
-}
+/** `GET /.overstory/trees` (locators §5). */
+export interface RemoteTreeList { trees: RemoteTreeDescriptor[] }
+/** `GET /.overstory/account/directory` (locators §5). */
+export interface RemotePeopleList { people: RemoteDirectoryEntry[] }
 
 /** Whether an account descriptor is a placement host's. */
 export function isPlacementAccountDescriptor(
   account: RemoteAccountDescriptor | RemotePlacementAccountDescriptor,
 ): account is RemotePlacementAccountDescriptor {
-  return typeof (account as { homeHost?: unknown }).homeHost === "string";
+  return Object.hasOwn(account, "placementRoot");
 }
 
 export interface AccountClaimResult {
@@ -143,10 +141,8 @@ export interface AccountClaimResult {
   configuration: RemoteTreeDescriptor;
 }
 
+/** A claim's body: the host reads the account, profile and configuration from the signed challenge (accounts §1.2). */
 export interface ExistingProfileAccountRequest {
-  account: string;
-  profileTree: TreeID;
-  configurationTree: TreeID;
   challenge: AccountChallenge;
   publicKey: string;
   signature: string;
@@ -161,9 +157,11 @@ export interface ExistingProfileAccountRequest {
  * (`trace: null`), no resolutions, every object complete and no deltas. A
  * claim carries its configuration in this shape, and `declareTree` sends it.
  */
-export function activationElement(snapshot: TreeSnapshot, change: string = crypto.randomUUID()): CandidateUpdate {
+export function activationElement(snapshot: TreeSnapshot, change: string = crypto.randomUUID(), at: string = new Date().toISOString()): CandidateUpdate {
+  // `at` defaults to now, which is no earlier than the times the snapshot was stamped with.
   return {
     change,
+    at,
     trace: null,
     candidate: snapshot.root,
     resolves: [],
@@ -346,31 +344,29 @@ export class ProtocolClient {
     return response.json();
   }
 
-  async claimPairing(
-    id: string,
-    secret: string,
-    device: DeviceEnrollment,
-  ): Promise<PairingClaimResult> {
-    const response = await this.checked(await this.request(`/.overstory/pairings/${encodeURIComponent(id)}/claim`, {
+  /** Claim a pairing by its code; the host finds the pairing by the code's digest (accounts §4). */
+  async claimPairing(code: string, device: DeviceEnrollment): Promise<PairingClaimResult> {
+    const response = await this.checked(await this.request("/.overstory/pairings/claim", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ secret, device }),
+      body: JSON.stringify({ code, device }),
     }));
     return response.json();
   }
 
+  /** A challenge to join this host's community: `profile` (the profile's
+   * locator at its home host) makes it a placement's, else a claim's
+   * (accounts §1.2, federation §3). The host derives the configuration TreeID. */
   async createAccountChallenge(input: {
     account?: string;
     profileTree: TreeID;
-    configurationTree: TreeID;
     inviteCode?: string;
-    /** The profile's locator at its home host, to accept the invitation as a placement (accounts §1.4). */
     profile?: string;
   }): Promise<AccountChallenge> {
-    const response = await this.checked(await this.request("/.overstory/account-challenges", {
+    const response = await this.checked(await this.request("/.overstory/challenges", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ purpose: input.profile === undefined ? "account" : "placement", ...input }),
     }));
     return response.json();
   }
@@ -381,9 +377,6 @@ export class ProtocolClient {
       method: "PUT",
       headers: { "content-type": WIRE_CONTENT_TYPE[encoding] },
       body: encodeWireBody({
-        account: input.account,
-        profileTree: input.profileTree,
-        configurationTree: input.configurationTree,
         challenge: input.challenge,
         publicKey: input.publicKey,
         signature: input.signature,
@@ -395,22 +388,17 @@ export class ProtocolClient {
     return response.json();
   }
 
-  /** Accept an invitation with a profile homed at another host: this host places it (accounts §1.4). */
+  /** Accept an invitation with a profile homed at another host: this host places it (federation §3). */
   async acceptInvitationAsPlacement(input: {
-    account: string;
-    profile: string;
-    profileTree: TreeID;
-    configurationTree: TreeID;
     inviteCode: string;
     challenge: AccountChallenge;
     publicKey: string;
     signature: string;
   }): Promise<RemotePlacementAccountDescriptor> {
-    // One route joins a community, as a new home or, with `profile`, as a member (accounts §1.4).
     const response = await this.checked(await this.request("/.overstory/accounts", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ challenge: input.challenge, publicKey: input.publicKey, signature: input.signature, inviteCode: input.inviteCode }),
     }));
     return ((await response.json()) as { account: RemotePlacementAccountDescriptor }).account;
   }
@@ -422,10 +410,10 @@ export class ProtocolClient {
   }
 
   async createDeviceSessionChallenge(input: { profileTree?: TreeID; device: string; homeHost?: string }): Promise<DeviceSessionChallenge> {
-    const response = await this.checked(await this.request("/.overstory/device-sessions/challenges", {
+    const response = await this.checked(await this.request("/.overstory/challenges", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ purpose: "session", ...input }),
     }));
     return response.json();
   }
@@ -440,41 +428,40 @@ export class ProtocolClient {
     return response.json();
   }
 
-  async list(): Promise<RemoteSnapshot<RemoteTreeDescriptor[]>> {
+  async list(): Promise<RemoteTreeList> {
     const response = await this.checked(await this.request("/.overstory/trees", { headers: this.headers() }));
-    return response.json();
+    const value = await response.json() as RemoteTreeList;
+    if (!Array.isArray(value?.trees)) throw new Error("Tree list has no trees");
+    return value;
   }
 
-  async directory(): Promise<RemoteSnapshot<RemoteDirectoryEntry[]>> {
+  async directory(): Promise<RemotePeopleList> {
     const response = await this.checked(await this.request("/.overstory/account/directory", { headers: this.headers() }));
-    return response.json();
+    const value = await response.json() as RemotePeopleList;
+    if (!Array.isArray(value?.people)) throw new Error("Directory has no people");
+    return value;
   }
 
   /** The tree resource itself: its current descriptor and the cursor to watch after. */
   async descriptor(tree: string): Promise<CurrentTree> {
     const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}`, { headers: this.headers() }));
-    const value = await response.json() as { tree: RemoteTreeDescriptor; observedThrough: EventCursor };
-    if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update || typeof value.tree.conflicted !== "boolean" || typeof value.observedThrough !== "string" || !value.observedThrough) throw new Error("Tree descriptor does not match its tree");
-    return { tree: value.tree, observedThrough: value.observedThrough };
+    const value = await response.json() as { tree: RemoteTreeDescriptor };
+    if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update || typeof value.tree.conflicted !== "boolean") throw new Error("Tree descriptor does not match its tree");
+    return { tree: value.tree };
   }
 
-  async conflicts(tree: string, state: string, root: string, options: { after?: string; conflict?: string } = {}): Promise<DecisionPage> {
+  async conflicts(tree: string, update: string, root: string, options: { after?: string; conflict?: string } = {}): Promise<DecisionPage> {
     if (options.after !== undefined && options.conflict !== undefined) throw new Error("Conflicting inspection options");
-    const query = new URLSearchParams({ state, ...options });
+    const query = new URLSearchParams({ update, ...options });
     const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/conflicts?${query}`, { headers: this.headers() }));
-    return decodeDecisionPage(await response.json(), { tree, state, root });
+    return decodeDecisionPage(await response.json(), { tree, update, root });
   }
 
   async snapshot(tree: string, root: string): Promise<TreeSnapshot> {
-    return decodeSnapshotBundle(root, await this.snapshotBytes(tree, root, false));
+    return decodeSnapshotBundle(root, await this.snapshotBytes(tree, root));
   }
 
-  /** A snapshot read with its entry times (tree operations §1.1.2a). */
-  async timedSnapshot(tree: string, root: string): Promise<{ snapshot: TreeSnapshot; times: EntryTimes }> {
-    return decodeTimedSnapshotBundle(root, await this.snapshotBytes(tree, root, true));
-  }
-
-  private async snapshotBytes(tree: string, root: string, times: boolean): Promise<Uint8Array> {
+  private async snapshotBytes(tree: string, root: string): Promise<Uint8Array> {
     if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -485,7 +472,7 @@ export class ProtocolClient {
     expectProgress();
     try {
       const response = await this.checked(await this.request(
-        `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}${times ? "?times" : ""}`,
+        `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}`,
         {
           headers: { ...this.headers(), accept: "application/cbor" },
           signal: controller.signal,
@@ -535,25 +522,6 @@ export class ProtocolClient {
     return decodePathReadBundle(root, path, new Uint8Array(await response.arrayBuffer()));
   }
 
-  /** A path read with the entry times of its directories (tree operations §1.1.2a). */
-  async timedPathRead(tree: string, root: string, path: string): Promise<{ objects: Map<ObjectHash, Uint8Array>; times: EntryTimes }> {
-    if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
-    const response = await this.checked(await this.request(
-      `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}/path${encodePathReadPath(path)}?times`,
-      { headers: { ...this.headers(), accept: "application/cbor" } },
-    ));
-    return decodeTimedPathReadBundle(root as ObjectHash, path, new Uint8Array(await response.arrayBuffer()));
-  }
-
-  /** Descriptive dates of the current accepted root's file entries (tree operations §1.1.2a). */
-  /** The current root's entry times; with `path`, only those of the directories a path read of it walks (§1.1.2a). */
-  async entryMetadata(tree: string, options: { path?: string } = {}): Promise<{ update: string; entries: Record<string, { modifiedAt?: number }> }> {
-    const query = options.path === undefined ? "" : `?path=${encodeURIComponent(options.path)}`;
-    const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/entry-metadata${query}`, { headers: this.headers() }));
-    return response.json();
-  }
-
-
   async resolve(path: string): Promise<LocatorResolution> {
     const response = await this.checked(await this.request(`/.well-known/overstory${encodedCanonicalPath(path)}`, {
       headers: this.headers(),
@@ -582,10 +550,11 @@ export class ProtocolClient {
     tree: string,
     base: string | null,
     snapshot: TreeSnapshot,
-    options: { change?: string; deltas?: ObjectDelta[]; ifCurrent?: string; resolves?: CandidateUpdate["resolves"] } = {},
+    /** `at` must be no earlier than the times `snapshot` was stamped with; now when omitted. */
+    options: { change?: string; at?: string; deltas?: ObjectDelta[]; ifCurrent?: string; resolves?: CandidateUpdate["resolves"] } = {},
   ): Promise<UpdateResult> {
     const update: CandidateUpdate = {
-      ...activationElement(snapshot, options.change),
+      ...activationElement(snapshot, options.change, options.at),
       resolves: options.resolves ?? [],
       ...(options.ifCurrent !== undefined ? { ifCurrent: options.ifCurrent } : {}),
       deltas: options.deltas ?? [],
@@ -653,14 +622,6 @@ export class ProtocolClient {
       throw new Error("Server response update-string identity mismatch");
     }
     return result;
-  }
-
-  async access(tree: string): Promise<RemoteTreeAccess> {
-    const response = await this.checked(await this.request(
-      `/.overstory/trees/${encodeURIComponent(tree)}/access`,
-      { headers: this.headers() },
-    ));
-    return response.json();
   }
 
   /**

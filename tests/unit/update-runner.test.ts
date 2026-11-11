@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
   ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
-  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON, type ProtocolEntryKind } from "@ovst/protocol";
-import { prepareSourceChange, type LocalChange, UpdateCoordinator, type UpdateTransport } from "@ovst/working-tree";
+  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, type ProtocolEntryKind } from "@ovst/protocol";
+import { localUpdate, wireUpdate, prepareSourceChange, type LocalChange, UpdateCoordinator, type UpdateTransport } from "@ovst/working-tree";
 import { publication } from "../../packages/working-tree/src/publication.ts";
 import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
 import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../support/memory-working-tree.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 /** Executes `tests/fixtures/update-runner.json` against the TypeScript runner, as `RunnerVectorTests` does for Swift. */
 interface Expectation { phase?: string; requests?: number; lastElements?: number; repeatsPrefix?: boolean; sameBody?: boolean; sameDigests?: boolean; lastEncoding?: WireEncoding; pending?: number; document?: string }
@@ -21,7 +23,7 @@ const TREE = "tr_runner_vectors";
 
 function snapshot(markdown: string): TreeSnapshot {
   const file = new TextEncoder().encode(markdown), fileHash = hashObject(file);
-  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash }] });
+  const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: fileHash, created: 0, modified: 0 }] });
   return { root: hashObject(directory), objects: new Map([[fileHash, file], [hashObject(directory), directory]]) };
 }
 
@@ -50,7 +52,7 @@ class VectorHost implements UpdateTransport {
     if (action === "reject") {
       const current = this.head(this.update, this.root, null);
       throw new ProtocolUpdateConflict({ error: "conflict", message: "refused", retryable: false, details: { kind: "server-update", completed: [], failedIndex: 0,
-        current, conflicts: [] } });
+        head: { update: current.id, root: current.root as never, conflicted: current.conflicted }, conflicts: [] } });
     }
     if (action === "unsupported") throw new ProtocolUnsupportedOperation({ error: "unsupported-operation" as never, message: "moveSource", retryable: false });
     const results: UpdateResult[] = [];
@@ -60,7 +62,7 @@ class VectorHost implements UpdateTransport {
       this.reachable(element.candidate);
       const receipt = this.receipts.get(digests[index]!);
       if (receipt) { results.push(receipt); continue; }
-      const update = this.head(`up_${++this.accepted}`, element.candidate, { id: this.update, root: this.root });
+      const update = this.head(`up_${++this.accepted}`, element.candidate, { update: this.update, root: this.root });
       const result: UpdateResult = { outcome: "accepted", update, requestDigest: digests[index]! as never };
       this.receipts.set(digests[index]!, result);
       results.push(result);
@@ -68,11 +70,11 @@ class VectorHost implements UpdateTransport {
       this.update = update.id;
     }
     if (action === "acceptThenFail") throw new ProtocolTransportError("response lost", undefined);
-    return { results, head: { update: this.update, root: this.root as never, conflicted: false, observedThrough: this.update } };
+    return { results, head: { update: this.update, root: this.root as never, conflicted: false } };
   }
 
   async descriptor(tree: string): Promise<CurrentTree> {
-    return { tree: { id: tree, kind: "ordinary", access: "write", canonical: null, root: this.root, update: this.update, conflicted: false } as never, observedThrough: this.update };
+    return { tree: { id: tree, kind: "ordinary", access: "write", canonical: null, root: this.root, update: this.update, conflicted: false } as never };
   }
 
   async object(_tree: string, hash: string): Promise<Uint8Array> {
@@ -190,7 +192,7 @@ for (const lost of [false, true]) test(`watch acceptance reuses the in-flight PO
       kind: "tree.update", cursor: "up_1" as never, tree: TREE,
       access: "write", canonical: null,
       transition: {
-        update: { id: "up_1", tree: TREE, root: candidate, previous: { id: "up_0", root: candidate }, acceptedAt: 1, subject: null, conflicted: false },
+        update: { id: "up_1", tree: TREE, root: candidate, previous: { update: "up_0", root: candidate }, acceptedAt: 1, subject: null, conflicted: false },
         objects: [], deltas: [], requestDigest: updateRequestDigests(TREE, host.held).at(-1) as never,
       },
     });
@@ -224,7 +226,7 @@ test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s prese
     const resolves = kind === "resolution" ? [{ state: "up_initial", conflict: "choice", alternatives: ["left", "right"] }] : [];
     await log.retain({ change: "keep-current", tree: TREE, basis: { kind: "accepted", root: initial.root, update: "up_initial" },
       graph, candidate: graph, sourcePath: null, document: null,
-      update: encodeCandidateUpdateJSON({ change: "keep-current", candidate: initial.root, trace: null, resolves,
+      update: localUpdate({ at: TEST_TIME, change: "keep-current", candidate: initial.root, trace: null, resolves,
         ...(kind === "guard" ? { ifCurrent: "up_initial" } : {}), objects: [], deltas: [] }) });
     await coordinator.noteLocalChange();
     await coordinator.syncOnce();
@@ -243,13 +245,14 @@ test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s prese
 for (const frozen of [false, true]) test(`branched publication ${frozen ? "recovers a frozen interior basis after restart" : "ends batching at a known branch point"}`, async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "story-branch-batch-"));
   const objects = new Map<string, Uint8Array>();
-  const entries = ["a", "b", "c"].map(name => { const bytes = new TextEncoder().encode(name), file = hashObject(bytes); objects.set(file, bytes); return {name: name + ".md", file}; });
+  const entries = ["a", "b", "c"].map(name => { const bytes = new TextEncoder().encode(name), file = hashObject(bytes); objects.set(file, bytes); return {name: name + ".md", file, created: 0, modified: 0}; });
   const bytes = encodeProtocolDirectory({type: "directory", entries}), root = hashObject(bytes); objects.set(root, bytes);
   const initial = {root, objects}, host = new VectorHost(initial, frozen ? ["accept", "acceptThenFail"] : []);
   const working = new MemoryWorkingTree({base: {root, update: "up_initial"}, snapshot: initial});
   const log = new ChangeLog(TREE, stateRoot), store = new FileControlStore(stateRoot);
   function edit(change: string, parent: LocalChange | undefined, path: string, source: string): LocalChange {
-    return prepareSourceChange({change, tree: TREE, basis: parent ? {kind: "authored", change: parent.change} : {kind: "accepted", root, update: "up_initial"},
+    // One time for every record: the test publishes the group itself, unrestamped.
+    return prepareSourceChange({at: TEST_TIME, change, tree: TREE, basis: parent ? {kind: "authored", change: parent.change} : {kind: "accepted", root, update: "up_initial"},
       graph: parent ? decodeTreeSnapshotJSON(parent.candidate) : initial, sourcePath: path,
       intent: {basis: {tree: TREE, path, revision: change, source}, edits: [{offset: 0, length: 1, replacement: source.toUpperCase()}], source: source.toUpperCase()}});
   }
@@ -259,7 +262,7 @@ for (const frozen of [false, true]) test(`branched publication ${frozen ? "recov
     await log.compact(new Set([a.change, b.change]), false, [[a.change, b.change]]);
     expect((await log.retained()).map(record => record.change)).toEqual(["a", "b", "c"]);
     const group = publication([a,b], [])!;
-    const response = await host.submitUpdates(TREE, decodeUpdateRequestJSON({base: "up_initial", updates: [group.update]}));
+    const response = await host.submitUpdates(TREE, decodeUpdateRequestJSON({base: "up_initial", updates: [wireUpdate(group.update)]}));
     await working.install({root: group.update.candidate, update: response.head.update}, {root: group.update.candidate, object: hash => host.object(TREE, hash), snapshot: async () => decodeTreeSnapshotJSON(b.candidate)});
     await store.write({schema: 5, settled: [a.change,b.change], publications: [group]}, "current");
   }

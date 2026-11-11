@@ -211,8 +211,9 @@ final class StoryWorkspaceState {
     /// identity, request shapes, canonical object encoding, or the durable
     /// state layout changes incompatibly. "4": content references (schema 2
     /// state, no inline file bytes), the `WorkingTrees/` layout, and
-    /// `update-control.json`.
-    static let workingTreeFormat = "5"
+    /// `update-control.json`. "6": Protocol 003, entries with times and
+    /// updates with `at` (schema 3 state, change-log records with `at`).
+    nonisolated static let workingTreeFormat = "6"
 
     private(set) var provider: any WorkspaceProvider
     private(set) var editorWorkspace: StoryEditorWorkspace
@@ -489,7 +490,6 @@ final class StoryWorkspaceState {
             transportAvailable: nativeTransportAvailable
         ))
         timing.mark("working-tree")
-        refreshEntryDates(session)
         guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A replica keeps a change log") }
         let nextProvider = session.provider
         if remember {
@@ -543,6 +543,29 @@ final class StoryWorkspaceState {
             }
         }
         timing.record("tree-open", detail: "\(tree.id) · device", extra: StoryLaunchTiming.milestones)
+    }
+
+    /// A change log kept beside an index rebuilt on every launch (a tree
+    /// alongside Story Sync on the Mac), under this app's wire format. Its
+    /// journal and `update-control.json` name accepted updates and request
+    /// shapes that do not survive a format change (Protocol 003 restarts every
+    /// tree's history), so one written under another format, or before
+    /// formats were recorded, moves to `FormatRecovery` and the tree starts
+    /// with no local work rather than replaying requests the host cannot know.
+    nonisolated static func changeLogUnderCurrentFormat(_ directory: URL) -> URL {
+        let marker = directory.appending(path: "wire-format")
+        let manager = FileManager.default
+        let recorded = (try? String(contentsOf: marker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if recorded != workingTreeFormat {
+            if manager.fileExists(atPath: directory.path) {
+                let archive = StorySupportDirectories.root.appending(path: "FormatRecovery/\(UUID().uuidString)", directoryHint: .isDirectory)
+                try? manager.createDirectory(at: archive, withIntermediateDirectories: true)
+                try? manager.moveItem(at: directory, to: archive.appending(path: "Sync", directoryHint: .isDirectory))
+            }
+            try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? workingTreeFormat.write(to: marker, atomically: true, encoding: .utf8)
+        }
+        return directory
     }
 
     /// Where a replica of this app lives, under the wire format this app
@@ -630,18 +653,6 @@ final class StoryWorkspaceState {
         await editorWorkspace.closeAll()
     }
 #endif
-
-    /// The host's entry dates for an opened tree, read in the background: they
-    /// never delay opening, and a failed read keeps the dates the tree has.
-    @discardableResult
-    private func refreshEntryDates(_ session: TreeSession) -> Task<Void, Never> {
-        Task.detached {
-            guard let read = await session.refreshEntryDates() else { return }
-            let record = StoryEntryDateCache.Record(update: read.update, dates: read.dates)
-            let tree = session.tree.id
-            await MainActor.run { StoryEntryDateCache.save(record, tree: tree) }
-        }
-    }
 
     func sharePresentation(for node: WorkspaceNode) async throws -> StorySharePresentation {
 #if os(iOS)
@@ -1051,8 +1062,7 @@ final class StoryWorkspaceState {
         ))
         let offer = try await client.createPairing()
         _ = try await ProtocolClient(origin: origin).claimPairing(
-            id: offer.id,
-            secret: offer.secret,
+            code: offer.code,
             device: ProtocolPairingDevice(id: deviceID, label: label, key: try StoryCloudBundle.deviceKey(seed: deviceKeySeed))
         )
         let record = StoryCloudBundleRecord(
@@ -1508,29 +1518,16 @@ final class StoryWorkspaceState {
                 reads: client.reads(),
                 tree: treeID,
                 folder: placed.osPath.map { URL(filePath: $0, directoryHint: .isDirectory) },
-                changeLog: StorySupportDirectories.workingTrees
-                    .appending(path: StorySupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory),
+                changeLog: Self.changeLogUnderCurrentFormat(StorySupportDirectories.workingTrees
+                    .appending(path: StorySupportDirectories.workingTreeKey(treeID), directoryHint: .isDirectory)),
                 transportAvailable: nativeTransportAvailable
             ),
             opening: TreeOpening(current: opening.current)
         )
         let workingTree = session.workingTree
         timing.mark("build")
-        // This tree is rebuilt on every launch. The dates its host reported
-        // last date the sidebar at once, and the host's answer refreshes them
-        // after the tree is open. Without any (a first open) wait briefly for
-        // that answer so the sidebar does not open undated, but never block
-        // on the network.
-        let cachedDates = StoryEntryDateCache.load(tree: treeID)
-        if let cachedDates {
-            try? await workingTree.applyEntryDates(cachedDates.dates, update: cachedDates.update)
-        }
-        let dates = refreshEntryDates(session)
-        if cachedDates == nil {
-            await awaitTasks([dates], atMost: .seconds(2))
-        }
-
-        timing.mark("dates")
+        // The sidebar is dated by the entries' own times (data model §6),
+        // which the tree already holds.
         guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A placed tree keeps a change log") }
         let nextProvider = session.provider
         try await nativePlacementStore.save(NativePlacementRecord(
@@ -1656,13 +1653,12 @@ final class StoryWorkspaceState {
             tree,
             client: client,
             settings: .browse(),
-            opening: TreeOpening(current: ProtocolCurrentTree(tree: tree, observedThrough: resolution.observedThrough))
+            opening: TreeOpening(current: ProtocolCurrentTree(tree: tree))
         )
         // Browse: the first page and the directories down to it in one path
         // read, before the editor asks for them; no snapshot is downloaded.
         try? await session.openPage(resolution.ref.path)
         let workingTree = session.workingTree
-        refreshEntryDates(session)
         let provider = session.provider
         await switchProvider(
             provider,
@@ -1682,7 +1678,7 @@ final class StoryWorkspaceState {
             acceptedRoot: tree.root,
             localRoot: tree.root
         )
-        visitFollowTask = session.follow(after: resolution.observedThrough) { [weak self] in
+        visitFollowTask = session.follow(after: resolution.enclosingTree.update) { [weak self] in
             await self?.noteVisitChanged(workingTree)
         }
         prefetchLocalStorySyncOverview()
@@ -1704,7 +1700,6 @@ final class StoryWorkspaceState {
             readOnly: !tree.grantsWrite,
             transportAvailable: nativeTransportAvailable
         ))
-        refreshEntryDates(session)
         guard let coordinator = session.coordinator else { throw ProtocolValidationError.invalidValue("A replica keeps a change log") }
         await switchProvider(
             session.provider,
@@ -1786,8 +1781,8 @@ final class StoryWorkspaceState {
            FileManager.default.fileExists(atPath: osPath) {
             let tree = TreeID(rawValue: record.tree.id)
             var timing = StoryLaunchTiming.Stopwatch()
-            let dates = StoryEntryDateCache.load(tree: record.tree.id)?.dates ?? [:]
-            if let preview = try? await LocalFolderPreview.workingTree(tree: tree, folder: URL(filePath: osPath), dates: dates) {
+            // Story Sync writes each file with its entry's modified time, so the scan's mtimes date the pages.
+            if let preview = try? await LocalFolderPreview.workingTree(tree: tree, folder: URL(filePath: osPath)) {
                 timing.mark("scan")
                 await switchProvider(
                     WorkingTreeProvider(
@@ -2017,7 +2012,7 @@ final class StoryWorkspaceState {
         let offer = try await accountService.client(for: account).createPairing()
         let payload = PairingPayload(
             origin: origin,
-            pairing: .init(id: offer.id, secret: offer.secret)
+            pairing: .init(code: offer.code)
         )
         let data = try JSONEncoder().encode(payload)
         return StoryPairingOffer(
@@ -2132,8 +2127,8 @@ final class StoryWorkspaceState {
                     let client = try await self.accountService.client(for: account)
                     async let directory = client.directory()
                     async let trees = client.trees()
-                    try await self.directoryStore.save(origin: origin, entries: directory.snapshot)
-                    self.writableTreesByOrigin[origin.absoluteString] = Set(try await trees.snapshot.filter(\.grantsWrite).map(\.id))
+                    try await self.directoryStore.save(origin: origin, entries: directory.people)
+                    self.writableTreesByOrigin[origin.absoluteString] = Set(try await trees.trees.filter(\.grantsWrite).map(\.id))
                 } catch { failures.append("\(origin.host() ?? origin.absoluteString): \(error.localizedDescription)") }
             }
             self.directory = (try? await self.directoryStore.load()) ?? self.directory
@@ -2171,7 +2166,7 @@ final class StoryWorkspaceState {
         guard let account = await connectedAccount(at: person.origin) else {
             throw ProtocolValidationError.invalidValue("No account is connected to this host")
         }
-        guard let tree = try await accountService.client(for: account).trees().snapshot.first(where: { $0.id == person.entry.profile }) else {
+        guard let tree = try await accountService.client(for: account).trees().trees.first(where: { $0.id == person.entry.profile }) else {
             throw ProtocolValidationError.invalidValue("Profile is not on this host")
         }
         try await place(tree: tree, from: person.origin, configurationTree: account.configurationTree)
@@ -4809,30 +4804,6 @@ extension StoryWorkspaceState {
 /// The page dates a tree's host last reported, kept on this device so the next
 /// launch can show them before the host answers. Only a display cache: a
 /// missing or unreadable file just means waiting for the host.
-@MainActor
-enum StoryEntryDateCache {
-    nonisolated struct Record: Codable, Equatable, Sendable {
-        var update: String
-        var dates: [String: Date]
-    }
-
-    static func url(tree: String) -> URL {
-        StorySupportDirectories.entryDates
-            .appending(path: StorySupportDirectories.workingTreeKey(tree) + ".json")
-    }
-
-    static func load(tree: String) -> Record? {
-        guard let data = try? Data(contentsOf: url(tree: tree)) else { return nil }
-        return try? JSONDecoder().decode(Record.self, from: data)
-    }
-
-    static func save(_ record: Record, tree: String) {
-        guard let data = try? JSONEncoder().encode(record) else { return }
-        try? FileManager.default.createDirectory(at: StorySupportDirectories.entryDates, withIntermediateDirectories: true)
-        try? data.write(to: url(tree: tree), options: .atomic)
-    }
-}
-
 /// The sidebar's page list as last loaded for each tree, kept on this device so
 /// a launch shows it at once instead of an empty sidebar while the index loads.
 @MainActor

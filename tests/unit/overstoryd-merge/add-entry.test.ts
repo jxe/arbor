@@ -30,10 +30,10 @@ test("addEntry on an editable state takes the fast-forward path", async () => {
 test("addEntry imports a directory value with its children", async () => {
   const f = new Fixture(), base = f.tree({ "a.md": "A" });
   const child = f.tree({ "_index.md": "Body", "note.md": "Note" });
-  const candidate = f.dir([{ name: "a.md", file: f.put("A") }, { name: "dir", directory: child }]);
+  const candidate = f.dir([{ name: "a.md", file: f.put("A"), created: 0, modified: 0 }, { name: "dir", directory: child }]);
   const created = await f.run(f.request(base, candidate, [add(f, base, "dir", { directory: child })], "create"));
   expect(created.result.object).toBe(candidate);
-  const next = f.dir([{ name: "a.md", file: f.put("A") }, { name: "dir", directory: f.tree({ "_index.md": "Body", "note.md": "Note!" }) }]);
+  const next = f.dir([{ name: "a.md", file: f.put("A"), created: 0, modified: 0 }, { name: "dir", directory: f.tree({ "_index.md": "Body", "note.md": "Note!" }) }]);
   const edited = await f.run(f.request(created.result, next,
     [{ key: "edit", kind: "editSource", source: f.ref("/dir/note.md", "Note", [4, 4]), text: "!" }], "edit"));
   expect(edited.result.object).toBe(next);
@@ -58,8 +58,8 @@ test("an entry operation's result keeps only its subtree, and later operations r
   const f = new Fixture(), base = f.tree({ "a.md": "A", "b.md": "B" });
   const child = f.tree({ "_index.md": "Body", "note.md": "Note" });
   const copied = f.dir([
-    { name: "a.md", file: f.put("A") }, { name: "b.md", file: f.put("B") },
-    { name: "copy.md", file: f.put("Note") }, { name: "dir", directory: child },
+    { name: "a.md", file: f.put("A"), created: 0, modified: 0 }, { name: "b.md", file: f.put("B"), created: 0, modified: 0 },
+    { name: "copy.md", file: f.put("Note"), created: 0, modified: 0 }, { name: "dir", directory: child },
   ]);
   const created = await f.run(f.request(base, copied, [
     add(f, base, "dir", { directory: child }),

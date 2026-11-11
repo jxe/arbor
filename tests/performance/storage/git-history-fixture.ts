@@ -18,6 +18,7 @@ import { join, resolve } from "node:path";
 import { ObjectStore } from "@ovst/object-store";
 import { compareProtocolNames, encodeProtocolDirectory, executeExactSourceEdits, hashObject, type ProtocolDirectoryEntry, type SourceFrame, type SourceOperation } from "@ovst/protocol";
 import { encodeLogEntry, LOG_ENTRY_FORMAT, type LogEntry } from "@ovst/merge-protocol";
+const TEST_AT = Date.UTC(2026, 10, 11);
 
 const TREE = "tr_fixturegithistory";
 
@@ -161,7 +162,7 @@ export async function buildGitHistoryFixture(out: string, options: { repo?: stri
     if (f.hash) return f.hash;
     const entries: ProtocolDirectoryEntry[] = [];
     for (const [name, child] of f.folders) entries.push({ name, directory: await hashFolder(child, time) });
-    for (const [name, file] of f.files) entries.push({ name, file });
+    for (const [name, file] of f.files) entries.push({ name, file, created: 0, modified: 0 });
     entries.sort((a, b) => compareProtocolNames(a.name, b.name));
     return (f.hash = await put(encodeProtocolDirectory({ type: "directory", entries }), time));
   };
@@ -206,7 +207,7 @@ export async function buildGitHistoryFixture(out: string, options: { repo?: stri
   };
   const record = async (root: string, time: number, change: string, trace: SourceFrame[] | null, versions: Array<[string, string]>, update: string) => {
     const entry: string = await put(encodeLogEntry({
-      format: LOG_ENTRY_FORMAT, tree: TREE, previous, root, change, trace: trace as LogEntry["trace"], resolves: [], decisions: [],
+      format: LOG_ENTRY_FORMAT, tree: TREE, previous, root, at: 0, change, trace: trace as LogEntry["trace"], resolves: [], decisions: [],
     }), time);
     previous = entry;
     db.transaction(() => {
@@ -239,7 +240,7 @@ export async function buildGitHistoryFixture(out: string, options: { repo?: stri
       }
       if (operations.length) {
         const after = await hashFolder(top, commit.time);
-        const executed = await executeExactSourceEdits(before, operations, (hash) => store.load(hash));
+        const executed = await executeExactSourceEdits(before, operations, (hash) => store.load(hash), TEST_AT);
         if (executed.root !== after) throw new Error(`Traced edits of ${commit.sha} do not reproduce its Markdown`);
         await record(after, commit.time, `t${commit.sha.slice(0, 20)}`, [{ before, after, operations }], versions, commit.sha);
         traced++;

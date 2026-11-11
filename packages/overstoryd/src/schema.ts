@@ -9,7 +9,7 @@ import { createProfileFactsTable } from "./profile.ts";
  * incompatible build; the operator runs the offline migration tool after backing up retained
  * history. The migration sets the stamp.
  */
-export const OVERSTORYD_SCHEMA_VERSION = "32";
+export const OVERSTORYD_SCHEMA_VERSION = "34";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "governs"],
@@ -18,7 +18,7 @@ export const AUTHORITY_SCHEMA = {
     "ordinal", "tree_id", "root", "previous_ordinal", "conflicted", "accepted_at", "subject", "request_digest", "change_id", "entry",
   ],
   accounts: ["id", "handle", "enabled", "claim_digest", "home_host"],
-  devices: ["id", "account_id", "label", "public_key", "created_at", "last_used_at", "revoked_at"],
+  devices: ["id", "account_id", "label", "public_key", "created_at", "last_used_at", "revoked_at", "clients"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "expires_at", "claimed_at", "claimed_device"],
   challenges: ["id", "purpose", "challenge_json", "expires_at", "consumed_at"],
   device_sessions: ["token_digest", "device_id", "expires_at"],
@@ -26,7 +26,6 @@ export const AUTHORITY_SCHEMA = {
   tree_admins: ["tree_id", "profile_tree"],
   app_policy: ["profile_tree", "app_tree", "rules_json"],
   mounts: ["parent_tree", "path", "tree_id", "member"],
-  entry_metadata: ["tree_id", "path", "modified_at"],
   document_versions: ["tree_id", "stable_key", "update_id", "entry_path", "content_hash", "accepted_at"],
   profile_facts: ["tree_id", "index_hash", "avatar_path", "facts"],
   profile_locator_pins: ["tree_id", "locator", "profile_tree"],
@@ -59,7 +58,8 @@ export function createTreeConfigIndex(db: Database): void {
 /**
  * Every device a profile ever enrolled, by DeviceID, which is never reused:
  * its public key as its `devices.yaml` entry spells it. Only a device revoked
- * before every device had a key has none.
+ * before every device had a key has none. `clients` is the JSON object of the
+ * clients it last named itself as, by product; null until it names one.
  */
 export function createDevicesTable(db: Database): void {
   db.run(`
@@ -71,6 +71,7 @@ export function createDevicesTable(db: Database): void {
       created_at INTEGER NOT NULL,
       last_used_at INTEGER,
       revoked_at INTEGER,
+      clients TEXT,
       CHECK (public_key IS NOT NULL OR revoked_at IS NOT NULL)
     )
   `);

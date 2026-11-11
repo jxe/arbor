@@ -15,8 +15,8 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
 
     /// Copying a Native page also authors fresh page metadata. Capture those
     /// exact file edits after the copy instead of discarding the copy provenance.
-    func capturingRewrites(graph: ProtocolSnapshot, candidate: ProtocolSnapshot) throws -> EntryTransfer {
-        let projected = try prepare(graph: graph).candidate
+    func capturingRewrites(graph: ProtocolSnapshot, candidate: ProtocolSnapshot, at: Int) throws -> EntryTransfer {
+        let projected = try prepare(graph: graph, at: at).candidate
         let before = Dictionary(uniqueKeysWithValues: projected.objects.map { ($0.hash,$0.bytes) })
         let after = Dictionary(uniqueKeysWithValues: candidate.objects.map { ($0.hash,$0.bytes) })
         func entry(_ root: String, _ objects: [String:Data]) throws -> ProtocolDirectoryEntry {
@@ -49,7 +49,10 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
         return result
     }
 
-    public func prepare(graph: ProtocolSnapshot, candidate: ProtocolSnapshot? = nil, changeID: String = "entry-transfer") throws -> (candidate: ProtocolSnapshot, operations: [ProtocolSourceOperation]) {
+    /// The transfer replayed on `graph` as the host replays it at `at` (Unix
+    /// ms): a move keeps its entries' times; a copy is new, so every file and
+    /// page entry it copies is created and modified `at` (data model §6).
+    public func prepare(graph: ProtocolSnapshot, candidate: ProtocolSnapshot? = nil, changeID: String = "entry-transfer", at: Int) throws -> (candidate: ProtocolSnapshot, operations: [ProtocolSourceOperation]) {
         _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         func invalid() -> ProtocolValidationError { .invalidValue("Invalid entry transfer") }
         func components(_ path: String) throws -> [String] {
@@ -91,16 +94,26 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
             let bytes = try ProtocolObjectCodec.encode(.directory(entries,collection:descriptor)), next = ProtocolObjectCodec.hash(bytes)
             objects[next] = bytes; return next
         }
+        /// A copy of `entry`, and of everything below it, made at `at`.
+        func copied(_ entry: ProtocolDirectoryEntry) throws -> ProtocolDirectoryEntry {
+            guard let hash = entry.directory else { return entry.copied(at: at) }
+            let (entries, descriptor) = try directory(hash)
+            let bytes = try ProtocolObjectCodec.encode(.directory(try entries.map(copied), collection: descriptor)), next = ProtocolObjectCodec.hash(bytes)
+            objects[next] = bytes
+            var result = entry; result.directory = next
+            return result
+        }
+        let placed = kind == .copyEntry ? try copied(entry) : entry
         var root = graph.root
         if kind == .moveEntry { root = try change(root,Array(sourceParts.dropLast())) { $0.removeAll(where:{$0.name == sourceParts.last}) } }
-        root = try change(root,parentParts) { entries in var moved = entry; moved.name = name; entries.append(moved) }
+        root = try change(root,parentParts) { entries in var moved = placed; moved.name = name; entries.append(moved) }
         func ref(_ path:String,_ hash:String) -> ProtocolSemanticValue { .object(["material":.object(["kind":.string("basis"),"path":.string(path),"object":.string(hash)])]) }
         let operation = try ProtocolSourceOperation(["key":.string("entry-transfer"),"kind":.string(kind.rawValue),"source":ref(source,object),"destination":.object(["parent":ref(parent,destination),"name":.string(name)])])
         var operations = [operation]
         let target = parentParts + [name]
         for (index, rewrite) in (rewrites ?? [:]).sorted(by: { $0.key < $1.key }).enumerated() {
             let relative = rewrite.key.isEmpty ? [] : try components("/" + rewrite.key)
-            var selected = entry
+            var selected = placed
             for part in relative {
                 guard let directoryHash = selected.directory, let next = try directory(directoryHash).0.first(where: { $0.name == part }) else { throw invalid() }
                 selected = next
@@ -130,7 +143,8 @@ public struct EntryTransfer: Codable, Equatable, Sendable {
             let filePath = target + relative
             root = try change(root,Array(filePath.dropLast())) { entries in
                 if let i = entries.firstIndex(where: { $0.name == filePath.last }) {
-                    if isPage { entries[i].page = rewrite.value } else { entries[i].file = rewrite.value }
+                    // An edit of a copied entry: modified `at`, as it already was.
+                    entries[i] = .stamped(isPage ? .page : .file, name: entries[i].name, object: rewrite.value, previous: entries[i], at: at)
                 }
             }
         }

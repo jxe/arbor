@@ -27,6 +27,7 @@ import {
   type TreeConfigValues,
   type TreeSnapshot,
 } from "@ovst/protocol";
+import { directoryStamper } from "@ovst/protocol";
 
 /** The community's canonical origin inside the tailnet, and the same host from the community itself. The
  * environment overrides exist only to rehearse these modes against a local overstoryd. */
@@ -109,8 +110,8 @@ export function withRootFile(snapshot: TreeSnapshot, name: string, contents: str
   const file = hashObject(bytes);
   const root = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
   const entries = root.entries.some((entry) => entry.name === name)
-    ? root.entries.map((entry) => entry.name === name ? { name, file } : entry)
-    : [...root.entries, { name, file }].sort((a, b) => byUTF8(a.name, b.name));
+    ? root.entries.map((entry) => entry.name === name ? { name, file, created: 0, modified: 0 } : entry)
+    : [...root.entries, { name, file, created: 0, modified: 0 }].sort((a, b) => byUTF8(a.name, b.name));
   const encoded = encodeProtocolDirectory({ ...root, entries });
   const next = hashObject(encoded);
   return { root: next, objects: new Map([...snapshot.objects, [file, bytes], [next, encoded]]) };
@@ -123,7 +124,7 @@ export function filesSnapshot(files: Record<string, string>): TreeSnapshot {
     const bytes = new TextEncoder().encode(files[name]!);
     const file = hashObject(bytes);
     objects.set(file, bytes);
-    return { name, file };
+    return { name, file, created: 0, modified: 0 };
   });
   const encoded = encodeProtocolDirectory({ type: "directory", entries });
   const root = hashObject(encoded);
@@ -140,7 +141,7 @@ export async function editTreeConfig(
 ): Promise<void> {
   const { tree: descriptor, snapshot } = await client.treeConfiguration(tree);
   const { sources: _sources, ...values } = readTreeConfigGraph(snapshot, kind, tree);
-  await client.submitUpdate(descriptor.id, descriptor.update, snapshotTreeConfig(change(values)), { ifCurrent: descriptor.update });
+  await client.submitUpdate(descriptor.id, descriptor.update, snapshotTreeConfig(change(values), directoryStamper(undefined, 0)), { ifCurrent: descriptor.update });
 }
 
 /**
@@ -159,7 +160,7 @@ export async function hostTree(
   await client.declareTree(tree, snapshotTreeConfig({
     access: [{ who: { profile: account.profileTree }, allow: ["admin"] }, ...(options.access ?? [])],
     mounts: {},
-  }));
+  }, directoryStamper(undefined, 0)));
   if (options.mount) {
     const { parent, kind, name } = options.mount;
     await editTreeConfig(client, parent, kind, (values) => ({ ...values, mounts: { ...values.mounts, [name]: tree } }));
@@ -184,7 +185,7 @@ export async function pairDevice(
   const { account } = await owner.account();
   const device = generateOverstoryID("dv");
   const seed = generateDeviceKeySeed();
-  const claimed = await new ProtocolClient(origin).claimPairing(offer.id, offer.secret, { id: device, label, key: deviceKeyFromSeed(seed) });
+  const claimed = await new ProtocolClient(origin).claimPairing(offer.code, { id: device, label, key: deviceKeyFromSeed(seed) });
   if (claimed.device.id !== device) throw new Error("Pairing claimed a different DeviceID");
   if (administrator) {
     await editTreeConfig(owner, account.profileTree!, "person", (values) => ({
@@ -272,7 +273,7 @@ async function resolveBinary(): Promise<void> {
   if (!decision) throw new Error(`No decision on ${value.tree} offers the requested bytes`);
   const candidate = withRootFile(snapshot, value.path, bytes);
   const result = await client.submitUpdate(value.tree, descriptor.update, candidate, {
-    resolves: [{ state: page.state, conflict: decision.id, alternatives: decision.alternatives.map((alternative) => alternative.id) }],
+    resolves: [{ state: page.update, conflict: decision.id, alternatives: decision.alternatives.map((alternative) => alternative.id) }],
   });
   if (result.outcome !== "accepted") throw new Error(`Resolution was ${result.outcome}`);
   const after = await client.descriptor(value.tree);

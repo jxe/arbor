@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { HANDLE_PATH, decodeRunRequest, type RunRequest, agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient, setProtocolClientName } from "@ovst/protocol";
+import { HANDLE_PATH, decodeRunRequest, type RunRequest, agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, directoryStamper, decodeProtocolDirectory, entryTimeOf, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient, setProtocolClientName } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
@@ -7,7 +7,7 @@ import { resolveUserPath, STORY_VERSION } from "@ovst/story-sync";
 import { runStorySyncDaemon } from "@ovst/story-sync/cli";
 import { StorySyncRESTClient, type AgentRunView, type DeclinedChanges } from "./daemon-client.ts";
 import { agentLabel, hasClaudeCode, hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
-import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
+import { basisDirectories, loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
 import { listLocalAccounts } from "@ovst/story-sync/state";
 import { accountProtocolClient, addLocalPlacement, cancelInvitation, createInvitation, pendingInvitations, renewInvitation, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
@@ -668,7 +668,9 @@ async function editRemoteTreeConfig(wire: ProtocolClient, tree: string, change: 
     try { const { sources: _sources, ...values } = readTreeConfigGraph(snapshot, kind, tree); current = values; break; } catch { /* another kind */ }
   }
   if (!current) throw new Error(`The configuration of ${tree} is not readable`);
-  await wire.submitUpdate(descriptor.id, descriptor.update, snapshotTreeConfig(change(current)), { ifCurrent: descriptor.update });
+  const at = new Date().toISOString();
+  const stamp = directoryStamper(decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!), entryTimeOf(at));
+  await wire.submitUpdate(descriptor.id, descriptor.update, snapshotTreeConfig(change(current), stamp), { ifCurrent: descriptor.update, at });
 }
 
 /** A whole-tree grant as an `access.yaml` rule. */
@@ -840,7 +842,7 @@ async function placeLocal(
       await wire.declareTree(tree, snapshotTreeConfig({
         access: [{ who: { profile: config.profile }, allow: ["admin"] }, ...rules.map(resourceRule)],
         mounts: {},
-      }));
+      }, directoryStamper(undefined, Date.now())));
       await editMounts(client, selected, wire, parent, (mounts) => {
         if (mounts[name]) throw new Error(`${target.supplied} is already mounted`);
         return { ...mounts, [name]: tree! };
@@ -1087,7 +1089,7 @@ async function createCloudBundle(args: string[]): Promise<void> {
     const encoded = code ? buildAgentLink(only!.canonicalURL, code) : encodeCloudBundle(payload);
     const wire = new ProtocolClient(selected.connection.record.origin, selected.connection.accountToken);
     const pairing = await wire.createPairing();
-    await new ProtocolClient(selected.connection.record.origin).claimPairing(pairing.id, pairing.secret, {
+    await new ProtocolClient(selected.connection.record.origin).claimPairing(pairing.code, {
       id: deviceID,
       label,
       key: deviceKeyFromSeed(deviceKeySeed),
@@ -1332,8 +1334,10 @@ async function cloudPlacementsReady(
     const skip = membershipSkip(await loadIgnorePolicy(target.path),
       trackedEntries(remote.root as ObjectHash, (hash) => wire.object(target.treeID, hash)));
     const load = (hash: ObjectHash) => wire.object(target.treeID, hash);
+    // Against the host's root, so unchanged entries keep its times; a bare
+    // scan would date every file by its mtime and lose `created`.
     const localSnapshot = await snapshotDirectory(target.path, new Map(), [], undefined, undefined, skip,
-      await treeHoldsPages(remote.root as ObjectHash, load));
+      await treeHoldsPages(remote.root as ObjectHash, load), { at: Date.now(), basis: basisDirectories(remote.root as ObjectHash, load) });
     if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from the host` };
   }
   return { ready: true };
@@ -1778,7 +1782,6 @@ async function statusCommand(args: string[]): Promise<void> {
     selection = {
       input: options.locator,
       ref: resolved.ref,
-      historical: resolved.historical,
       ...(tree ? { tree, condition: tree.condition } : { condition: CANONICAL_INPUT.test(options.locator) ? "not-placed" : "not-applicable" }),
     };
   }

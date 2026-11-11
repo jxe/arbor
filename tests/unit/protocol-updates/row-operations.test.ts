@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   checkPlainTrace,
-  decodeAuthoredCandidateIntent,
+  decodeAuthoredCandidateIntent as decodeWireIntent,
+  encodeAuthoredCandidateIntent,
   executeRowOperations,
   validateSourceTrace,
   type ObjectHash,
@@ -10,6 +11,9 @@ import {
 } from "@ovst/protocol";
 import { deriveRowOperations, replayCollectionRows } from "@ovst/collection-schema";
 import { collectionRows, collectionTree, idRow, T0, type CollectionTree } from "../../support/collection-trees.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+/** Decode an in-memory intent as it would travel. */
+const decodeAuthoredCandidateIntent = (intent: any) => decodeWireIntent(encodeAuthoredCandidateIntent(intent));
 
 const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n  tags  Text[]\n  notes Markdown?\n}\n";
 const HASH = `sha256:${"a".repeat(64)}`;
@@ -31,13 +35,13 @@ function rowOps(tree: CollectionTree) {
 
 async function replay(tree: CollectionTree, operations: SourceOperation[]) {
   const load = async (hash: ObjectHash) => tree.objects.get(hash) ?? Promise.reject(new Error(`missing ${hash}`));
-  const result = await executeRowOperations(tree.root, operations, load, replayCollectionRows);
+  const result = await executeRowOperations(tree.root, operations, load, TEST_AT, replayCollectionRows);
   const objects = new Map([...tree.objects, ...result.generated]);
   return { ...result, objects, rows: (await collectionRows(result.root, objects)).Item!, load: async (hash: ObjectHash) => objects.get(hash)! };
 }
 
 describe("row operation grammar", () => {
-  const candidate = (operation: unknown) => ({ change: "c1", candidate: HASH, resolves: [], trace: [{ before: HASH, after: HASH, operations: [operation] }] });
+  const candidate = (operation: unknown) => ({ change: "c1", at: AT, candidate: HASH, resolves: [], trace: [{ before: HASH, after: HASH, operations: [operation] }] });
   const collection = { material: { kind: "basis", path: "/items", object: HASH } };
   const base = { key: "op", collection, model: "Item", row: key("a") };
 
@@ -94,9 +98,9 @@ describe("row operation replay", () => {
     const frames = [{ before: tree.root, after: result.root, operations: [op.set("b", "title", "B", "Bee")] }];
     const renamed = await replay(tree, frames[0]!.operations as SourceOperation[]);
     frames[0]!.after = renamed.root;
-    expect(await checkPlainTrace(frames, renamed.load, replayCollectionRows)).toMatchObject({ plain: true, touched: ["/items"] });
-    expect((await validateSourceTrace(frames, renamed.load, replayCollectionRows)).root).toBe(renamed.root);
-    expect(await checkPlainTrace(frames, renamed.load)).toEqual({ plain: false, reason: "row operations need a collection replay" });
+    expect(await checkPlainTrace(frames, renamed.load, TEST_AT, replayCollectionRows)).toMatchObject({ plain: true, touched: ["/items"] });
+    expect((await validateSourceTrace(frames, renamed.load, TEST_AT, replayCollectionRows)).root).toBe(renamed.root);
+    expect(await checkPlainTrace(frames, renamed.load, TEST_AT)).toEqual({ plain: false, reason: "row operations need a collection replay" });
   });
 
   test("an ordered field moves its members", async () => {
@@ -113,7 +117,7 @@ describe("row operation replay", () => {
     const tree = items();
     const op = rowOps(tree);
     const load = async (hash: ObjectHash) => tree.objects.get(hash)!;
-    const checked = await checkPlainTrace([{ before: tree.root, after: tree.root, operations: [op.set("a", "title", "A", "Z")] }], load, replayCollectionRows);
+    const checked = await checkPlainTrace([{ before: tree.root, after: tree.root, operations: [op.set("a", "title", "A", "Z")] }], load, TEST_AT, replayCollectionRows);
     expect(checked).toEqual({ plain: false, reason: "operations do not reproduce the frame" });
   });
 
@@ -139,7 +143,6 @@ describe("row operation replay", () => {
       [[{ ...op.remove("a"), model: "Other" }], /not a model/],
       [[op.set("a", "title", "A", 5)], /Expected text/],
       [[op.set("a", "modified", null, AT)], /operation's time/],
-      [[{ ...op.set("a", "title", "A", "Z"), at: undefined }], /carries its time/],
       [[{ ...op.set("a", "title", "A", "Z"), at: "2026-10-24T10:00:00Z" }], /milliseconds/],
     ] as Array<[SourceOperation[], RegExp]>) await expect(replay(tree, operations)).rejects.toThrow(message);
   });
@@ -153,7 +156,7 @@ describe("derived row operations", () => {
       idRow("b", { title: "B" }, AT),
       idRow("c", { title: "C", tags: ["w", "x"] }, T0, AT),
     ] }, new Map(before.objects));
-    const operations = await deriveRowOperations(before.root, after.root, async (hash) => after.objects.get(hash)!);
+    const operations = (await deriveRowOperations(before.root, after.root, async (hash) => after.objects.get(hash)!, TEST_AT))?.operations;
     expect(operations).toEqual([
       expect.objectContaining({ kind: "set", field: "title", before: "A", value: "Alpha", at: AT }),
       expect.objectContaining({ kind: "rowCreate", values: { id: "b", title: "B" }, at: AT }),
@@ -169,7 +172,7 @@ describe("derived row operations", () => {
       [idRow("a", { title: "A" }), idRow("b", { title: "B" }, T0, AT)], // a new row's times differ
     ]) {
       const after = collectionTree(SCHEMA, { Item: rows }, new Map(before.objects));
-      expect(await deriveRowOperations(before.root, after.root, async (hash) => after.objects.get(hash)!)).toBeNull();
+      expect(await deriveRowOperations(before.root, after.root, async (hash) => after.objects.get(hash)!, TEST_AT)).toBeNull();
     }
   });
 });

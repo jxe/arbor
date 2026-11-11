@@ -75,7 +75,7 @@ function markdownSnapshot(source: string, objects: Map<string, Uint8Array>): Tre
 
 function namedMarkdownSnapshot(name: string, source: string, objects: Map<string, Uint8Array>): TreeSnapshot {
   const file = stored({ type: "file", bytes: new TextEncoder().encode(source) }, objects);
-  return { root: root([{ name, file: file }], objects), objects };
+  return { root: root([{ name, file: file, created: 0, modified: 0 }], objects), objects };
 }
 
 const SCHEMA = "model Item {\n  title Text\n}\n";
@@ -196,7 +196,7 @@ describe("reference host merge fixtures", () => {
 
   test("one row merges field by field and member by member", async () => {
     const schema = "model Item {\n  title Text\n  done Bool?\n  tags Text[]\n  steps ordered Text[]\n  notes Markdown?\n}\n";
-    const a = (fields: LogicalRow["fields"], modified = T1) => idRow("a", { title: "A", ...fields }, T0, modified);
+    const a = (fields: LogicalRow["fields"], modified: number | string = T1) => idRow("a", { title: "A", ...fields }, T0, modified);
     const b = idRow("b", { title: "B" });
     const { result, rows } = await mergeItems(
       itemsSnapshot(schema, [a({ tags: ["x", "y"], steps: ["1", "2", "3"], notes: "one\ntwo\nthree\n" }, T0), b]),
@@ -308,9 +308,9 @@ describe("reference host merge fixtures", () => {
       let remote: string;
       if (fixture.kind === "binary") {
         const file = (value: string) => stored({ type: "file", bytes: Buffer.from(value, "base64") }, objects);
-        base = root([{ name: "asset.bin", file: file(fixture.baseBase64) }], objects);
-        candidate = root([{ name: "asset.bin", file: file(fixture.candidateBase64) }], objects);
-        remote = root([{ name: "asset.bin", file: file(fixture.remoteBase64) }], objects);
+        base = root([{ name: "asset.bin", file: file(fixture.baseBase64), created: 0, modified: 0 }], objects);
+        candidate = root([{ name: "asset.bin", file: file(fixture.candidateBase64), created: 0, modified: 0 }], objects);
+        remote = root([{ name: "asset.bin", file: file(fixture.remoteBase64), created: 0, modified: 0 }], objects);
       } else if (fixture.kind === "nested-boundary") {
         base = root([{ name: "nested", tree: fixture.baseTree }], objects);
         candidate = root([{ name: "nested", tree: fixture.candidateTree }], objects);
@@ -319,9 +319,9 @@ describe("reference host merge fixtures", () => {
         const baseFile = stored({ type: "file", bytes: new TextEncoder().encode("base") }, objects);
         const remoteFile = stored({ type: "file", bytes: new TextEncoder().encode("remote") }, objects);
         const candidateDirectory = root([], objects);
-        base = root([{ name: "item", file: baseFile }], objects);
+        base = root([{ name: "item", file: baseFile, created: 0, modified: 0 }], objects);
         candidate = root([{ name: "item", directory: candidateDirectory }], objects);
-        remote = root([{ name: "item", file: remoteFile }], objects);
+        remote = root([{ name: "item", file: remoteFile, created: 0, modified: 0 }], objects);
       }
       const result = await mergeProtocolTrees(base, candidate, remote, async (hash) => {
         const bytes = objects.get(hash);

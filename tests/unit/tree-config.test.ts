@@ -12,6 +12,7 @@ import {
   type TreeConfigValues,
 } from "@ovst/protocol";
 import vectors from "../../docs/overstory-spec/conformance/tree-configuration.json";
+import { directoryStamper } from "@ovst/protocol";
 
 const base: Record<TreeConfigKind, Partial<Record<TreeConfigFile, string>>> = {
   tree: { "access.yaml": "- who: {profile: tr_jjjjjjjjjjjjjjjjjjjjjjjjjj}\n  allow: [admin]\n", "mounts.yaml": "{}\n" },
@@ -38,14 +39,14 @@ describe("tree-configuration.json", () => {
 
   test("accepts every valid graph", () => {
     for (const vector of vectors.valid) {
-      const graph = readTreeConfigGraph(snapshotTreeConfigFiles(vector.files as Record<TreeConfigFile, string>), vector.kind as TreeConfigKind, vector.tree);
+      const graph = readTreeConfigGraph(snapshotTreeConfigFiles(vector.files as Record<TreeConfigFile, string>, directoryStamper(undefined, 0)), vector.kind as TreeConfigKind, vector.tree);
       if ("values" in vector) {
         const { sources: _sources, ...values } = graph;
         expect(values as unknown).toEqual(vector.values);
       }
       // Canonical files parse back to the same values.
       const { sources: _sources, ...values } = graph;
-      const { sources: _canonical, ...reread } = readTreeConfigGraph(snapshotTreeConfig(values), vector.kind as TreeConfigKind, vector.tree);
+      const { sources: _canonical, ...reread } = readTreeConfigGraph(snapshotTreeConfig(values, directoryStamper(undefined, 0)), vector.kind as TreeConfigKind, vector.tree);
       expect(semanticTreeConfig(reread)).toEqual(semanticTreeConfig(values));
     }
   });
@@ -54,7 +55,7 @@ describe("tree-configuration.json", () => {
     for (const vector of vectors.invalid) {
       const kind = vector.kind as TreeConfigKind;
       const files = { ...base[kind], [vector.file]: vector.source } as Record<TreeConfigFile, string>;
-      expect(() => readTreeConfigGraph(snapshotTreeConfigFiles(files), kind, kind === "person" ? person : undefined), vector.name).toThrow();
+      expect(() => readTreeConfigGraph(snapshotTreeConfigFiles(files, directoryStamper(undefined, 0)), kind, kind === "person" ? person : undefined), vector.name).toThrow();
     }
   });
 

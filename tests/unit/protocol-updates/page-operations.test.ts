@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyPageOperations,
-  decodeAuthoredCandidateIntent,
+  decodeAuthoredCandidateIntent as decodeWireIntent,
+  encodeAuthoredCandidateIntent,
   decodeProtocolDirectory,
   decodeProtocolPage,
   encodeProtocolDirectory,
@@ -16,6 +17,10 @@ import {
   type ProtocolPage,
   type SourceOperation,
 } from "@ovst/protocol";
+// Fixture entries are dated 0, so edits at 0 leave their times as they were.
+const TEST_AT = 0;
+/** Decode an in-memory intent as it would travel. */
+const decodeAuthoredCandidateIntent = (intent: any) => decodeWireIntent(encodeAuthoredCandidateIntent(intent));
 
 const objects = new Map<string, Uint8Array>();
 const put = (bytes: Uint8Array) => {
@@ -29,7 +34,7 @@ const pageOf = (properties: PageProperty[], body: string, id?: string): Protocol
   ({ type: "page", ...(id ? { id } : {}), properties, body: encoder.encode(body) });
 const tree = (page: ProtocolPage) => {
   const object = put(encodeProtocolPage(page));
-  const folder = put(encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", page: object }] }));
+  const folder = put(encodeProtocolDirectory({ type: "directory", entries: [{ name: "a.md", page: object, created: 0, modified: 0 }] }));
   return { object, root: put(encodeProtocolDirectory({ type: "directory", entries: [{ name: "notes", directory: folder }] })) };
 };
 const target = (object: ObjectHash) => ({ material: { kind: "basis" as const, path: "/notes/a.md", object } });
@@ -80,19 +85,22 @@ describe("page property operations", () => {
     const before = tree(page);
     const after = tree(applyPageOperations(page, [{ kind: "set", field: "title", before: "A", value: "B" }]));
     const operations: SourceOperation[] = [{ key: "op-1", kind: "set", page: target(before.object), field: "title", before: "A", value: "B" }];
-    const result = await validateSourceTrace([{ before: before.root, after: after.root, operations }], load);
+    const result = await validateSourceTrace([{ before: before.root, after: after.root, operations }], load, TEST_AT);
     expect(result.root).toBe(after.root);
     const wrong = tree(applyPageOperations(page, [{ kind: "set", field: "title", before: "A", value: "C" }]));
-    await expect(validateSourceTrace([{ before: before.root, after: wrong.root, operations }], load)).rejects.toThrow();
+    await expect(validateSourceTrace([{ before: before.root, after: wrong.root, operations }], load, TEST_AT)).rejects.toThrow();
   });
 
   test("the contract accepts page targets and rejects an id or a ranged target", () => {
-    const frame = (operation: Record<string, unknown>) => ({ change: "c1", candidate: null, resolves: [], trace: [{ operations: [{ key: "k1", ...operation }] }] });
+    const frame = (operation: Record<string, unknown>) => ({ change: "c1", at: new Date(TEST_AT).toISOString(), candidate: null, resolves: [], trace: [{ operations: [{ key: "k1", ...operation }] }] });
     const ref = target(`sha256:${"0".repeat(64)}`);
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "title", before: null, value: { $date: "2026-10-28" } }))).not.toThrow();
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "id", before: null, value: "x" }))).toThrow();
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: { ...ref, range: [0, 1] }, field: "t", before: null, value: "x" }))).toThrow();
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "rowCreate", page: ref, values: {} }))).toThrow();
+    // A stated `at` is allowed, but never later than its update's.
+    expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "t", before: null, value: "x", at: new Date(TEST_AT).toISOString() }))).not.toThrow();
+    expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "t", before: null, value: "x", at: new Date(TEST_AT + 1).toISOString() }))).toThrow();
   });
 });
 
@@ -102,7 +110,7 @@ describe("a page's body is its source text", () => {
     const before = tree(page);
     const after = tree({ ...page, body: encoder.encode("Hello there\n") });
     const operations: SourceOperation[] = [{ key: "e1", kind: "editSource", source: { ...target(before.object), range: [6, 11] }, text: "there" }];
-    const result = await validateSourceTrace([{ before: before.root, after: after.root, operations }], load);
+    const result = await validateSourceTrace([{ before: before.root, after: after.root, operations }], load, TEST_AT);
     expect(result.root).toBe(after.root);
     const folder = decodeProtocolDirectory(result.generated.get(decodeProtocolDirectory(result.generated.get(result.root)!).entries[0]!.directory!)!);
     const written = decodeProtocolPage(result.generated.get(folder.entries[0]!.page!)!);

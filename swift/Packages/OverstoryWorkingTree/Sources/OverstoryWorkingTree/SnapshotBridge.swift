@@ -36,7 +36,6 @@ public enum SnapshotBridge {
         update: String,
         cursor: String? = nil,
         mode: ProtocolObjectGraph.ValidationMode = .complete,
-        entryMetadata: [String: EntryMetadata] = [:],
         acceptedAt: Date? = nil
     ) throws -> WorkingTreeSystemReplacement {
         let sparse = mode != .complete
@@ -95,11 +94,13 @@ public enum SnapshotBridge {
                 throw ProtocolValidationError.invalidValue("Duplicate logical path \(node.path)")
             }
             var node = node
-            if let entry = node.bodyEntryPath, let metadata = entryMetadata[entry] { node.metadata = metadata }
+            // A node is dated by its content entry's `modified` (data model §6).
+            if let modified = node.times?.modified { node.metadata.modifiedAt = Date(timeIntervalSince1970: Double(modified) / 1000) }
             nodes.append(node)
         }
 
-        func visitDirectory(_ hash: String, path: String, siblingMarkdownSource: String? = nil) throws {
+        /// `siblingMarkdownSource` is the directory's `<name>.md` body in its parent, and `siblingEntry` that entry.
+        func visitDirectory(_ hash: String, path: String, siblingMarkdownSource: String? = nil, siblingEntry: ProtocolDirectoryEntry? = nil) throws {
             guard case let .directory(entries, collection)? = objects[hash] else {
                 throw ProtocolValidationError.incompleteGraph(hash)
             }
@@ -109,10 +110,9 @@ public enum SnapshotBridge {
             let siblingBodies = Dictionary(grouping: entries.compactMap { entry -> (stem: String, name: String)? in
                 guard let hash = entry.hash, let object = objects[hash] else { return nil }
                 switch object { case .file, .page: break; default: return nil }
-                for suffix in [".md", ".mdx"] where entry.name.hasSuffix(suffix) {
-                    return (String(entry.name.dropLast(suffix.count)), entry.name)
-                }
-                return nil
+                // Only `x.md` is a directory's sibling body; `x.mdx` is a plain file (Apps 011).
+                guard entry.name.hasSuffix(".md") else { return nil }
+                return (String(entry.name.dropLast(3)), entry.name)
             }, by: { $0.stem })
             for (stem, bodies) in siblingBodies where directoryNames.contains(stem) && bodies.count > 1 {
                 throw ProtocolValidationError.invalidValue(
@@ -121,9 +121,11 @@ public enum SnapshotBridge {
             }
 
             var indexSource: String?
-            if let index = entries.first(where: { $0.name == "_index.md" }), let indexHash = index.hash {
+            let indexEntry = entries.first(where: { $0.name == "_index.md" })
+            if let indexHash = indexEntry?.hash {
                 indexSource = try markdownSource(indexHash)
             }
+            let siblingTimes = siblingMarkdownSource.flatMap { WorkingTreeEntryTimes(siblingEntry, content: WorkingTreeEntryTimes.content(of: $0)) }
             let source = indexSource ?? siblingMarkdownSource
             // A collection's tables and rows are present in every mode.
             var collectionObjects: [String: Data] = [:]
@@ -138,7 +140,9 @@ public enum SnapshotBridge {
                 collection: collection,
                 collectionObjects: collectionObjects,
                 directoryBodyPlacement: indexSource == nil && siblingMarkdownSource != nil ? .siblingMarkdown : nil,
-                shadowedSiblingMarkdownSource: indexSource != nil ? siblingMarkdownSource : nil
+                shadowedSiblingMarkdownSource: indexSource != nil ? siblingMarkdownSource : nil,
+                times: indexSource.map { WorkingTreeEntryTimes(indexEntry, content: WorkingTreeEntryTimes.content(of: $0)) } ?? siblingTimes,
+                shadowedTimes: indexSource != nil ? siblingTimes : nil
             ))
 
             for entry in entries where entry.name != "_index.md" {
@@ -155,12 +159,14 @@ public enum SnapshotBridge {
                     if entry.directory != nil {
                         guard lazy else { throw ProtocolValidationError.incompleteGraph(childHash) }
                         // Not loaded yet; its sibling body belongs to this directory.
-                        let siblingSource = try entries.first { $0.name == entry.name + ".md" && $0.hash != nil }?.hash.map(markdownSource)
+                        let sibling = entries.first { $0.name == entry.name + ".md" && $0.hash != nil }
+                        let siblingSource = try sibling?.hash.map(markdownSource)
                         try appendNode(WorkingTreeSystemNode(
                             path: destination,
                             content: .directory(source: siblingSource),
                             directoryBodyPlacement: siblingSource != nil ? .siblingMarkdown : nil,
-                            unloadedDirectory: childHash
+                            unloadedDirectory: childHash,
+                            times: siblingSource.flatMap { WorkingTreeEntryTimes(sibling, content: WorkingTreeEntryTimes.content(of: $0)) }
                         ))
                         continue
                     }
@@ -173,7 +179,8 @@ public enum SnapshotBridge {
                             childHash,
                             size: nil,
                             mediaType: inferredMediaType(for: entry.name)
-                        ))
+                        )),
+                        times: WorkingTreeEntryTimes(entry, content: childHash)
                     ))
                     continue
                 }
@@ -196,11 +203,12 @@ public enum SnapshotBridge {
                             path: destination,
                             content: .directory(source: siblingSource),
                             directoryBodyPlacement: siblingSource != nil ? .siblingMarkdown : nil,
-                            unloadedDirectory: childHash
+                            unloadedDirectory: childHash,
+                            times: siblingSource.flatMap { WorkingTreeEntryTimes(siblingEntry, content: WorkingTreeEntryTimes.content(of: $0)) }
                         ))
                         continue
                     }
-                    try visitDirectory(childHash, path: destination, siblingMarkdownSource: siblingSource)
+                    try visitDirectory(childHash, path: destination, siblingMarkdownSource: siblingSource, siblingEntry: siblingEntry)
                 case .file, .page:
                     if entry.name.hasSuffix(".md") {
                         let logicalName = String(entry.name.dropLast(3))
@@ -208,10 +216,13 @@ public enum SnapshotBridge {
                         let decoded = try markdownSource(childHash)
                         try appendNode(WorkingTreeSystemNode(
                             path: childPath(logicalName, parent: path),
-                            content: .markdown(source: decoded)
+                            content: .markdown(source: decoded),
+                            times: WorkingTreeEntryTimes(entry, content: WorkingTreeEntryTimes.content(of: decoded))
                         ))
                     } else {
-                        try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(try fileBytes(childHash)))))
+                        let bytes = try fileBytes(childHash)
+                        try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(bytes)),
+                                                             times: WorkingTreeEntryTimes(entry, content: ProtocolObjectCodec.hash(bytes))))
                     }
                 case .table, .rows:
                     throw ProtocolValidationError.invalidValue("A directory entry names a collection object")

@@ -83,9 +83,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// `edit-<frame>-<index>`; `compact` then merges adjacent frames of plain
     /// edits (`compactTrace`). Only the final candidate's objects travel;
     /// the authority reproduces intermediate roots by executing the frames.
+    /// `at` is when the edit was made: it stamps the entry it changes or adds (data model §6).
     public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis,
-                graph: ProtocolSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent, compact: Bool = true) throws {
+                graph: ProtocolSnapshot, sourcePath: String, intent: WorkspaceDocumentIntent, compact: Bool = true,
+                at: String = ProtocolEntryTime.now()) throws {
         try intent.validate()
+        let stamp = try Self.entryTime(at)
         guard intent.basis.reference.tree.rawValue == tree else { throw Self.invalid("Wrong tree") }
         let parts = sourcePath.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         // A generation that changed nothing states nothing; the rest chain exactly.
@@ -136,11 +139,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
         var file: String?, basisFile: String?
         // Markdown is a page entry once the basis holds pages (directory format §3).
         let pages = ProtocolObjectGraph.holdsPages(graph.root, in: decoded)
-        func markdown(_ name: String, _ source: String) throws -> ProtocolDirectoryEntry {
+        /// The entry for Markdown `source` named `name`, stamped against the entry `previous` it replaces.
+        func markdown(_ name: String, _ source: String, previous: ProtocolDirectoryEntry?) throws -> ProtocolDirectoryEntry {
             if pages, ProtocolPage.isPageName(name), let page = ProtocolPage.parse(Data(source.utf8)) {
-                return ProtocolDirectoryEntry(name: name, page: try store(.page(page)))
+                return .stamped(.page, name: name, object: try store(.page(page)), previous: previous, at: stamp)
             }
-            return ProtocolDirectoryEntry(name: name, file: try store(.file(Data(source.utf8))))
+            return .stamped(.file, name: name, object: try store(.file(Data(source.utf8))), previous: previous, at: stamp)
         }
         // When the edited entry is a page, its operations address the body,
         // which starts this many bytes into the source (spec 10 §4.1); nil
@@ -156,7 +160,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
             // with a fabricated empty-file identity.
             if depth == parts.count - 1, parts[depth] == "_index.md",
                !entries.contains(where: { $0.name == parts[depth] }), previous.isEmpty {
-                let body = try markdown(parts[depth], source)
+                let body = try markdown(parts[depth], source, previous: nil)
                 addedBody = (depth == 0 ? "/" : "/" + parts[..<depth].joined(separator: "/"), hash, body)
                 entries.append(body)
                 entries.sort { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
@@ -178,7 +182,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
                     file = current
                     bodyStart = nil
                 }
-                entries[index] = try markdown(parts[depth], source)
+                entries[index] = try markdown(parts[depth], source, previous: entries[index])
             } else {
                 guard let directory = entries[index].directory else { throw Self.invalid("Source path crosses a file or tree boundary") }
                 entries[index].directory = try replace(directory, depth + 1, from: previous, to: source, first: first)
@@ -313,7 +317,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
         if frames.count > Self.traceFrameLimit || frames.reduce(0, { $0 + $1.operations.count }) > Self.traceOperationLimit { evidence = false }
         if snapshotOnly { evidence = false }
         let known = Set(graph.objects.map(\.hash))
-        var update = ProtocolCandidateUpdate(candidate: root, change: change,
+        var update = ProtocolCandidateUpdate(candidate: root, change: change, at: at,
                                          trace: evidence && !frames.isEmpty ? frames : nil,
                                          objects: candidate.objects.filter { !known.contains($0.hash) })
         // Against an accepted basis the server can rebuild the edited file from
@@ -349,6 +353,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
         self.graph = ProtocolSnapshot(root: graph.root, objects: graph.objects.sorted { $0.hash < $1.hash })
         self.sourcePath = sourcePath; self.candidate = candidate; self.update = update
         self.document = SourceDocumentCapture(reference: intent.basis.reference, basisRevision: intent.basis.contentRevision, intentDigest: Self.intentDigest(intent))
+    }
+
+    /// An update's `at` as entry-time milliseconds, or an error.
+    static func entryTime(_ at: String) throws -> Int {
+        guard let stamp = ProtocolEntryTime.milliseconds(at) else { throw invalid("Invalid update time") }
+        return stamp
     }
 
     /// A frame is plain when every operation is a lineage-free `editSource`
@@ -458,8 +468,12 @@ public struct LocalChange: Codable, Equatable, Sendable {
 
     /// Structural actions retain captured operations when available, otherwise
     /// genuine snapshot semantics. Never infer provenance from resulting bytes.
+    /// `at` is when the action was made, the time `candidate` was stamped
+    /// with: the host stamps what the captured operations add or copy with it.
     public init(change: String = UUID().uuidString, tree: String, basis: LocalChangeBasis,
-                graph: ProtocolSnapshot, candidate: ProtocolSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil, creation: SourcePageCreation? = nil) throws {
+                graph: ProtocolSnapshot, candidate: ProtocolSnapshot, entryTransfer: EntryTransfer? = nil, entryActions: EntryActions? = nil, creation: SourcePageCreation? = nil,
+                at: String = ProtocolEntryTime.now()) throws {
+        let stamp = try Self.entryTime(at)
         _ = try ProtocolObjectGraph.validate(graph, mode: .lazyDirectories)
         _ = try ProtocolObjectGraph.validate(candidate, mode: .lazyDirectories)
         guard Set(graph.objects.map(\.hash)).count == graph.objects.count,
@@ -473,10 +487,10 @@ public struct LocalChange: Codable, Equatable, Sendable {
         self.creation = creation
         if let creation {
             guard creation.document.tree.rawValue == tree, entryActions == nil, entryTransfer == nil else { throw Self.invalid("Invalid page creation") }
-            let removed = try EntryActions(removals: creation.removals).prepare(graph: candidate, changeID: change)
+            let removed = try EntryActions(removals: creation.removals).prepare(graph: candidate, changeID: change, at: stamp)
             guard removed.candidate.root == graph.root else { throw Self.invalid("Creation does not reproduce its original graph") }
         }
-        let prepared = try entryActions?.prepare(graph:graph, candidate:candidate, changeID:change) ?? entryTransfer?.prepare(graph:graph, candidate:candidate, changeID:change)
+        let prepared = try entryActions?.prepare(graph:graph, candidate:candidate, changeID:change, at: stamp) ?? entryTransfer?.prepare(graph:graph, candidate:candidate, changeID:change, at: stamp)
         if let prepared, prepared.candidate.root != candidate.root { throw Self.invalid("Entry intent does not reproduce candidate") }
         let known = Set(graph.objects.map(\.hash))
         let captured = try prepared?.operations ?? creation.map { try Self.creationOperations($0, graph: graph, candidate: candidate) } ?? []
@@ -488,7 +502,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
                 suppliedObjects.append(.init(hash: hash, bytes: bytes))
             }
         }
-        self.update = ProtocolCandidateUpdate(candidate: candidate.root, change: change,
+        self.update = ProtocolCandidateUpdate(candidate: candidate.root, change: change, at: at,
                                           trace: captured.isEmpty ? nil : [ProtocolTraceFrame(before: graph.root, after: candidate.root, operations: captured)],
                                           objects: suppliedObjects)
         _ = try JSONEncoder().encode(update)
@@ -1149,7 +1163,7 @@ public struct CapturedSourceBasis: Sendable {
     /// `compact` merges adjacent plain frames of a multi-generation intent
     /// (`LocalChange.compactTrace`); tests pass `false` to compare.
     public func prepare(intent: WorkspaceDocumentIntent, predecessor: String? = nil,
-                        change: String = UUID().uuidString, compact: Bool = true) throws -> LocalChange {
+                        change: String = UUID().uuidString, compact: Bool = true, at: String = ProtocolEntryTime.now()) throws -> LocalChange {
         guard intent.basis.reference == document.reference,
               intent.basis.contentRevision == document.contentRevision,
               Data(intent.basis.source.utf8) == Data(document.source.utf8) else {
@@ -1163,7 +1177,7 @@ public struct CapturedSourceBasis: Sendable {
         else if let predecessor { basis = .authored(change: predecessor) }
         else { throw ProtocolValidationError.invalidValue("Unaccepted basis requires an explicit authored predecessor") }
         return try LocalChange(change: change, tree: document.reference.tree.rawValue,
-                                         basis: basis, graph: graph, sourcePath: sourcePath, intent: intent, compact: compact)
+                                         basis: basis, graph: graph, sourcePath: sourcePath, intent: intent, compact: compact, at: at)
     }
 }
 

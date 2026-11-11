@@ -2,12 +2,14 @@ import { test, expect } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareSourceChange, type SourceIntent, type LocalChange } from "@ovst/working-tree";
+import { decodeLocalUpdate, wireUpdate, prepareSourceChange, type SourceIntent, type LocalChange } from "@ovst/working-tree";
 import { ChangeLog } from "@ovst/working-tree/node";
-import { decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type SourceOperation, type TreeSnapshot, decodeCandidateUpdateJSON, applySourceEdits, type SourceEdit } from "@ovst/protocol";
+import { decodeAuthoredTrace, encodeAuthoredTrace, entryTimeOf, decodeProtocolDirectory, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type SourceOperation, type TreeSnapshot, applySourceEdits, type SourceEdit } from "@ovst/protocol";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { singleStep } from "./overstoryd-merge/fixture.ts";
 import { evaluateIntent } from "../support/merge-engine.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 const fixture = JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/source-admission-queue.json", import.meta.url), "utf8"));
 /** A record's whole authored contribution, in order, across its frames. */
@@ -15,7 +17,7 @@ const authored = (update: { trace: Array<{ operations: SourceOperation[] }> | nu
   (update.trace ?? []).flatMap(frame => frame.operations);
 function initial(): TreeSnapshot {
   const file = new TextEncoder().encode(fixture.source), hash = hashObject(file);
-  const nested = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: hash }] }), directory = hashObject(nested);
+  const nested = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: hash, created: 0, modified: 0 }] }), directory = hashObject(nested);
   const root = encodeProtocolDirectory({ type: "directory", entries: [{ name: "nested", directory }] });
   return { root: hashObject(root), objects: new Map([[hash, file], [directory, nested], [hashObject(root), root]]) };
 }
@@ -34,7 +36,7 @@ function records(): Prepared[] {
     const bytes = Buffer.from(source), candidate = Buffer.concat([bytes.subarray(0, change.offset), Buffer.from(change.replacement), bytes.subarray(change.offset + change.length)]).toString();
     const intent: SourceIntent = { basis: { tree: fixture.tree, path: "/nested/note", revision: change.revision, source },
       edits: [{ offset: change.offset, length: change.length, expected: change.expected, replacement: change.replacement }], source: candidate };
-    result.push(withIntent(prepareSourceChange({ change: change.change, tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
+    result.push(withIntent(prepareSourceChange({ at: fixture.at, change: change.change, tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
       basis: parent ? change.basis : { ...change.basis, root: graph.root }, intent }), intent));
   }
   return result;
@@ -65,10 +67,10 @@ test("shared source queue preserves dependency identity, exact candidate bytes a
   expect((await reopened.retained()).length).toBe(3);
   for (const record of all) {
     const prepared = await reopened.request(record.change);
-    expect(prepared.request).toEqual(fixture.requests[record.change]);
+    expect({ ...prepared.request, updates: prepared.request.updates.map(wireUpdate) }).toEqual(fixture.requests[record.change]);
     // Independent server execution checks that client-generated operations explain every byte.
-    const update = decodeCandidateUpdateJSON(record.update), graph = decodeTreeSnapshotJSON(record.graph);
-    const executed = await executeExactSourceEdits(graph.root, authored(update), async hash => graph.objects.get(hash)!);
+    const update = decodeLocalUpdate(record.update), graph = decodeTreeSnapshotJSON(record.graph);
+    const executed = await executeExactSourceEdits(graph.root, authored(update), async hash => graph.objects.get(hash)!, TEST_AT);
     expect(executed.root).toBe(record.candidate.root);
   }
   expect((await reopened.request("change-b")).request.updates.map(u => u.change)).toEqual(["change-a", "change-b"]);
@@ -144,8 +146,8 @@ test("first directory-body save adds the body without inventing source material"
 
 test("journal references platform objects and compacts only dependency-free settlements", async () => withQueue(async (_q, root) => {
   const note = Buffer.from(fixture.source), noteHash = hashObject(note), asset = Buffer.alloc(1_000_000, 0x5a), assetHash = hashObject(asset);
-  const nested = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: noteHash }] }), nestedHash = hashObject(nested);
-  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "asset.bin", file: assetHash }, { name: "nested", directory: nestedHash }] });
+  const nested = encodeProtocolDirectory({ type: "directory", entries: [{ name: "note.md", file: noteHash, created: 0, modified: 0 }] }), nestedHash = hashObject(nested);
+  const rootBytes = encodeProtocolDirectory({ type: "directory", entries: [{ name: "asset.bin", file: assetHash, created: 0, modified: 0 }, { name: "nested", directory: nestedHash }] });
   const initialGraph: TreeSnapshot = { root: hashObject(rootBytes), objects: new Map<string, Uint8Array>([[assetHash, asset], [noteHash, note], [nestedHash, nested], [hashObject(rootBytes), rootBytes]]) };
   const platform = { bytes: async (hash: string) => initialGraph.objects.get(hash) };
   const q = new ChangeLog(fixture.tree, root, platform);
@@ -175,14 +177,14 @@ test("journal references platform objects and compacts only dependency-free sett
 test("source preservation fixtures retain verified lineage across queue restart", async () => {
   const data=JSON.parse(await readFile(new URL("../../docs/overstory-spec/conformance/source-preservation.json",import.meta.url),"utf8"));
   for(const value of data.cases) await withQueue(async (queue,root) => {
-    const bytes=Buffer.from(value.source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file}]});
+    const bytes=Buffer.from(value.source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file, created: 0, modified: 0}]});
     const graph={root:hashObject(directory),objects:new Map<string, Uint8Array>([[file,bytes],[hashObject(directory),directory]])};
     const prepare=()=>prepareSourceChange({tree:fixture.tree,graph,basis:{kind:"accepted",root:graph.root,update:"basis"},sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"revision",source:value.source},source:value.replacement,edits:[{offset:0,length:bytes.length,replacement:value.replacement,lineage:value.lineage}]}});
     if(!value.valid){expect(prepare).toThrow();return;}
     const record=prepare();await queue.retain(record);
     const reopened=new ChangeLog(fixture.tree,root);
     expect(await reopened.retained()).toEqual([record]);
-    const operation=authored(decodeCandidateUpdateJSON(record.update))[0]!;
+    const operation=authored(decodeLocalUpdate(record.update))[0]!;
     expect(operation.kind).toBe("editSource");
     if(operation.kind==="editSource")expect(operation.lineage?.map(l=>({source:l.source.range,replacement:l.range}))).toEqual(value.lineage);
   });
@@ -195,9 +197,9 @@ test("explicit entry moves and copies retain different intent through restart", 
     const record=prepareEntryChange({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"entry-basis"},graph,entryTransfer:{kind,source:"/nested/note.md",parent:"/",name:"moved.md"}});
     await queue.retain(record);
     expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
-    expect(authored(decodeCandidateUpdateJSON(record.update))[0]?.kind).toBe(kind);
+    expect(authored(decodeLocalUpdate(record.update))[0]?.kind).toBe(kind);
     const candidate=decodeTreeSnapshotJSON(record.candidate);
-    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,authored(decodeCandidateUpdateJSON(record.update)))},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,at:entryTimeOf(record.update.at),object:candidate.root,trace:singleStep(graph.root,candidate.root,authored(decodeLocalUpdate(record.update)))},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
     expect(()=>prepareEntryChange({tree:fixture.tree,basis:record.basis,graph,entryTransfer:{kind,source:"/nested",parent:"/nested",name:"loop"}})).toThrow();
   });
@@ -206,16 +208,16 @@ test("explicit entry moves and copies retain different intent through restart", 
 test("copy metadata edits bind to operation output and survive recovery", async () => withQueue(async(queue,root)=>{
   const {prepareEntryChange,prepareEntryTransfer}=await import("@ovst/working-tree");
   const graph=initial(),entryTransfer={kind:"copyEntry" as const,source:"/nested/note.md",parent:"/",name:"copy.md"};
-  const pure=prepareEntryTransfer(graph,entryTransfer).candidate;
+  const pure=prepareEntryTransfer(graph,entryTransfer,{at:0}).candidate;
   const bytes=Buffer.from("New page identity\r\n"),file=hashObject(bytes);
   const {decodeProtocolDirectory}=await import("@ovst/protocol");
   const directory=decodeProtocolDirectory(pure.objects.get(pure.root)!);directory.entries.find(e=>e.name==="copy.md")!.file=file;
   const encoded=encodeProtocolDirectory(directory),candidate={root:hashObject(encoded),objects:new Map([...pure.objects,[file,bytes],[hashObject(encoded),encoded]])};
-  const record=prepareEntryChange({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,candidate,entryTransfer:{...entryTransfer,rewrites:{"":file}}});
+  const record=prepareEntryChange({at:new Date(0).toISOString(),tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,candidate,entryTransfer:{...entryTransfer,rewrites:{"":file}}});
   await queue.retain(record);expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
-  const operations=authored(decodeCandidateUpdateJSON(record.update));
+  const operations=authored(decodeLocalUpdate(record.update));
   expect(operations.map(op=>op.kind)).toEqual(["copyEntry","editSource"]);
-  const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+  const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,at:entryTimeOf(record.update.at),object:candidate.root,trace:singleStep(graph.root,candidate.root,operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
   expect(evaluated.response.result.object).toBe(candidate.root);
 }));
 
@@ -224,12 +226,12 @@ test("compound entry fixtures retain one basis and execute atomically after rest
   const {prepareEntryChange}=await import("@ovst/working-tree");
   for(const value of fixtures.cases)await withQueue(async(queue,root)=>{
     const graph=decodeTreeSnapshotJSON(fixtures.graph);
-    const record=prepareEntryChange({change:fixtures.change,tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,entryActions:value.actions});
+    const record=prepareEntryChange({at:fixtures.at,change:fixtures.change,tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,entryActions:value.actions});
     expect(record.candidate).toEqual(value.candidate);
-    expect(authored(decodeCandidateUpdateJSON(record.update))).toEqual(value.operations);
+    expect(authored(decodeLocalUpdate(record.update))).toEqual(value.operations);
     await queue.retain(record);expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
     const candidate=decodeTreeSnapshotJSON(record.candidate);
-    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,value.operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,at:entryTimeOf(record.update.at),object:candidate.root,trace:singleStep(graph.root,candidate.root,value.operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
     expect(()=>prepareEntryChange({tree:fixture.tree,basis:record.basis,graph,entryActions:{transfers:[],removals:["/pair","/pair/child.md"]}})).toThrow();
   });
@@ -242,12 +244,12 @@ test("compound move transports a concurrent child edit without changing the sibl
   const graph=decodeTreeSnapshotJSON(fixtures.graph),basis={kind:"accepted" as const,root:graph.root,update:"basis"};
   const source="child é\r\n",text="Peer child é\r\n";
   const peer=prepareSourceChange({tree:fixture.tree,basis,graph,sourcePath:"/pair/child.md",intent:{basis:{tree:fixture.tree,path:"/pair/child",revision:"r",source},edits:[{offset:0,length:0,replacement:"Peer "}],source:text}});
-  const move=prepareEntryChange({tree:fixture.tree,basis,graph,entryActions:fixtures.cases[0].actions});
+  const move=prepareEntryChange({at:fixtures.at,tree:fixture.tree,basis,graph,entryActions:fixtures.cases[0].actions});
   const current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(move.candidate);
   const objects=new Map([...graph.objects,...current.objects,...incoming.objects]);
-    const accepted=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,trace:singleStep(graph.root,current.root,authored(decodeCandidateUpdateJSON(peer.update)))},rules:{id:"tree-default",revision:1}},objects);
+    const accepted=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,at:entryTimeOf(peer.update.at),object:current.root,trace:singleStep(graph.root,current.root,authored(decodeLocalUpdate(peer.update)))},rules:{id:"tree-default",revision:1}},objects);
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
-  const result=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:move.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(move.update)))},rules:{id:"tree-default",revision:1}},objects);
+  const result=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:move.change,at:entryTimeOf(move.update.at),object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeLocalUpdate(move.update)))},rules:{id:"tree-default",revision:1}},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
   let hash=result.response.result.object;
   for(const part of ["archive","moved","child.md"]){const entry=decodeProtocolDirectory(objects.get(hash)!).entries.find(e=>e.name===part)!;hash=(entry.file??entry.directory)!;}
@@ -262,29 +264,29 @@ test("compound move transports a concurrent child edit without changing the sibl
 test("explicit source copies validate, survive recovery, and execute through the merge process",async()=>{
   const fixtures=await Bun.file(new URL("../../docs/overstory-spec/conformance/source-copy.json",import.meta.url)).json();
   for(const c of fixtures.cases)await withQueue(async(queue,root)=>{
-    const bytes=Buffer.from(c.source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file}]});
+    const bytes=Buffer.from(c.source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file, created: 0, modified: 0}]});
     const graph={root:hashObject(directory),objects:new Map<string, Uint8Array>([[file,bytes],[hashObject(directory),directory]])};
     const prepare=()=>prepareSourceChange({tree:fixture.tree,basis:{kind:"accepted",root:graph.root,update:"basis"},graph,sourcePath:"/note.md",intent:{basis:{tree:fixture.tree,path:"/note",revision:"r",source:c.source},edits:[{offset:0,length:bytes.length,replacement:c.replacement,copies:c.copies,...(c.lineage?{lineage:c.lineage}:{})}],source:c.replacement}});
     if(!c.valid){expect(prepare).toThrow();return;}
     const record=prepare();await queue.retain(record);expect(await new ChangeLog(fixture.tree,root).retained()).toEqual([record]);
-    const candidate=decodeTreeSnapshotJSON(record.candidate),operations=authored(decodeCandidateUpdateJSON(record.update));
+    const candidate=decodeTreeSnapshotJSON(record.candidate),operations=authored(decodeLocalUpdate(record.update));
     expect(operations.filter(o=>o.kind==="copySource").length).toBe(c.copies.length);
-    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,object:candidate.root,trace:singleStep(graph.root,candidate.root,operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
+    const evaluated=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:record.change,at:entryTimeOf(record.update.at),object:candidate.root,trace:singleStep(graph.root,candidate.root,operations)},rules:{id:"tree-default",revision:1}},new Map([...graph.objects,...candidate.objects]));
     expect(evaluated.response.result.object).toBe(candidate.root);
   });
 });
 
 test.each(["note.txt","note.md"])("source copy keeps a concurrent source edit under the %s merge policy",async(name)=>withQueue(async(_queue,root)=>{
-  const source="abc\n\n",bytes=Buffer.from(source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name,file}]});
+  const source="abc\n\n",bytes=Buffer.from(source),file=hashObject(bytes),directory=encodeProtocolDirectory({type:"directory",entries:[{name,file, created: 0, modified: 0}]});
   const graph={root:hashObject(directory),objects:new Map([[file,bytes],[hashObject(directory),directory]])},basis={kind:"accepted" as const,root:hashObject(directory),update:"basis"};
   const base={tree:fixture.tree,path:"/note",revision:"r",source};
   const copy=prepareSourceChange({tree:fixture.tree,basis,graph,sourcePath:"/"+name,intent:{basis:base,edits:[{offset:0,length:5,replacement:source+source,lineage:[{source:[0,5],replacement:[0,5]}],copies:[{source:[0,5],replacement:[5,10]}]}],source:source+source}});
   const peer=prepareSourceChange({tree:fixture.tree,basis,graph,sourcePath:"/"+name,intent:{basis:base,edits:[{offset:0,length:1,replacement:"X"}],source:"Xbc\n\n"}});
   const current=decodeTreeSnapshotJSON(peer.candidate),incoming=decodeTreeSnapshotJSON(copy.candidate);
   const objects=new Map([...graph.objects,...current.objects,...incoming.objects]),rules={id:"tree-default" as const,revision:1 as const};
-  const accepted=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,object:current.root,trace:singleStep(graph.root,current.root,authored(decodeCandidateUpdateJSON(peer.update)))},rules},objects);
+  const accepted=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:{object:graph.root},incoming:{change:peer.change,at:entryTimeOf(peer.update.at),object:current.root,trace:singleStep(graph.root,current.root,authored(decodeLocalUpdate(peer.update)))},rules},objects);
   for(const [hash,bytes] of accepted.objects)objects.set(hash,bytes);
-  const result=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeCandidateUpdateJSON(copy.update)))},rules},objects);
+  const result=await evaluateIntent({tree:fixture.tree,base:{object:graph.root},current:accepted.response.result,incoming:{change:copy.change,at:entryTimeOf(copy.update.at),object:incoming.root,trace:singleStep(graph.root,incoming.root,authored(decodeLocalUpdate(copy.update)))},rules},objects);
   for(const [hash,bytes] of result.objects)objects.set(hash,bytes);
   const {decodeProtocolDirectory}=await import("@ovst/protocol");
   const hash=decodeProtocolDirectory(objects.get(result.response.result.object)!).entries[0]!.file!;
@@ -304,7 +306,11 @@ test("undo is a plain edit; records keep no sources and settled records drop wit
     basis: { kind: "authored", change: first.change },
     intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: "c1", source: edited }, edits: [{ offset: 0, length: 5, replacement: "Before", expected: "After" }], source: text } });
   expect(authored(undo.update).every(op => op.kind === "editSource")).toBe(true);
-  expect(undo.candidate.root).toBe(graph.root);
+  // The bytes are the original's again; the entry is dated by the undo.
+  const note = (snapshot: TreeSnapshot) => { const nested = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!).entries[0]!.directory!;
+    return decodeProtocolDirectory(snapshot.objects.get(nested)!).entries[0]!; };
+  expect(note(decodeTreeSnapshotJSON(undo.candidate)).file).toBe(note(graph).file);
+  expect(note(decodeTreeSnapshotJSON(undo.candidate)).modified).toBe(entryTimeOf(undo.update.at));
   expect(JSON.stringify(undo)).not.toContain(text.trim());
   expect(undo.document.intentDigest).toMatch(/^sha256:/);
   await queue.retain([first, undo]);
@@ -325,7 +331,7 @@ test("undo is a plain edit; records keep no sources and settled records drop wit
 test("cross-document copies bind the captured source path and reject changed source bytes", () => {
   const graph = initial(), original = fixture.source as string;
   const target = Buffer.from("Destination\n"), targetHash = hashObject(target);
-  const directory = encodeProtocolDirectory({type:"directory",entries:[{name:"dest.md",file:targetHash},{name:"source.md",file:hashObject(Buffer.from(original))}]});
+  const directory = encodeProtocolDirectory({type:"directory",entries:[{name:"dest.md",file:targetHash, created: 0, modified: 0},{name:"source.md",file:hashObject(Buffer.from(original)), created: 0, modified: 0}]});
   graph.root=hashObject(directory); graph.objects=new Map([[graph.root,directory],[targetHash,target],[hashObject(Buffer.from(original)),Buffer.from(original)]]);
   const build=(source:string)=>prepareSourceChange({tree:fixture.tree,change:"cross-copy",graph,sourcePath:"/dest.md",basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:fixture.tree,path:"/dest",revision:"r1",source:target.toString()},source:target.toString()+original,edits:[{offset:target.length,length:0,replacement:original,copies:[{source:[0,Buffer.byteLength(original)],replacement:[0,Buffer.byteLength(original)],document:{path:"/source.md",source}}]}]}});
   const record=build(original);
@@ -336,7 +342,7 @@ test("cross-document copies bind the captured source path and reject changed sou
 test("shared cross-document fixture validates exact UTF-8 material", async () => {
   const f=await Bun.file(new URL("../../docs/overstory-spec/conformance/cross-document-copy.json",import.meta.url)).json();
   const source=Buffer.from(f.original), destination=Buffer.from(f.destination);
-  const directory=encodeProtocolDirectory({type:"directory",entries:[{name:"destination.md",file:hashObject(destination)},{name:"source.md",file:hashObject(source)}]});
+  const directory=encodeProtocolDirectory({type:"directory",entries:[{name:"destination.md",file:hashObject(destination), created: 0, modified: 0},{name:"source.md",file:hashObject(source), created: 0, modified: 0}]});
   const graph={root:hashObject(directory),objects:new Map<string, Uint8Array>([[hashObject(directory),directory],[hashObject(source),source],[hashObject(destination),destination]])};
   const record=prepareSourceChange({tree:f.tree,change:"shared-cross-copy",graph,sourcePath:f.destinationPath,basis:{kind:"accepted",root:graph.root,update:"r1"},intent:{basis:{tree:f.tree,path:"/destination",source:f.destination,revision:"r1"},source:f.destination+f.edit.replacement,edits:[f.edit]}});
   expect(authored(record.update)[0]).toMatchObject({kind:"copySource",source:{material:{path:f.sourcePath},range:f.edit.copies[0].source}});
@@ -346,18 +352,18 @@ test("page creation records reproduce their original graph without an undo trans
   const f=await Bun.file(new URL("../../docs/overstory-spec/conformance/page-conversion-undo.json",import.meta.url)).json();
   const {preparePageCreation}=await import("@ovst/working-tree");
   const source=Buffer.from(f.source),fileSource=hashObject(source);
-  const nested=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file:fileSource}]}),nestedHash=hashObject(nested);
+  const nested=encodeProtocolDirectory({type:"directory",entries:[{name:"note.md",file:fileSource, created: 0, modified: 0}]}),nestedHash=hashObject(nested);
   const rootBytes=encodeProtocolDirectory({type:"directory",entries:[{name:"nested",directory:nestedHash}]});
   const graph={root:hashObject(rootBytes),objects:new Map<string, Uint8Array>([[fileSource,source],[nestedHash,nested],[hashObject(rootBytes),rootBytes]])};
   const bytes=Buffer.from(f.createdSource),file=hashObject(bytes);
-  const directory=encodeProtocolDirectory({type:"directory",entries:[{name:f.createdPath.slice(1),file},{name:"nested",directory:nestedHash}]});
+  const directory=encodeProtocolDirectory({type:"directory",entries:[{name:f.createdPath.slice(1),file, created: 0, modified: 0},{name:"nested",directory:nestedHash}]});
   const candidate={root:hashObject(directory),objects:new Map([...graph.objects].filter(([h])=>h!==graph.root))};
   candidate.objects.set(file,bytes);candidate.objects.set(candidate.root,directory);
-  const created=preparePageCreation({change:"creation",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:[f.createdPath]}});
+  const created=preparePageCreation({at: TEST_TIME, change:"creation",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:[f.createdPath]}});
   // A creation is traced: one addEntry of the new file under the basis root.
   expect(created.update.trace).toEqual([{before:graph.root,after:candidate.root,operations:[
     {key:"add-0",kind:"addEntry",destination:{parent:{material:{kind:"basis",path:"/",object:graph.root}},name:f.createdPath.slice(1)},value:{file}}]}]);
-  expect(()=>preparePageCreation({change:"wrong",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:["/elsewhere"]}})).toThrow();
+  expect(()=>preparePageCreation({at: TEST_TIME, change:"wrong",tree:f.tree,basis:{kind:"accepted",root:graph.root,update:"r1"},graph,candidate,creation:{document:{tree:f.tree,path:f.document},removals:["/elsewhere"]}})).toThrow();
   const root=await mkdtemp(join(tmpdir(),"page-creation-"));
   try {
     const queue=new ChangeLog(f.tree,root);
@@ -384,10 +390,12 @@ test.each(fixture.traces as TraceVector[])("shared trace vector $name: generatio
     expect(source).toBe(value.source);
     const intent: SourceIntent = { basis: { tree: fixture.tree, path: "/nested/note", revision: "r1", source: fixture.source },
       edits: [{ offset: 0, length: Buffer.byteLength(fixture.source), replacement: source }], source, generations: chain };
-    const base = { change: "trace", tree: fixture.tree, graph, sourcePath: fixture.sourcePath, basis: { kind: "accepted" as const, root: graph.root, update: "up_r1" }, intent };
+    const base = { at: fixture.at, change: "trace", tree: fixture.tree, graph, sourcePath: fixture.sourcePath, basis: { kind: "accepted" as const, root: graph.root, update: "up_r1" }, intent };
     const plain = prepareSourceChange({ ...base, compact: false }), compact = prepareSourceChange(base);
-    expect(plain.update.trace).toEqual(value.frames);
-    expect(compact.update.trace).toEqual(value.compacted);
+    // The vector's frames are as they travel.
+    expect(encodeAuthoredTrace(plain.update.trace)).toEqual(value.frames);
+    expect(encodeAuthoredTrace(compact.update.trace)).toEqual(value.compacted);
+    value = { ...value, frames: decodeAuthoredTrace(value.frames) as TraceVector["frames"], compacted: value.compacted && decodeAuthoredTrace(value.compacted) as TraceVector["compacted"] };
     expect(compactTrace(value.frames)).toEqual(value.compacted ?? []);
     // Both forms name the same candidate and carry only its objects.
     expect(compact.candidate).toEqual(plain.candidate);
@@ -396,17 +404,18 @@ test.each(fixture.traces as TraceVector[])("shared trace vector $name: generatio
     // overstoryd executes both chains to the same root, and composes the plain one to the compacted frame.
     const objects = new Map([...graph.objects, ...decodeTreeSnapshotJSON(plain.candidate).objects]);
     const load = async (hash: string) => { const bytes = objects.get(hash); if (!bytes) throw Error("Object missing " + hash); return bytes; };
-    expect((await validateSourceTrace(value.frames, load)).root).toBe(plain.candidate.root);
-    if (value.compacted) expect((await validateSourceTrace(value.compacted, load)).root).toBe(plain.candidate.root);
+    expect((await validateSourceTrace(value.frames, load, TEST_AT)).root).toBe(plain.candidate.root);
+    if (value.compacted) expect((await validateSourceTrace(value.compacted, load, TEST_AT)).root).toBe(plain.candidate.root);
     const lineage = value.frames.some((frame: {operations: SourceOperation[]}) => frame.operations.some(op => op.kind === "editSource" && op.lineage?.length));
-    if (!lineage) {
-      const composed = await composeFrames(value.frames, load);
+    // A run that composes to nothing keeps its frames: each dated the entry.
+    if (!lineage && value.compacted?.length !== value.frames.length) {
+      const composed = await composeFrames(value.frames, load, TEST_AT);
       expect(composed.operations).toEqual(value.compacted?.[0]?.operations ?? []);
     }
     // The merge process reaches the same decisions for the chain and its compaction.
     const rules = { id: "tree-default" as const, revision: 1 as const };
     const evaluate = (record: typeof plain) => evaluateIntent({ tree: fixture.tree, base: { object: graph.root }, current: { object: graph.root },
-      incoming: { change: record.change, object: record.candidate.root, trace: decodeCandidateUpdateJSON(record.update).trace ?? [] }, rules }, objects);
+      incoming: { change: record.change, at: entryTimeOf(record.update.at), object: record.candidate.root, trace: decodeLocalUpdate(record.update).trace ?? [] }, rules }, objects);
     const [first, second] = await Promise.all([evaluate(plain), evaluate(compact)]);
     expect(first.response.result.object).toBe(plain.candidate.root);
     expect(second.response.result.object).toBe(plain.candidate.root);
@@ -424,7 +433,7 @@ test("a long plain generation burst coalesces to the same candidate and capture"
     source = applySourceEdits(source, edits);
     return { edits, source };
   });
-  const input = { change: "burst", tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
+  const input = { at: TEST_TIME, change: "burst", tree: fixture.tree, graph, sourcePath: fixture.sourcePath,
     basis: { kind: "accepted" as const, root: graph.root, update: "up_r1" },
     intent: { basis: { tree: fixture.tree, path: "/nested/note", revision: "r1", source: fixture.source },
       edits: [{ offset: 0, length: Buffer.byteLength(fixture.source), replacement: source }], source, generations } };
@@ -471,13 +480,13 @@ test("shared source moves execute exactly, refuse ambiguity, and publish as move
     // The published frame states the moves, then the edits, and overstoryd's
     // exact executor reproduces the candidate from it.
     const file = encoder.encode(c.source), hash = hashObject(file);
-    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: path.slice(1), file: hash }] });
+    const directory = encodeProtocolDirectory({ type: "directory", entries: [{ name: path.slice(1), file: hash, created: 0, modified: 0 }] });
     const graph = { root: hashObject(directory), objects: new Map([[hashObject(directory), directory], [hash, file]]) };
-    const record = prepareSourceChange({ tree: moves.tree, change: "moves", graph, sourcePath: path, basis: { kind: "accepted", root: graph.root, update: "r1" },
+    const record = prepareSourceChange({ at: TEST_TIME, tree: moves.tree, change: "moves", graph, sourcePath: path, basis: { kind: "accepted", root: graph.root, update: "r1" },
       intent: { basis: { tree: moves.tree, path: "/note", revision: "r1", source: c.source }, edits: c.edits, ...(c.moves.length ? { moves: c.moves } : {}), source: c.result } });
     const operations = authored(record.update);
     expect(operations.map(o => o.kind), c.name).toEqual([...c.moves.map(() => "moveSource"), ...c.edits.map(() => "editSource")]);
-    const executed = await executeExactSourceEdits(graph.root, operations, async h => graph.objects.get(h)!);
+    const executed = await executeExactSourceEdits(graph.root, operations, async h => graph.objects.get(h)!, TEST_AT);
     expect(executed.root, c.name).toBe(record.candidate.root);
   }
 });

@@ -1,9 +1,9 @@
-import { applyTransitionPayload, AuthoredContractError, decodeTreeSnapshotJSON, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
+import { applyTransitionPayload, AuthoredContractError, decodeBase64, decodeTreeSnapshotJSON, ProtocolHTTPError, ProtocolUnsupportedOperation, ProtocolUpdateConflict,
   type CurrentTree, type TreeSnapshot, type UpdateResponse, type WatchEvent, type ProtocolClient } from "@ovst/protocol";
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
-import { compactTransport, dropIntermediates, branchPublications, publication, type ChangePublication } from "./publication.ts";
-import { equal, type LocalChange } from "./local-change.ts";
+import { compactTransport, dropIntermediates, branchPublications, publication, restampUpdate, type ChangePublication } from "./publication.ts";
+import { equal, wireUpdate, type LocalChange, type LocalUpdate } from "./local-change.ts";
 import { memorySource, ObjectSourceChain } from "@ovst/object-store/sources";
 import { reduceUpdate, type AcceptedBase, type AuthorityResult, type HeldReason, type LocalTip, type PreparedRequest,
   type UpdateEffect, type UpdateEvent, type UpdateOptions, type UpdateState } from "./update-machine.ts";
@@ -353,8 +353,8 @@ export class UpdateCoordinator {
     }
     try {
       const prepared = await this.log.request(tip.change, this.settledSet());
-      prepared.request = await this.composePublication(prepared.request);
-      const attempt = encodeAttempt(this.tree, prepared.base, prepared.request);
+      const composed = await this.composePublication(prepared.request);
+      const attempt = encodeAttempt(this.tree, prepared.base, { base: composed.base, updates: (composed.updates as LocalUpdate[]).map(wireUpdate) });
       this.control.attempt = attempt;
       this.control.attemptTip = tip.change;
       await this.writeControl();
@@ -397,12 +397,12 @@ export class UpdateCoordinator {
     }
     if (response.results.some(result => result.update.tree !== attempt.tree)) throw new UpdateValidationError("The host answered for another tree");
     const head = response.head;
-    return { update: head.update, root: head.root, conflicted: head.conflicted, cursor: head.observedThrough };
+    return { update: head.update, root: head.root, conflicted: head.conflicted, cursor: head.update };
   }
 
   private current(descriptor: CurrentTree): Current {
     if (descriptor.tree.id !== this.tree || !descriptor.tree.update) throw new UpdateValidationError("The host described another tree");
-    return { update: descriptor.tree.update, root: descriptor.tree.root, conflicted: descriptor.tree.conflicted, cursor: descriptor.observedThrough };
+    return { update: descriptor.tree.update, root: descriptor.tree.root, conflicted: descriptor.tree.conflicted, cursor: descriptor.tree.update };
   }
 
   /** Install an accepted decision for the persisted attempt, settle the changes it carried, and report the installed state. */
@@ -524,7 +524,7 @@ export class UpdateCoordinator {
     const accepted = await this.working.accepted();
     const transition = event.transition;
     const basis = transition.from ?? transition.update.previous;
-    if (!accepted || basis?.id !== accepted.update || basis.root !== accepted.root) {
+    if (!accepted || basis?.update !== accepted.update || basis.root !== accepted.root) {
       throw new UpdateValidationError("Watch predecessor differs from the installed accepted state");
     }
     const bases = new Map<string, Uint8Array>();
@@ -645,7 +645,38 @@ export class UpdateCoordinator {
       if (best) { best.update = compact(best.update, best.changes.at(-1)!); groups.push(best); updates.push(best.update); index += best.changes.length; }
       else { updates.push(compact(current, current.change)); index++; }
     }
-    return { base: request.base, updates };
+    return { base: request.base, updates: await this.restamp(updates, records, groups) };
+  }
+
+  /**
+   * A batch of edits made at different times goes under its last edit's
+   * time (Joe, 2026-11-11): the host replays every frame at the update's
+   * `at`, so each entry the batch touched is restamped to it, and the
+   * updates after it continue from that root. Once accepted, the restamped
+   * root is what the tree installs in place of the local candidate.
+   */
+  private async restamp(updates: LocalChange["update"][], records: Map<string, LocalChange>, groups: ChangePublication[]): Promise<LocalChange["update"][]> {
+    const generated = new Map<string, Uint8Array>();
+    const held = new Map<string, Uint8Array>();
+    for (const record of records.values()) for (const graph of [record.graph, record.candidate])
+      for (const [hash, bytes] of decodeTreeSnapshotJSON(graph).objects) held.set(hash, bytes);
+    const load = async (hash: string) => generated.get(hash) ?? await this.object(hash, held);
+    const out: LocalChange["update"][] = [];
+    let moved: { from: string; to: string } | undefined;
+    for (const update of updates) {
+      const group = groups.find(value => value.update.change === update.change);
+      const mixed = group?.changes.some(change => { const at = records.get(change)?.update.at; return at !== undefined && at !== update.at; }) ?? false;
+      const basis = update.trace?.[0]?.before;
+      const rebased = moved !== undefined && basis === moved.from;
+      if (!update.trace || !basis || (!mixed && !rebased)) { out.push(update); moved = undefined; continue; }
+      for (const object of update.objects) generated.set(object.hash, decodeBase64(object.bytes));
+      const next = await restampUpdate(update, rebased ? moved!.to : basis, load);
+      if (!next) { out.push(update); moved = undefined; continue; }
+      for (const [hash, bytes] of next.generated) generated.set(hash, bytes);
+      out.push(next.update);
+      moved = next.update.candidate === update.candidate ? undefined : { from: update.candidate, to: next.update.candidate };
+    }
+    return out;
   }
 
   /** Classify a failure into the machine's taxonomy. */

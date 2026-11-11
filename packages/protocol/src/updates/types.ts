@@ -33,11 +33,14 @@ export interface ServerDevice {
  * cursor: a host may spell both identically (overstoryd uses one ordinal for
  * both), but clients never derive one from the other or compare them as
  * accepted order (spec 01, tree operations). */
+/** One accepted state of a tree: the update that produced it and its root. */
+export interface AcceptedRef { update: string; root: ObjectHash }
+
 export interface AcceptedUpdate {
   id: string;
   tree: string;
   root: ObjectHash;
-  previous: { id: string; root: ObjectHash } | null;
+  previous: AcceptedRef | null;
   acceptedAt: number;
   subject: string | null;
   conflicted: boolean;
@@ -69,7 +72,7 @@ export interface TransitionPayload {
 }
 
 export interface AcceptedTransition extends TransitionPayload {
-  from?: { id: string; root: ObjectHash };
+  from?: AcceptedRef;
   update: AcceptedUpdate;
   requestDigest?: ObjectHash;
 }
@@ -91,8 +94,8 @@ export interface DerivableUpdateRequest {
   updates: DerivableCandidateUpdate[];
 }
 
-/** One element's acceptance receipt. Observation progress is the enclosing
- * response's `head.observedThrough`, never derived from the receipt's update id.
+/** One element's acceptance receipt. The tree's state after the whole string
+ * is the enclosing response's `head`, never derived from the receipt.
  * Reconciliation transforms the authored candidate into the returned projection.
  */
 export interface UpdateResult {
@@ -116,7 +119,6 @@ export interface UpdateHead {
   update: string;
   root: ObjectHash;
   conflicted: boolean;
-  observedThrough: string;
 }
 
 export interface UpdateConflictResult {
@@ -128,7 +130,8 @@ export interface UpdateConflictResult {
     kind: "server-update" | "tree-configuration";
     completed: UpdateResult[];
     failedIndex: number;
-    current: AcceptedUpdate;
+    /** The tree's current accepted state, as a success's `head` names it. */
+    head: UpdateHead;
     conflicts: UpdateConflict[];
   };
 }

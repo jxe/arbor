@@ -19,7 +19,7 @@ export function recordedQuestion(entry: LogEntry): MergeQuestion {
     ...(asked?.prefix ? { prefix: asked.prefix } : {}),
     candidate: {
       root: asked?.candidate ?? entry.trace?.at(-1)?.after ?? entry.root,
-      change: entry.change, trace: entry.trace, resolves: entry.resolves,
+      change: entry.change, at: entry.at, trace: entry.trace, resolves: entry.resolves,
       ...(asked?.alternatives ? { alternatives: asked.alternatives } : {}),
     },
     rules: asked?.rules ?? DEFAULT_RULES,

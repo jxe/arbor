@@ -1,4 +1,4 @@
-import { decodeAuthoredCandidateIntent, type MaterialRef } from "@ovst/protocol";
+import { decodeAuthoredCandidateIntent, encodeAuthoredCandidateIntent, type MaterialRef } from "@ovst/protocol";
 import { MergeRefusal } from "@ovst/merge-protocol";
 import { traceOperations, type Frame, type IntentRequest } from "./engine-contract.ts";
 export { traceOperations, type Frame, type IntentRequest };
@@ -48,12 +48,14 @@ function checkFrames(request: IntentRequest): void {
         ].includes(String(op.kind))
       )
         throw new MergeRefusal("unsupported", "Unknown operation kind");
-    decodeAuthoredCandidateIntent({
+    decodeAuthoredCandidateIntent(encodeAuthoredCandidateIntent({
       change: incoming.change,
+      // Only the operations are checked here; the update's time is not the engine's concern.
+      at: new Date(0).toISOString(),
       candidate: frame.after,
       trace: [{ before: frame.before, after: frame.after, operations: frame.operations }],
       resolves: [],
-    });
+    }));
     // An operation key names one authored contribution of this change, so it
     // stays unique across the whole trace, not merely within a frame.
     for (const op of frame.operations) {
@@ -91,6 +93,13 @@ export interface Node {
   pieces?: Piece[];
   directory?: Record<string, unknown>;
   active: boolean;
+  /** A file or page's entry times (data model §6) and the object they were
+   * stamped for. When its projection is another object, the projection
+   * stamps it again with the incoming update's `at`; a node without them is
+   * new and takes `at` for both. */
+  created?: number;
+  modified?: number;
+  stamped?: string;
 }
 export interface View {
   root: string;

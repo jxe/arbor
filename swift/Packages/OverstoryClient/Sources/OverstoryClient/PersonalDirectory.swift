@@ -240,7 +240,8 @@ public actor PersonalDirectoryKeeper {
         // another one than before, or one replaced from a newer seed starts
         // afresh, setting aside rows queued for the old one.
         let replica = stateRoot.appending(path: "WorkingTree", directoryHint: .isDirectory)
-        let placed = "\(tree.id) \(PersonalDirectorySeed.version)"
+        // "p003": a replica placed before entry times starts afresh.
+        let placed = "\(tree.id) \(PersonalDirectorySeed.version) p003"
         let formatMarker = replica.appending(path: "wire-format")
         if !FileManager.default.fileExists(atPath: formatMarker.path),
            FileManager.default.fileExists(atPath: replica.appending(path: "materialized/tree.json").path),
@@ -279,7 +280,8 @@ public actor PersonalDirectoryKeeper {
     /// on the next refresh, visits as pages are opened.
     private func replaceWithSeed(_ tree: ProtocolTreeDescriptor) async throws -> ProtocolTreeDescriptor {
         let prepared = try await client.prepareUpdate(tree: tree.id, base: ProtocolUpdateBase(root: tree.root, update: tree.update),
-            snapshot: try PersonalDirectory.seed(), ifCurrent: tree.update)
+            // The seed's entries keep their own (earlier) times; a snapshot update may.
+            snapshot: try PersonalDirectory.seed(), at: ProtocolEntryTime.now(), ifCurrent: tree.update)
         _ = try await client.submitUpdate(prepared)
         return try await client.descriptor(tree: tree.id).tree
     }

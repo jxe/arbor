@@ -2,7 +2,9 @@ import {
   decodeProtocolDirectory,
   encodeProtocolDirectory,
   encodeProtocolPage,
+  entryTimeOf,
   hashObject,
+  stampedEntry,
   loadProtocolContent,
   parsePage,
   ProtocolUpdateConflict,
@@ -50,6 +52,7 @@ export async function editTreeFile(
       return bytes;
     };
     const added = new Map<ObjectHash, Uint8Array>();
+    const at = new Date().toISOString();
     let unchanged = false;
     // Rebuild the directories from the file up to the root.
     const rewrite = async (directoryHash: ObjectHash, depth: number): Promise<ObjectHash> => {
@@ -75,11 +78,11 @@ export async function editTreeFile(
           const encoded = encodeProtocolPage(page);
           const hash = hashObject(encoded);
           added.set(hash, encoded);
-          replaced = { name, page: hash };
+          replaced = stampedEntry("page", name, hash, entry, entryTimeOf(at));
         } else {
           const hash = hashObject(bytes);
           added.set(hash, bytes);
-          replaced = { name, file: hash };
+          replaced = stampedEntry("file", name, hash, entry, entryTimeOf(at));
         }
       } else {
         if (!entry.directory) throw new Error(`${where} in ${tree} is not a directory`);
@@ -96,11 +99,11 @@ export async function editTreeFile(
     if (unchanged) return { changed: false, update: head.update };
     const candidate: TreeSnapshot = { root, objects: new Map([...snapshot.objects, ...added]) };
     try {
-      const result = await client.submitUpdate(tree, head.update, candidate, { ifCurrent: head.update });
+      const result = await client.submitUpdate(tree, head.update, candidate, { ifCurrent: head.update, at });
       return { changed: true, update: result.update.id };
     } catch (error) {
       // Another update was accepted since the read: read it and try again.
-      if (error instanceof ProtocolUpdateConflict && error.result.details.current?.id !== head.update && attempt < RETRIES) continue;
+      if (error instanceof ProtocolUpdateConflict && error.result.details.head.update !== head.update && attempt < RETRIES) continue;
       throw error;
     }
   }

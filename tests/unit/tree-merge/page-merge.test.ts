@@ -46,9 +46,9 @@ const pageAt = async (root: ObjectHash) => {
 
 describe("page-properties-v1", () => {
   test("two sides' properties and body edits all merge", async () => {
-    const base = dir([{ name: "a.md", page: page([["title", "A"], ["status", "draft"]], "One\nTwo\n", "p1") }]);
-    const candidate = dir([{ name: "a.md", page: page([["title", "A2"], ["status", "draft"], ["tags", ["x"]]], "One\nTwo\nThree\n", "p1") }]);
-    const current = dir([{ name: "a.md", page: page([["title", "A"], ["status", "done"]], "Zero\nOne\nTwo\n", "p1") }]);
+    const base = dir([{ name: "a.md", page: page([["title", "A"], ["status", "draft"]], "One\nTwo\n", "p1"), created: 0, modified: 0 }]);
+    const candidate = dir([{ name: "a.md", page: page([["title", "A2"], ["status", "draft"], ["tags", ["x"]]], "One\nTwo\nThree\n", "p1"), created: 0, modified: 0 }]);
+    const current = dir([{ name: "a.md", page: page([["title", "A"], ["status", "done"]], "Zero\nOne\nTwo\n", "p1"), created: 0, modified: 0 }]);
     const result = await merge(base, candidate, current);
     expect(result.conflicts).toEqual([]);
     expect(result.properties).toBeUndefined();
@@ -60,9 +60,9 @@ describe("page-properties-v1", () => {
   });
 
   test("one property both sides set differently keeps current's value for a decision", async () => {
-    const base = dir([{ name: "a.md", page: page([["status", "draft"], ["owner", "jo"]], "Body\n") }]);
-    const candidate = dir([{ name: "a.md", page: page([["status", "review"], ["owner", "jo"]], "Body\n") }]);
-    const current = dir([{ name: "a.md", page: page([["status", "done"], ["owner", "kim"]], "Body\n") }]);
+    const base = dir([{ name: "a.md", page: page([["status", "draft"], ["owner", "jo"]], "Body\n"), created: 0, modified: 0 }]);
+    const candidate = dir([{ name: "a.md", page: page([["status", "review"], ["owner", "jo"]], "Body\n"), created: 0, modified: 0 }]);
+    const current = dir([{ name: "a.md", page: page([["status", "done"], ["owner", "kim"]], "Body\n"), created: 0, modified: 0 }]);
     const result = await merge(base, candidate, current);
     expect(result.conflicts).toEqual([]);
     expect(result.properties).toEqual([{ path: "/a.md", property: "status", current: "done", candidate: "review" }]);
@@ -70,17 +70,17 @@ describe("page-properties-v1", () => {
   });
 
   test("a list both sides changed merges member by member", async () => {
-    const base = dir([{ name: "a.md", page: page([["tags", ["a", "b"]]], "") }]);
-    const candidate = dir([{ name: "a.md", page: page([["tags", ["a", "b", "c"]]], "") }]);
-    const current = dir([{ name: "a.md", page: page([["tags", ["b"]]], "") }]);
+    const base = dir([{ name: "a.md", page: page([["tags", ["a", "b"]]], ""), created: 0, modified: 0 }]);
+    const candidate = dir([{ name: "a.md", page: page([["tags", ["a", "b", "c"]]], ""), created: 0, modified: 0 }]);
+    const current = dir([{ name: "a.md", page: page([["tags", ["b"]]], ""), created: 0, modified: 0 }]);
     const result = await merge(base, candidate, current);
     expect((await pageAt(result.root)).properties).toEqual([["tags", ["b", "c"]]]);
   });
 
   test("a timestamp and its string are different values", async () => {
-    const base = dir([{ name: "a.md", page: page([["due", pageDate("2026-10-28")]], "") }]);
-    const candidate = dir([{ name: "a.md", page: page([["due", "2026-10-28"]], "") }]);
-    const current = dir([{ name: "a.md", page: page([["due", pageDate("2026-10-29")]], "") }]);
+    const base = dir([{ name: "a.md", page: page([["due", pageDate("2026-10-28")]], ""), created: 0, modified: 0 }]);
+    const candidate = dir([{ name: "a.md", page: page([["due", "2026-10-28"]], ""), created: 0, modified: 0 }]);
+    const current = dir([{ name: "a.md", page: page([["due", pageDate("2026-10-29")]], ""), created: 0, modified: 0 }]);
     const result = await merge(base, candidate, current);
     expect(result.properties?.map((p) => p.property)).toEqual(["due"]);
   });
@@ -92,18 +92,18 @@ describe("converting to pages", () => {
   test("a file replaced by the page it reads as is no change to merge", async () => {
     const converted = page([["title", "A"]], "Body\n", "p1");
     expect(converted).toBe(put(encodeProtocolPage(parsePage(encoder.encode(source))!)));
-    const base = dir([{ name: "a.md", file: file(source) }, { name: "b.txt", file: file("b") }]);
-    const candidate = dir([{ name: "a.md", page: converted }, { name: "b.txt", file: file("b") }]);
-    const current = dir([{ name: "a.md", file: file(source) }, { name: "b.txt", file: file("b2") }]);
+    const base = dir([{ name: "a.md", file: file(source), created: 0, modified: 0 }, { name: "b.txt", file: file("b"), created: 0, modified: 0 }]);
+    const candidate = dir([{ name: "a.md", page: converted, created: 0, modified: 0 }, { name: "b.txt", file: file("b"), created: 0, modified: 0 }]);
+    const current = dir([{ name: "a.md", file: file(source), created: 0, modified: 0 }, { name: "b.txt", file: file("b2"), created: 0, modified: 0 }]);
     const result = await merge(base, candidate, current);
     expect(result.conflicts).toEqual([]);
-    expect(result.root).toBe(dir([{ name: "a.md", page: converted }, { name: "b.txt", file: file("b2") }]));
+    expect(result.root).toBe(dir([{ name: "a.md", page: converted, created: 0, modified: 0 }, { name: "b.txt", file: file("b2"), created: 0, modified: 0 }]));
   });
 
   test("a conversion meeting a concurrent edit keeps the edit, as a page", async () => {
-    const base = dir([{ name: "a.md", file: file(source) }]);
-    const candidate = dir([{ name: "a.md", page: page([["title", "A"]], "Body\n", "p1") }]);
-    const current = dir([{ name: "a.md", file: file("---\nid: p1\ntitle: B\n---\nBody\nMore\n") }]);
+    const base = dir([{ name: "a.md", file: file(source), created: 0, modified: 0 }]);
+    const candidate = dir([{ name: "a.md", page: page([["title", "A"]], "Body\n", "p1"), created: 0, modified: 0 }]);
+    const current = dir([{ name: "a.md", file: file("---\nid: p1\ntitle: B\n---\nBody\nMore\n"), created: 0, modified: 0 }]);
     const result = await merge(base, candidate, current);
     expect(result.conflicts).toEqual([]);
     const merged = await pageAt(result.root);
@@ -112,18 +112,18 @@ describe("converting to pages", () => {
   });
 
   test("an edit from a writer that has not converted lands as a page", async () => {
-    const base = dir([{ name: "a.md", file: file(source) }]);
-    const candidate = dir([{ name: "a.md", file: file("---\nid: p1\ntitle: A\n---\nBody\nMore\n") }]);
-    const current = dir([{ name: "a.md", page: page([["title", "A"]], "Body\n", "p1") }]);
+    const base = dir([{ name: "a.md", file: file(source), created: 0, modified: 0 }]);
+    const candidate = dir([{ name: "a.md", file: file("---\nid: p1\ntitle: A\n---\nBody\nMore\n"), created: 0, modified: 0 }]);
+    const current = dir([{ name: "a.md", page: page([["title", "A"]], "Body\n", "p1"), created: 0, modified: 0 }]);
     const result = await merge(base, candidate, current);
     expect(result.conflicts).toEqual([]);
     expect(decoder.decode((await pageAt(result.root)).body)).toBe("Body\nMore\n");
   });
 
   test("a page renamed on one side and edited on the other meets by id", async () => {
-    const base = dir([{ name: "a.md", page: page([["title", "A"]], "Body\n", "p1") }]);
-    const candidate = dir([{ name: "b.md", page: page([["title", "A"]], "Body\n", "p1") }]);
-    const current = dir([{ name: "a.md", page: page([["title", "A2"]], "Body\n", "p1") }]);
+    const base = dir([{ name: "a.md", page: page([["title", "A"]], "Body\n", "p1"), created: 0, modified: 0 }]);
+    const candidate = dir([{ name: "b.md", page: page([["title", "A"]], "Body\n", "p1"), created: 0, modified: 0 }]);
+    const current = dir([{ name: "a.md", page: page([["title", "A2"]], "Body\n", "p1"), created: 0, modified: 0 }]);
     const result = await merge(base, candidate, current);
     expect(result.conflicts).toEqual([]);
     const entry = await only(result.root);

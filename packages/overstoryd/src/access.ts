@@ -3,7 +3,6 @@ import {
   parseResourceRules,
   ruleMatches,
   rulesAllow,
-  safeResourceRule,
   scopeContains,
   subjectProfile,
   type AccessOperation,
@@ -131,10 +130,6 @@ export class AccessControl {
     return this.rules(tree).some((rule) => !rule.app && typeof rule.who === "object" && "profile" in rule.who
       && subjectProfile(rule.who.profile, this.pins(tree))?.tree === profile
       && scopeContains(rule.within ?? "/", path) && operationAllowed(rule.allow, operation));
-  }
-
-  safePolicy(tree: string) {
-    return this.rules(tree).map(safeResourceRule);
   }
 
   directExecution(account: HostAccount | null, treeID: string, subject: string, active: () => boolean, linkDigest?: string): ExecutionContext | undefined {

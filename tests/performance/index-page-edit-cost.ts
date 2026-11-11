@@ -13,6 +13,8 @@ import { decodeProtocolDirectory, encodeProtocolDirectory, encodeProtocolPage, h
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { deviceClient, testAccount } from "../helpers/devices.ts";
 import { hostTree } from "../helpers/tree-config.ts";
+const TEST_AT = Date.UTC(2026, 10, 11);
+const TEST_TIME = new Date(TEST_AT).toISOString();
 
 const kb = Number(process.env.PAGE_KB ?? 64), files = Number(process.env.FILES ?? 100), edits = Number(process.env.EDITS ?? 60);
 const line = "- [A linked task](A-linked-task.md) with some words after it, as an outline has\n";
@@ -31,24 +33,24 @@ const client = await deviceClient(running.url, "cost");
 const objects = new Map<ObjectHash, Uint8Array>();
 const put = (bytes: Uint8Array) => { const hash = hashObject(bytes); objects.set(hash, bytes); return hash; };
 const page = encodeProtocolPage({ type: "page", id: "cost", properties: [], body: new TextEncoder().encode(body) });
-const entries: ProtocolDirectory["entries"] = [{ name: "_index.md", file: put(protocolContentBytes("page", page)) }];
-for (let index = 0; index < files; index++) entries.push({ name: `page-${index}.md`, file: put(new TextEncoder().encode(`# Page ${index}\n`)) });
+const entries: ProtocolDirectory["entries"] = [{ name: "_index.md", file: put(protocolContentBytes("page", page)), created: 0, modified: 0 }];
+for (let index = 0; index < files; index++) entries.push({ name: `page-${index}.md`, file: put(new TextEncoder().encode(`# Page ${index}\n`)), created: 0, modified: 0 });
 const directory = (entries: ProtocolDirectory["entries"]) => put(encodeProtocolDirectory({ type: "directory",
   entries: [...entries].sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))) }));
 let root = directory(entries);
 const tree = await hostTree(client, { root, objects: new Map(objects) });
 let update = (await client.descriptor(tree)).tree.update;
 // Convert it: a page may only replace the file it reads as.
-root = directory(entries.map((entry) => entry.name === "_index.md" ? { name: "_index.md", page: put(page) } : entry));
-update = (await client.submitUpdates(tree, { base: update, updates: [{ change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], deltas: [],
+root = directory(entries.map((entry) => entry.name === "_index.md" ? { name: "_index.md", page: put(page), created: 0, modified: 0 } : entry));
+update = (await client.submitUpdates(tree, { base: update, updates: [{ at: TEST_TIME, change: crypto.randomUUID(), candidate: root, trace: null, resolves: [], deltas: [],
   objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) }] })).results[0]!.update.id;
 lines.length = 0;
 for (let index = 0; index < edits; index++) {
   const object = decodeProtocolDirectory(objects.get(root)!).entries.find((entry) => entry.name === "_index.md")!.page!;
   const operations: SourceOperation[] = [{ key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/_index.md", object }, range: [20, 21] }, text: String.fromCharCode(97 + index % 26) }];
-  const executed = await executeExactSourceEdits(root, operations, async (hash) => objects.get(hash)!);
+  const executed = await executeExactSourceEdits(root, operations, async (hash) => objects.get(hash)!, TEST_AT);
   for (const [hash, bytes] of executed.generated) objects.set(hash, bytes);
-  update = (await client.submitUpdates(tree, { base: update, updates: [{ change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: root, after: executed.root, operations }],
+  update = (await client.submitUpdates(tree, { base: update, updates: [{ at: TEST_TIME, change: crypto.randomUUID(), candidate: executed.root, trace: [{ before: root, after: executed.root, operations }],
     resolves: [], deltas: [], objects: [...executed.generated].map(([hash, bytes]) => ({ hash, bytes })) }] })).results[0]!.update.id;
   root = executed.root;
 }

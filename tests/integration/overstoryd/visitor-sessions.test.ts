@@ -15,12 +15,12 @@ import {
   personProfileTreeID,
   ProtocolClient,
   snapshotTreeConfig,
-  treeConfigurationID,
   type TreeSnapshot,
 } from "@ovst/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { editTreeConfig, hostTree } from "../../helpers/tree-config.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+import { directoryStamper } from "@ovst/protocol";
 
 /**
  * Visitor sessions (accounts §5.6): Dana's home is A. B's community has never
@@ -110,20 +110,18 @@ beforeAll(async () => {
 
   // Dana claims ~dana at A with her Mac and pairs her phone; her profile is public.
   await reserve(a.url, "visitor-owner-a", { dana: dana.profileTree });
-  const configurationTree = treeConfigurationID(dana.profileTree);
   const anonymous = new ProtocolClient(a.url);
-  const challenge = await anonymous.createAccountChallenge({ account: `${home}/~dana`, profileTree: dana.profileTree, configurationTree });
+  const challenge = await anonymous.createAccountChallenge({ account: `${home}/~dana`, profileTree: dana.profileTree });
   const config = initialPersonConfig(dana.profileTree, { id: macID, label: "Dana's Mac", key: mac.key });
-  await anonymous.joinAccount({
-    account: `${home}/~dana`, profileTree: dana.profileTree, configurationTree, challenge,
+  await anonymous.joinAccount({ challenge,
     publicKey: dana.publicKey, signature: dana.sign(accountChallengeBytes(challenge)),
     device: { id: macID, label: "Dana's Mac", key: mac.key },
-    configuration: activationElement(snapshotTreeConfig({ ...config, access: [...config.access, { who: "everyone", allow: ["read"] }] })),
+    configuration: activationElement(snapshotTreeConfig({ ...config, access: [...config.access, { who: "everyone", allow: ["read"] }] }, directoryStamper(undefined, 0))),
   });
   const macAtA = await homeSession(a.url, dana.profileTree, macID, mac);
   await macAtA.submitUpdate(dana.profileTree, null, await snapshotOf({ "_index.md": "---\ntype: person\ndisplayName: Dana\n---\n" }));
   const offer = await macAtA.createPairing();
-  await new ProtocolClient(a.url).claimPairing(offer.id, offer.secret, { id: phoneID, label: "Dana's phone", key: phone.key });
+  await new ProtocolClient(a.url).claimPairing(offer.code, { id: phoneID, label: "Dana's phone", key: phone.key });
 
   // On B, the owner shares one tree with Dana by her locator at A, and keeps another private.
   owner = await deviceClient(b.url, "visitor-owner-b");
@@ -161,7 +159,7 @@ describe("visitor sessions (accounts §5.6)", () => {
     expect(descriptor.tree.access).toBe("read");
     const snapshot = await visitor.snapshot(shared, descriptor.tree.root);
     expect(snapshot.root).toBe(descriptor.tree.root);
-    expect((await visitor.list()).snapshot.map((tree) => tree.id)).toContain(shared);
+    expect((await visitor.list()).trees.map((tree) => tree.id)).toContain(shared);
     await expect(visitor.descriptor(hidden)).rejects.toThrow("not-found");
     // A visitor never writes, whatever the rule allows.
     const write = await visitor.submitUpdate(shared, descriptor.tree.update, await snapshotOf({ "_index.md": "# Shared\n\nVisited.\n" })).catch((error: unknown) => error);

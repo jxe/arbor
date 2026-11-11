@@ -122,7 +122,7 @@ describe("accepted-update transaction store", () => {
     const next = store.commit({entryChanges:NO_ENTRY_CHANGES, entry: entry(true), tree: "tr_test", root: B, previousRoot: A,
       expectedUpdate: metadata.id, acceptedAt: 3 })!;
     expect(next.conflicted).toBe(true);
-    expect(next.previous).toEqual({ id: metadata.id, root: A });
+    expect(next.previous).toEqual({ update: metadata.id, root: A });
     expect(Object.hasOwn(next, "merge")).toBe(false);
     expect(Object.hasOwn(next, "kind")).toBe(false);
     expect(new AcceptedUpdateStore(db).get(next.id)).toEqual(next);
