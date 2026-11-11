@@ -19,7 +19,7 @@
 ## The problem
 
 Code runs on host R, and a resource it needs is on host S. Execution tokens
-are host-private ([access control §2.1](../../docs/overstory-spec/3.2-access-control.md#21-execution-tokens)),
+are host-private ([execution tokens](../../docs/architecture/overstoryd/execution-sidecar.md#execution-tokens)),
 so S cannot tell who is calling, which code runs, or whose lend applies.
 
 ## The design

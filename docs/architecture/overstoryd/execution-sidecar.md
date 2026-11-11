@@ -11,7 +11,7 @@ sidecar is [`@ovst/overstoryd-exec`](../../../packages/overstoryd-exec/src/sidec
 host runs it only when `OVERSTORYD_ACTIVATIONS` names modules to run; otherwise the views
 and mutate routes answer `unsupported-operation`. Portable contracts are in
 [apps and views](../../overstory-spec/4.1-apps-and-views.md#8-host-and-server-boundaries)
-and [execution tokens](../../overstory-spec/3.2-access-control.md#21-execution-tokens).
+and [access control](../../overstory-spec/3.2-access-control.md#11-execution-authority); execution tokens are overstoryd's own ([below](#execution-tokens)).
 
 ## Who owns what
 
@@ -172,6 +172,45 @@ type ExecMutationAnswer =
   (HTTP 400 with its code). An error, a dead sidecar or a missed deadline is a retryable
   503. overstoryd restarts a sidecar that exits, overruns its deadline or writes a line
   that isn't a well-formed answer, and fails every question in flight.
+
+## Execution tokens
+
+A host issues an opaque execution token to its trusted runtime through an
+authenticated channel after checking activation and requirement coverage. The
+token binds the actual caller/replay principal, executing source TreeID (matched
+against `app`), pinned code and requirements, resolved resource bindings, and
+each granted capability with its lender. It can refer
+to authenticated claims or host-private records; its encoding and issuance transport
+are implementation details, not authored data or a durable query-session protocol.
+
+A grant names one tree, except a read grant over any tree, which a host may issue
+when code cannot know in advance which trees it will read (the profiles a query
+reaches, for example). Each read under it is checked at the tree read, as the
+caller's own access with no lender. It never writes, never covers part of a tree,
+and is never lent.
+
+The runtime authenticates host calls with:
+
+```http
+POST /.overstory/trees/tr_notebook/updates
+Authorization: Bearer <execution-token>
+Content-Type: application/json
+```
+
+The body is an ordinary `UpdateRequest`, including its normal exact-state guard
+when required. No lender, caller, `app`, or grant field in that body supplies
+authority. Ordinary clients continue using device sessions. Execution tokens
+also authenticate authorized resolution, object/read, receipt and watch requests;
+a runtime cannot substitute a source-binding ID for a token.
+
+The host verifies the token's issuer, validity and intended host, then checks current
+policy and underlying authority within its bound requirements. Matching `who` /
+`app` rules and lent grants authorize effects; a valid state guard checks concurrency independently.
+Recheck at atomic acceptance and stored-receipt disclosure. Token possession does
+not freeze ACLs, device/session validity or grants. Watches and direct-provider
+execution use the revocation rules below; expiration or refresh cannot silently
+broaden the pinned execution. Untrusted clients cannot mint execution context, and
+authored code receives no raw token or general author/user credentials.
 
 ## What execution tokens may read and submit
 

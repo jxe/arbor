@@ -9,22 +9,18 @@ load code from trees and turn it on in the host. Widgets from other people
 ([Apps 011](../soon/apps-011-widgets-in-story.md)) wait on this plan. Joe's own
 widgets don't.
 
-## 1. Decide first: what code gets without asking
+## 1. What code gets without asking (decided)
 
-Today a grant with no lender lets attested code use the caller's own access
-([access control §1.1](../../docs/overstory-spec/3.2-access-control.md#11-execution-authority),
-`executionAllows` in `packages/overstoryd/src/access.ts`). So any app a person runs can do
-anything that person can.
+Joe decided on 2026-11-11 that code with no lender gets only `everyone` access and the tree's
+own `app` rules. Anything more of the caller's needs the caller's `who: me` entry in
+`apps.yaml`, which is what a placement host already gives
+([access control §1.1](../../docs/overstory-spec/3.2-access-control.md#11-execution-authority)).
+An app reads and writes its own personal models
+([Apps 011](../soon/apps-011-widgets-in-story.md)) in the reader's tree without asking.
 
-Proposed:
-- Code gets `everyone` access and the tree's own `app` rules.
-- Anything more of the caller's needs the caller's `who: me` entry in `apps.yaml`. That
-  matches what code gets on a placement host.
-- An app reads and writes its own personal models
-  ([Apps 011](../soon/apps-011-widgets-in-story.md)) in the reader's tree without
-  asking.
-
-The decision edits access control §1.1.
+Still to do in code: `executionAllows` in `packages/overstoryd/src/access.ts` stops treating
+the caller's own access as a grant with no lender. Until this lands, Joe's own widgets run as
+their reader, as Apps 011 says.
 
 ## 2. Activation and execution tokens
 
@@ -34,7 +30,7 @@ The decision edits access control §1.1.
   - Unactivated handles are refused.
   - Sharing a module's source never enables execution.
 - **Each question runs under its own host-issued execution token**
-  ([access control §2.1](../../docs/overstory-spec/3.2-access-control.md#21-execution-tokens)).
+  ([execution tokens](../../docs/architecture/overstoryd/execution-sidecar.md#execution-tokens)).
   - The token carries the actual caller, the source tree and path, the pinned code version,
     the lent grants with their lenders, and the activation.
   - The issuer chooses lenders in a fixed order: the caller's own access first, then by
