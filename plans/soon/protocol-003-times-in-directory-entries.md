@@ -48,6 +48,6 @@ the same time.
    iPhone) and `@ovst/cli` together; Joe and Oliver update right away. In the same release,
    remove every old form Protocol 001 lists.
 
-## Open
+## Settled
 
-- Whether entries also carry `by`, the profile that last changed them (asked 2026-11-11).
+- No `by` on entries (Joe, 2026-11-11): who changed what stays in history.
