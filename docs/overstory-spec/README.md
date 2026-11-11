@@ -176,4 +176,3 @@ inline mention links here; accepted implementation work is indexed under
 10. **Placement-specific read-only ceilings** for installations where the same TreeID has several local placements with different effective limits.
 11. **Durable pinned placements of immutable historical revisions.** Revision locators remain read-only even when a client later makes them durable.
 12. **Reader-local annotation or proposal overlays** that augment a mounted tree without changing the underlying authored content. A nested mount is path composition, not such an overlay.
-13. **How a link spells a declared view**: a schema file plus an entry's label ([executable documents §1](4.1-executable-documents.md#1-views-and-their-addresses)).
