@@ -54,9 +54,10 @@ Four ideas organize the system:
 3. A **canonical URL** is found by DNS, then by the host's longest readable
    mount boundary ([locators §5](1.6-locators.md#5-finding-trees)). It can be
    renamed; `overstory://<TreeID>/` cannot.
-4. An **app** is ordinary files in a tree: views and mutations that run as
-   their caller, bounded by [access control](3.2-access-control.md), and that
-   mean the same whichever placement or host runs them.
+4. An **app** is ordinary files in a tree: views and mutations written in a
+   declarative language, so every read is a plan a host can see. They run as
+   their caller, bounded by [access control](3.2-access-control.md), and mean
+   the same whichever placement or host runs them.
 
 ## Specification map
 
@@ -75,7 +76,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | 3. Accounts, access and federation | [accounts and devices](3.1-accounts-and-devices.md) | Profile identity, host accounts, tree configurations, device pairing and sessions, and declaring, activating and mounting trees |
 | | [access control](3.2-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
 | | [federation](3.3-federation.md) | Home and placement hosts, placement accounts, invitations accepted as placements, published device keys, and visitor sessions |
-| 4. Apps | [apps and views](4.1-apps-and-views.md) | Views, mutations and agents in `.ts`/`.tsx` files and Markdown: addresses, queries, mutations, identity, hosting, consent, data disclosure, and the `overstory/data` and `overstory/ui` authoring API |
+| 4. Apps | [apps and views](4.1-apps-and-views.md) | Views, components, rules and mutations in the declarative view language (`.view` files), and agents: addresses, queries, mutations, state, identity, hosting, consent, data disclosure |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for

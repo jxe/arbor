@@ -1,0 +1,103 @@
+# Apps 015: The view language
+
+**Why and when:** Joe decided on 2026-11-11 that views and mutations are written in a
+declarative language in `.view` files, and TypeScript support for both is dropped. The spec
+describes the target ([apps and views](../../docs/overstory-spec/4.1-apps-and-views.md),
+syntax in [§15](../../docs/overstory-spec/4.1-apps-and-views.md#15-the-language)). The
+reasons, from the thread "Review the Overstory spec with Joe":
+
+- A view's plan comes from its source, so tracing, stand-in rows, dual evaluation and
+  plan widening (`missed`) all go away.
+- Hosting someone else's view needs no sandbox for arbitrary code.
+- Mutations are sets of row operations, so Story can apply them optimistically with the
+  same evaluator, and consent can name the rows they write.
+- Real code comes back later as [USL plugins](../later/apps-014-usl-plugins.md), which
+  extend the data rather than the language.
+
+The explorations that led here are in project files `view-notations/language/`
+(`for-where.view`, `for-where-widgets.view`, `games.view`, `mutations.view`). All 13 Supplies
+mutations were written in the language there.
+
+This replaces [Apps 013](../../status.md#views-on-the-host-and-declared-views--2026-11-08)
+(one plan per view): with static plans, a view has one plan whatever its input.
+
+## Status
+
+**PLANNED · L effort · medium risk.** Before [Apps 011](apps-011-widgets-in-story.md) steps 2
+onward, which now draw `.view` widgets instead of running TSX.
+
+## What exists now
+
+- Apps 005's host side runs TypeScript views by tracing: `packages/apps-runtime`
+  (`view`, facts, `mutation`, the JSX runtime, `declaredView`), the execution sidecar
+  (`packages/overstoryd-exec`, `packages/exec-protocol`), and the SQLite plan engine they share.
+- The `QUERY …/views` route takes `form: "value" | "rows" | "tree"` and `missed`, and the
+  host is off unless `OVERSTORYD_ACTIVATIONS` is set.
+- Supplies' views and mutations are TypeScript (`examples/supplies/views`, `List.tsx` etc.).
+
+## 1. Parser and checker
+
+- A package for the language, beside `packages/usl`: parser, formatter, and a checker that
+  resolves every model, field and path against the bound USL schemas, types parameters,
+  finds each element's names, and reports source spans.
+- The checker produces the **plan** of each view (its `for`, `where`, paths, `orderBy`,
+  `limit`, per element, nested) in the form the existing SQLite plan engine runs, and the
+  write set of each mutation.
+- Conformance fixtures shared with Swift: source → plan, source → diagnostics.
+
+**Verify:** the Profile, List and Home views and all 13 Supplies mutations from the
+exploration check; their plans match what tracing produces today for the same pages.
+
+## 2. Evaluator, on the host
+
+- Evaluate a view over a plan's rows into a view tree, with expansion, fallbacks, state
+  values and the built-ins of spec §15.6.
+- Run a mutation: resolve model parameters, check guards, compute the operations against
+  the snapshot, and submit one guarded row-only update. No sidecar: overstoryd runs the
+  evaluator in process, since no general-purpose code runs.
+- The views route answers `rows` and `tree` and takes `state`; `value` and `missed` go.
+  `GET` of a `.view` file renders HTML.
+
+**Verify:** `tests/integration/host-collections.test.ts` ported to `.view` sources, plus
+the no-gap and retry tests unchanged.
+
+## 3. Evaluator, in Story
+
+- A Swift port of the checker's plan and of the evaluator, sharing the conformance fixtures.
+- Story evaluates views over Story Sync's local rows on a placed tree, or over a `rows`
+  answer from the host, and applies mutations optimistically with the same evaluator.
+- `state` and `keep` per spec §4.1.5; session models in memory.
+
+**Verify:** the fixtures pass in both stacks; a state change redraws without a request.
+
+## 4. Port Supplies and remove the TypeScript path
+
+- Supplies' views and mutations become `.view` files.
+- Delete TypeScript authoring: `view`, facts, `mutation` and the JSX runtime in
+  `packages/apps-runtime`, tracing and widening, and the execution sidecar if nothing else
+  uses it. Keep the plan engine.
+- [Apps 010](../later/apps-010-activation-and-lending.md)'s execution tokens apply to
+  the in-process evaluator instead of the sidecar.
+
+**Verify:** `bun run typecheck`, `bun run test`, `bun run test:protocol`; nothing imports
+the removed modules.
+
+## 5. Editor support
+
+- Syntax highlighting for `.view` in Story's code blocks and for VS Code and Zed, and
+  `story check <tree-or-path>` running the checker. A language server later.
+
+## Open questions
+
+- The UI language's vocabulary (element types, controls, `Canvas` drawing) is
+  [Apps 011](apps-011-widgets-in-story.md)'s package; the language only fixes how elements
+  are written.
+- Where kept page and personal rows are stored (spec §4.1.5 leaves it open), decided in
+  Apps 011 step 4.
+- Durable workflows and combined author/user authority
+  ([Apps 006](../later/apps-006-durable-authoring.md)) need a design in the language.
+
+## Completion
+
+Run `bun run typecheck`, `bun run test`, `bun run test:protocol` and
+`bun run check:links`. Record evidence in `status.md` and delete the plan.

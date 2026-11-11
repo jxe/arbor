@@ -59,7 +59,7 @@ steps 1-4 and [Apps 012](plans/soon/apps-012-one-kind-of-view.md) steps 1-2 (hos
   connection model (`Item`, `Reaction`) by what it connects to, and names any other row keyed
   by several columns (`Tag (list, id)`) by its row key. Supplies' default views all present.
 - **Left:** [Security 013](plans/features/security-013-row-read-rules.md) (fine-grained read
-  rules), [Apps 013](plans/later/apps-013-one-plan-per-view.md) (one plan per view); Story Sync answering and Story
+  rules), one plan per view (Apps 013, dropped 2026-11-11: plans now come from `.view` source, [Apps 015](plans/soon/apps-015-the-view-language.md)); Story Sync answering and Story
   drawing declared views ([Apps 012](plans/soon/apps-012-one-kind-of-view.md)); hand checks
   in [Joe's to-do](plans/joe.md#views-on-the-host-apps-005-and-012).
 

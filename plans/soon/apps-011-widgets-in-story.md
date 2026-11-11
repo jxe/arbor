@@ -1,12 +1,13 @@
 # Apps 011: Widgets in Story
 
-**Order:** after [Apps 005](../../status.md#views-on-the-host-and-declared-views--2026-11-08). Joe's own widgets can be
+**Order:** after [Apps 015](apps-015-the-view-language.md) (the view language). Joe's own widgets can be
 built and tried while [Apps 010](../later/apps-010-activation-and-lending.md) lands. Widgets from
 other people wait for Apps 010.
 
-**Why and when:** Joe wants to embed small apps in Story pages, written in TypeScript with
-TSX and drawn natively, not in a web view and not with React (Joe, 2026-11-05, in the apps
-discussion). This is the third of the three apps plans Joe split on 2026-11-06. It absorbs
+**Why and when:** Joe wants to embed small apps in Story pages, drawn natively, not in a web
+view and not with React (Joe, 2026-11-05, in the apps discussion). Since 2026-11-11 they are
+written in the declarative view language in `.view` files, not TSX
+([apps and views §15](../../docs/overstory-spec/4.1-apps-and-views.md#15-the-language)). This is the third of the three apps plans Joe split on 2026-11-06. It absorbs
 Apps 001 (the Supplies site) and Apps 003 (compiler and editor tooling). Those deleted plans
 are in git history, and the parts that still apply are below.
 
@@ -16,35 +17,36 @@ discussion. Where it says *query* or *endpoint*, read *view*
 
 ## What Joe decided
 
-- **A widget is an addressable view** (`view(Schema, fn)`) that returns a view tree, plus
-  the mutations it names as actions.
-  - Story runs the JS on the device: Sucrase compiles TSX, and JavaScriptCore runs it.
+- **A widget is a `.view` file's view**, plus the mutations it names as actions.
+  - Story evaluates it on the device with Apps 015's Swift evaluator; no JavaScript runs.
   - A SwiftUI renderer draws the `{type, props, children, key}` tree.
   - There's no web view per widget and no React. ScriptWidget (MIT) is a reference for the
     SwiftUI mapping.
-- **Embedding is a lone link** to a `.tsx` file on its own line in a page.
+- **Embedding is a lone link** to a `.view` file on its own line in a page.
 - **State has an owner, and every kind is ordinary collection data:**
 
   | Owner | Kind of state |
   |---|---|
   | App | The app's data, read by views |
-  | Page | Configuration, as `page model X (placement)`, read with `await setup(X)` and edited in a settings sheet |
-  | Reader | Personal data, as `personal model X (placement\|widget\|())`, read with `await mine(Model)` |
+  | Page | Configuration, as `page model X (placement)`, read like any model and edited in a settings sheet |
+  | Reader | Personal data, as `personal model X` or `personal model X (placement)`, read like any model |
+
+  The spec now has these as state models
+  ([apps and views §4.1.5](../../docs/overstory-spec/4.1-apps-and-views.md#415-state)), with
+  `state` and `keep` as one-row shorthands and `session` models for fast state such as games.
 
   An app reads and writes only its own personal models, with no prompt, written locally
   first.
 - **A placement is identified by** the page's TreeID and frontmatter `id`, plus an embed
   key made of the target, its props and which occurrence it is. An explicit key is needed
   only when those aren't enough.
-- **Named controls own transient state.** A widget reads it through a `{ fields }`
-  argument. `keep` on a control persists its value as personal data, keyed by placement
-  and name.
+- **Transient state is `state x = …`**, bound to a control with `value={x}`. `keep x = …`
+  persists it as personal data, keyed by placement and name.
 - **Link props only address records** (which list, which practice).
-- **Actions are data.** Calling a mutation without `await` gives an action value for
-  `Button action=` and `Form action=`. `handle.with({…})` adds input, and
-  `.then(result => link)` navigates.
-- **Row actions come from mutations.** `mutation.for(Model, "delete"|"move"|"edit"|"create")`
-  lets any list of that model offer them. Without one, a list falls back to plain row edits
+- **Actions are calls** in attributes: `Button action={addPractice(name: n)}`, `Form
+  action={addPractice}`, `then={…}` to navigate, `set(x, v)` for state.
+- **Row actions come from mutations.** `mutation … for Model.delete` (or `move`, `edit`,
+  `create`) lets any list of that model offer them. Without one, a list falls back to plain row edits
   through `POST /updates` when the reader can write.
 - **No arrangement model in the first cut** (Joe, 2026-11-06). A widget lays out its rows
   in code. A reader's choice of sort or grouping is a `keep` control (a picker) that the
@@ -61,7 +63,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
 
 ## 1. The UI language package
 
-- Split the JSX runtime out of apps-runtime, with:
+- The view tree types and element vocabulary, split out of apps-runtime, with:
   - The view tree types.
   - The vocabulary of the 26 components listed in the design doc.
   - Their props and events.
@@ -69,21 +71,19 @@ discussion. Where it says *query* or *endpoint*, read *view*
 - **Decide first:** the package's name and where its spec lives (proposed:
   `docs/ui-language/`).
 
-## 2. Running a widget in Story
+## 2. Drawing a widget in Story
 
-- Story compiles a widget's `.tsx` and its imports with Sucrase, at the pinned version of
-  its tree.
-- It runs the widget in JavaScriptCore against a host interface for views, mutations,
-  `mine`, `setup` and navigation.
-- **Re-runs work like this:**
-  - Reads are keyed by view and input.
-  - There's at most one run per frame, and generation numbers drop stale runs.
-  - The old tree stays on screen until the new run is ready.
-  - Story waits up to about 100 ms so all of a run's streams are at one tree version.
-- Views on a placed tree are planned and run against Story Sync's local SQLite. Otherwise
+- Story checks a widget's `.view` file and the files it uses at the pinned version of its
+  tree, and evaluates it with Apps 015's Swift evaluator.
+- **Re-evaluation works like this:**
+  - A state or row change reevaluates only the expansions that read it.
+  - There's at most one evaluation per frame, and generation numbers drop stale ones.
+  - The old tree stays on screen until the new one is ready.
+  - Story waits up to about 100 ms so all of an evaluation's streams are at one tree version.
+- Views on a placed tree are evaluated against Story Sync's local SQLite. Otherwise
   Story asks the host for the view's `rows` answer
   ([apps and views §12.1](../../docs/overstory-spec/4.1-apps-and-views.md#121-evaluate-and-stream-views))
-  and runs the view itself, so state changes stay on the device.
+  and evaluates the view itself, so state changes stay on the device.
 
 ## 3. The SwiftUI renderer
 
@@ -94,21 +94,20 @@ discussion. Where it says *query* or *endpoint*, read *view*
 
 ## 4. Embedding, placement and state
 
-- A lone `.tsx` link on a page draws the widget in place, with a menu for its settings.
-- Placement identity, `page model` with `setup()`, `personal model` with `mine()`, and
-  `keep`, as decided above.
+- A lone `.view` link on a page draws the widget in place, with a menu for its settings.
+- Placement identity, page and personal models, `state` and `keep`, as decided above.
+- Decide where kept page and personal rows are stored and how they reach the reader's other
+  devices, then write it into
+  [apps and views §4.1.5](../../docs/overstory-spec/4.1-apps-and-views.md#415-state).
 - Personal rows live under the reader's own tree and sync like any collection.
 - Port Supplies' List, Practice and search screens as widgets. They are the acceptance
   corpus.
 
 ## 5. Checking and editor tooling (from Apps 003)
 
-- `story check <tree-or-path>` typechecks widgets and views against their trees' schemas:
-  - Row types come from USL.
-  - Narrowing callbacks get the SQL-only row type.
-  - Diagnostics point at source spans.
-- Later, one language service for VS Code and Zed over the same checker, with completion
-  for tables, fields and mutation handles.
+- `story check` and editor highlighting are Apps 015 step 5. Later, one language service
+  for VS Code and Zed over the same checker, with completion for models, fields and
+  mutations.
 
 ## Later: the HTML renderer and the Supplies site (from Apps 001)
 
@@ -123,19 +122,16 @@ site, served by overstoryd and later from a host such as Vercel.
 
 ## Code to bring in line with the spec (Joe, 2026-11-11)
 
-The spec now addresses views by file path with the extension
-([apps and views §1](../../docs/overstory-spec/4.1-apps-and-views.md#1-views-and-their-addresses)):
-a file's default `view` export is its one linkable view, and the same spelling is used to
-import, embed, link and `GET` it. `.mdx` is gone, and the React document model
-(`overstory/react`, `useQuery`, extensionless `.tsx` routing) is gone from
-[the authoring API](../../docs/overstory-spec/4.1-apps-and-views.md#15-authoring-api). Still to do in code:
+The spec addresses views by file path with the extension
+([apps and views §1](../../docs/overstory-spec/4.1-apps-and-views.md#1-views-and-their-addresses)),
+now `views/list.view`. `.mdx` is gone. Still to do in code:
 
 - `.mdx` files are plain file entries, not pages: `packages/protocol/src/pages.ts`,
   `path-read.ts` (`x.mdx`, `_index.mdx`), Swift `ProtocolPage.swift` and `ProtocolPathRead.swift`,
   and the `pages.json` conformance vectors. A tree holding a `.mdx` page changes it at the
   Protocol 003 flag day.
 - Supplies: `Home.mdx` becomes `Home.md` with embeds; the old React `List.tsx`, `Practice.tsx`,
-  `Profile.tsx`, `MyLists.tsx` give way to `views/*.tsx`.
+  `Profile.tsx`, `MyLists.tsx` give way to `views/*.view` (Apps 015 step 4).
 - A view embedded with no query string receives its page's query string.
 
 ## Verify

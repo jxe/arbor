@@ -150,10 +150,15 @@ kinds the same way.
 **[Release 003: the iPhone app on the App Store](soon/release-003-app-store.md).** So Story can be found without a TestFlight invitation. A sketch of what review requires: account deletion, report
 and block, and policy pages. The sample pages are the reviewer's way in.
 
+**[Apps 015: the view language](soon/apps-015-the-view-language.md).** Joe, 2026-11-11:
+views and mutations are written in a declarative language in `.view` files, and TypeScript
+support for both goes. Parser and checker, evaluators on the host and in Story, Supplies
+ported, the TypeScript path removed.
+
 **[Apps 011: widgets in Story](soon/apps-011-widgets-in-story.md).**
-After Apps 005. Small apps embedded in pages by a link to a `.tsx`, written as views
-in TSX and drawn natively in SwiftUI (no web view, no React), with state owned by the app,
-the page or the reader. Absorbs Apps 001 and 003; an HTML renderer comes later.
+After Apps 015. Small apps embedded in pages by a link to a `.view` file, drawn natively in
+SwiftUI (no web view, no React), with state owned by the app, the page or the reader.
+Absorbs Apps 001 and 003; an HTML renderer comes later.
 
 ## Later
 
@@ -162,8 +167,9 @@ Rows only their authors edit, as access policy (`who: {property: authors}`, one
 `unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
 milestone 5.
 
-**[Apps 013: one plan per view](later/apps-013-one-plan-per-view.md).**
-Trace views with tagged inputs, so a plan is cached per view instead of per input.
+**[Apps 014: USL plugins](later/apps-014-usl-plugins.md).** A sketch: real code extends
+the data (value types, two-way relations, derived fields and models, live sources) instead
+of the view language. After Apps 015.
 
 **[Apps 010: activation and lending](later/apps-010-activation-and-lending.md).**
 After Apps 005: code runs as an activated app under an execution token with lenders, not as
