@@ -766,7 +766,7 @@ writes through.
   seed (`tools/directory-seed.ts`, `_version` 5) and kept by `PersonalDirectoryKeeper` in the
   background. People holds `Tie` facts; Trees holds `Tree`, `Visit` and `Placement` facts, each
   keyed so devices never race. A directory from an older seed is replaced, which empties it.
-- **USL summaries** ([spec 11 §3.1](docs/overstory-spec/1.5-vad.md#31-elements)):
+- **USL summaries** ([spec 11 §3.1](docs/overstory-spec/1.5-beetle.md#31-elements)):
   `rows: field`, `re Person { ~views }`, paths through connections, `~latest`, `~earliest`,
   `~count` and `~ago`, in both stacks with shared vectors (`df636b4`). The Mac draws `~ago` as
   a relative time.
@@ -794,7 +794,7 @@ Plan Schema language 006 is done and deleted; its text is in git history at `58e
   (`StoryCollectionView.swift`, `StoryPresentedCollection.swift`). Editing `schema.usl`'s `~`
   layer changes the view after sync. Mac only by hand; the app builds for iOS.
 - **Placeholder people.** A `Person` value is a profile id or `contact:<key>`, naming a contact
-  in the viewer's directory ([spec 11 §3](docs/overstory-spec/1.5-vad.md)); both
+  in the viewer's directory ([spec 11 §3](docs/overstory-spec/1.5-beetle.md)); both
   stacks check it against shared vectors, and an unresolved placeholder shows its key. Names
   come with the directory ([People 001](plans/features/people-001-groups-sharing-and-go-to.md) phase 1).
 - **Tests:** the StoryKit, Overstory and OverstoryWorkingTree package tests and
@@ -920,7 +920,7 @@ Joe asked for the plans to be filed by timing (`plans/soon/`, `plans/later/`,
 
 Implemented and tested; deployed when main is pushed, not installed. A
 collection's or database's schema is `schema.usl` in Ultimate Schema Language
-([spec chapter 11](docs/overstory-spec/1.5-vad.md)). CDDL,
+([spec chapter 11](docs/overstory-spec/1.5-beetle.md)). CDDL,
 `schema.sql` and `relationships.json` are gone with no dual support or converter:
 no collection used them. The Supplies example's data was regenerated under the
 names USL lays out (`List`, `Item`, `Practice`, `Practice_authors`, ...).

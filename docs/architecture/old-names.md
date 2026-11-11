@@ -45,6 +45,6 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 | 08 authoring API | [reading and watching §4](../overstory-spec/1.2-reading-and-watching.md#4-views) |
 | 09 client synchronization | [working trees](../overstory-spec/2.1-working-trees.md) |
 | 10 source intent | [updates and merging §2–3](../overstory-spec/1.3-updates-and-merging.md) |
-| 11 schema language | [VAD](../overstory-spec/1.5-vad.md) |
+| 11 schema language | [Beetle](../overstory-spec/1.5-beetle.md) |
 | 12 presence | [reading and watching §3](../overstory-spec/1.2-reading-and-watching.md#3-presence) |
 | implementing-sync-services/porting-a-client.md | still the porting guide; its three ways to hold a tree are [working trees §1](../overstory-spec/2.1-working-trees.md#1-three-ways-to-hold-a-tree) and local placements are [placements on disk §7](../overstory-spec/2.2-placements-on-disk.md#7-local-placements) |

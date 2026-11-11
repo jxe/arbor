@@ -150,8 +150,8 @@ kinds the same way.
 **[Release 003: the iPhone app on the App Store](soon/release-003-app-store.md).** So Story can be found without a TestFlight invitation. A sketch of what review requires: account deletion, report
 and block, and policy pages. The sample pages are the reviewer's way in.
 
-**[Apps 015: VAD views and mutations](soon/apps-015-the-view-language.md).** Joe, 2026-11-11:
-views and mutations are written in VAD (`.vad` files), and TypeScript
+**[Apps 015: Beetle views and mutations](soon/apps-015-the-view-language.md).** Joe, 2026-11-11:
+views and mutations are written in Beetle (`.beetle` files), and TypeScript
 support for both goes. Parser and checker (built), evaluators on the host and in Story, Supplies
 ported, the TypeScript path removed.
 

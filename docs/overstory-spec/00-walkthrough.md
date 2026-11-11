@@ -95,14 +95,14 @@ failed guards or exceeded bounds can instead produce an explicit rejection
 
 ## 6. Add a collection
 
-Joe creates `practices/schema.vad` declaring a `Practice` table, and
+Joe creates `practices/schema.beetle` declaring a `Practice` table, and
 `practices/_store.csv` with a header row. The
 folder is now a collection: each CSV row is a child node of
 `/practices`, its fields are the child's properties, and its stable key is
 the canonical key JSON of its `id` ([collections](1.4-collections.md),
 [row identity](1.4-collections.md#3-row-identity-and-order)). The CSV is only
 how Joe's Mac projects the rows: the tree holds the rows themselves, in
-canonical form, beside the exact bytes of `schema.vad`, and his iPhone keeps
+canonical form, beside the exact bytes of `schema.beetle`, and his iPhone keeps
 the same rows in SQLite. Story Sync turns each edit to the CSV into row
 operations, and the authority replays them and recomputes the schema
 fingerprint and the collection's logical hash
@@ -112,11 +112,11 @@ Each row has an ordinary public address such as
 
 ## 7. Show it on a page
 
-Joe writes a view in `views/practices.vad`, which is the node `views/practices`
+Joe writes a view in `views/practices.beetle`, which is the node `views/practices`
 the way a `.md` file is a page:
 
 ```
-use "../practices/schema.vad"
+use "../practices/schema.beetle"
 
 view():
   <Column>
@@ -124,19 +124,19 @@ view():
   </Column>
 ```
 
-and draws it in his page with a view block ([view blocks](1.5-vad.md#37-view-blocks-in-pages)):
+and draws it in his page with a view block ([view blocks](1.5-beetle.md#37-view-blocks-in-pages)):
 
 ````md
 ```view
-use "views/practices.vad" (view as Practices)
+use "views/practices.beetle" (view as Practices)
 <Practices />
 ```
 ````
 
 The server has enabled hosting for the tree, so it checks the file and binds
-`Practice` to `(tr_…, /practices, schema fingerprint)` ([handles](1.5-vad.md#6-handles-and-code-versions)).
+`Practice` to `(tr_…, /practices, schema fingerprint)` ([handles](1.5-beetle.md#6-handles-and-code-versions)).
 The plan comes from the source alone: the `Link` expands once per published
-practice ([expansion](1.5-vad.md#35-expansion), [the language](1.5-vad.md)).
+practice ([expansion](1.5-beetle.md#35-expansion), [the language](1.5-beetle.md)).
 A visitor's browser receives the page with the view drawn as HTML. Story opens
 `QUERY /.overstory/trees/tr_…/views` naming the view's handle and code version,
 receives the plan's rows as `result`, then `ready`, and draws the view natively.
@@ -161,8 +161,8 @@ caller-chosen `mutationID`. The runtime checks the guards, then submits the
 insert as one guarded update of row operations. The receipt's `affected` names
 that accepted update, and Alice's watch sees an ordinary `tree.update` frame;
 Joe's Mac rewrites the CSV. A retry with the same `mutationID` returns the
-original receipt and does nothing twice ([mutations](1.5-vad.md#4-mutations),
-[updates and merging §4](1.3-updates-and-merging.md#4-mutations), [actions](1.5-vad.md#310-actions-forms-and-events)).
+original receipt and does nothing twice ([mutations](1.5-beetle.md#4-mutations),
+[updates and merging §4](1.3-updates-and-merging.md#4-mutations), [actions](1.5-beetle.md#310-actions-forms-and-events)).
 
 ## 9. Rename the canonical URL
 

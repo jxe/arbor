@@ -41,7 +41,7 @@ hashes, collection tables and row chunks, and schema fingerprints) uses this enc
 
 `collection-schemas.json` binds the collection schemas of
 [collections](../1.4-collections.md), written in
-the [VAD](../1.5-vad.md), in its 2026-10-24
+the [Beetle](../1.5-beetle.md), in its 2026-10-24
 layered syntax; the logical collection objects (a directory's `collection`
 reference, `table` and `rows`) are vectors in `protocol-objects.json`. It covers accepted schemas with their columns, key, child name and fingerprint; rejected
 schemas with the first diagnostic's code and location; value and CSV-cell
@@ -135,7 +135,7 @@ authority for the implemented subset; the request grammar itself is in
 | `canonical-cbor-values.json` | The canonical CBOR subset and its hashes |
 | `client-state-machines.json` | Document admission and working-tree update machines |
 | `coalesced-publication.json` | The client publication compiler (sync module): which local edit and move records compose into how many frames and which operation kinds; each case's merge outcome must match its uncomposed frames |
-| `collection-schemas.json` | Collection schemas: accepted and rejected schemas, values, CSV cells, limits. Still written in the older `schema.usl` syntax; to be regenerated in [VAD](../1.5-vad.md) |
+| `collection-schemas.json` | Collection schemas: accepted and rejected schemas, values, CSV cells, limits. Still written in the older `schema.usl` syntax; to be regenerated in [Beetle](../1.5-beetle.md) |
 | `cross-document-copy.json` | Cross-document copy capture in both admission queues |
 | `device-keys.json` | Device key encodings, session challenges, and their signatures |
 | `directory-documents.json` | Directory document projection (spec 02) |
@@ -154,7 +154,7 @@ authority for the implemented subset; the request grammar itself is in
 | `source-moves.json` | Moves beside edits in basis coordinates, their refusals, and their frames |
 | `tree-configuration.json` | Tree configuration derivation, graph, validation, invariants and merge |
 | `url-resolution.json` | Locator resolution (spec 03) |
-| `vad.json` | [VAD](../1.5-vad.md) views, rules, state tables and mutations: a tree of `.vad` files, pages and a `schema.vad`, and for each file its diagnostics (line, column, code), its views' plans and its mutations' writes, `let` names and public errors |
+| `vad.json` | [Beetle](../1.5-beetle.md) views, rules, state tables and mutations: a tree of `.beetle` files, pages and a `schema.beetle`, and for each file its diagnostics (line, column, code), its views' plans and its mutations' writes, `let` names and public errors |
 | `protocol-accepted-state.json`, `protocol-accepted-transport.json` | Accepted states, receipts, inspection, and catch-up transport |
 | `protocol-authored-updates.json`, `protocol-authored-transport.json` | The authored request grammar, digests, and transport encodings |
 | `protocol-endpoints.json` | Route shapes |

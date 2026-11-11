@@ -33,7 +33,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   | Reader | Personal data, as `personal model X` or `personal model X (placement)`, read like any model |
 
   The spec now has these as state models
-  ([VAD](../../docs/overstory-spec/1.5-vad.md#39-state)), with
+  ([Beetle](../../docs/overstory-spec/1.5-beetle.md#39-state)), with
   `state` and `keep` as one-row shorthands and `session` models for fast state such as games.
 
   An app reads and writes only its own personal models, with no prompt, written locally
@@ -54,7 +54,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   view reads, kept in personal data per placement. A layout shared by everyone reading a
   page is dropped for now; if it matters, it comes back as a `page model` the view reads.
 - **Native `Rows` cells** (Joe, 2026-11-11, deferred to here): Story draws a `Rows` element
-  ([VAD §3.1](../../docs/overstory-spec/1.5-vad.md#31-elements)) as its native list when
+  ([Beetle §3.1](../../docs/overstory-spec/1.5-beetle.md#31-elements)) as its native list when
   every cell is one it knows. Proposed starter set: `Bullet`, `Text`, `People`, `Count`,
   `Date`. A `Rows` with any other cell falls back to ordinary view drawing.
 - **Views run locally on a placed tree when they can,** and on the host otherwise.
@@ -103,7 +103,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
 - Placement identity, page and personal models, `state` and `keep`, as decided above.
 - Decide where kept page and personal rows are stored and how they reach the reader's other
   devices, then write it into
-  [VAD](../../docs/overstory-spec/1.5-vad.md#39-state).
+  [Beetle](../../docs/overstory-spec/1.5-beetle.md#39-state).
 - Personal rows live under the reader's own tree and sync like any collection.
 - Port Supplies' List, Practice and search screens as widgets. They are the acceptance
   corpus.

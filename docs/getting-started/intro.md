@@ -176,12 +176,12 @@ change you can review, and undo, like anyone else's.
 
 A folder of similar pages is already almost a database. Think past meeting
 agendas, each with a date and attendees in its front matter. Add a
-`schema.vad` beside them and it becomes one: a typed collection you can
-query, declared in VAD, a small language for views and data
-([VAD](../overstory-spec/1.5-vad.md)):
+`schema.beetle` beside them and it becomes one: a typed collection you can
+query, declared in Beetle, a small language for views and data
+([Beetle](../overstory-spec/1.5-beetle.md)):
 
 ```text
-// essays/schema.vad
+// essays/schema.beetle
 main table Essay:
   title  Text
   date   Date
@@ -204,11 +204,11 @@ Since these trees are on the web anyway, you should be able to put little
 apps inside them, right next to the data. Here's what that looks like.
 
 An app is just more files in the tree, written in the same declarative
-language. A `.vad` file holds a view, and the mutations it uses:
+language. A `.beetle` file holds a view, and the mutations it uses:
 
 ```
-// views/reading-room.vad
-use "../essays/schema.vad"
+// views/reading-room.beetle
+use "../essays/schema.beetle"
 
 mutation recommend(e Essay):
   if me == null:
@@ -229,7 +229,7 @@ To use it, draw it from a `view` block in any page:
 
 ````md
 ```view
-use "views/reading-room.vad" (view as ReadingRoom)
+use "views/reading-room.beetle" (view as ReadingRoom)
 <ReadingRoom status="Draft" />
 ```
 ````

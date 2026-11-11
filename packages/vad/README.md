@@ -1,6 +1,6 @@
 # vad
 
-VAD, the views-and-data language ([spec](../../docs/overstory-spec/1.5-vad.md), grammar in
+VAD, the views-and-data language ([spec](../../docs/overstory-spec/1.5-beetle.md), grammar in
 §7): a collection's tables in its `schema.vad`, and views, rules, state tables and
 mutations in `.vad` files and in pages' fenced `view` blocks.
 
