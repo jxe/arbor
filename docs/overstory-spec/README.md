@@ -40,10 +40,10 @@ private, unpublished, and temporarily disconnected trees
 remain complete even when absent from that lookup. Each person places the
 trees they can reach wherever it makes sense on their own devices. Any folder
 may be backed by ordinary files, an Overstory tree, a database, or a safe connection
-to an existing store. Executable documents and agents read and change those
+to an existing store. Apps and agents read and change those
 placed trees through the same permissioned contracts as human clients.
 
-**Ordinary files and folders to navigate and edit; independent Overstory trees where synchronization, history, or permissions require a boundary; and ordinary authored files for turning those trees into executable documents and agents.**
+**Ordinary files and folders to navigate and edit; independent Overstory trees where synchronization, history, or permissions require a boundary; and ordinary authored files for turning those trees into apps and agents.**
 
 An authored application is isomorphic across placements. Once synchronization
 has settled, the same source tree and logical data roots expose the same nodes,
@@ -58,7 +58,7 @@ Five concepts organize the system:
 2. An **Overstory tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
 3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other [node readings](1.1-data-model.md#2-nodes-children-and-readings) are roles rather than competing kinds, while expanded files, collection files, and databases are interchangeable [representations](1.1-data-model.md#3-representations) where their represented model agrees.
 4. A **canonical URL lookup** first uses DNS to place an Overstory host, then resolves that host's longest readable registered boundary back to TreeID and path.
-5. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
+5. An **app** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
 Ordinary unpromoted files are browsable without gaining a durable Overstory identity. Promotion creates an Overstory tree in place: its local path need not move, its canonical public name is replaceable, and `overstory://<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Overstory trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [locators §5](1.6-locators.md#5-finding-trees).
 
@@ -143,7 +143,7 @@ Authentication headers apply to every route ([access control §2](3.2-access-con
   representation or external source, including observation, schema, coherent
   snapshots, and physical commit primitives. The execution runtime owns query
   and transaction semantics.
-- An **executable-document runtime** serves a reviewed view at its file's own address, injects authenticated Overstory user context, executes its named handles, and streams validated live-query results without exposing the backing data authority.
+- An **app runtime** serves a reviewed view at its file's own address, injects authenticated Overstory user context, executes its named handles, and streams validated live-query results without exposing the backing data authority.
 - An **agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
 
 The protocol carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [accounts and devices](3.1-accounts-and-devices.md).
