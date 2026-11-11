@@ -14,7 +14,7 @@ file names carry the layer: `1.2-reading-and-watching.md` is layer 1, chapter 2.
 
 1. **Trees.** What a tree is and how it travels: the data model, reading
    and watching (with presence and views), updates and merging (with
-   mutations), collections, VAD, and locators. Every host and client agrees
+   mutations), collections, Beetle, and locators. Every host and client agrees
    on this.
 2. **Clients.** How a client holds a tree, and edits one it may write: the
    three ways to hold a tree, the update machine and change log, and
@@ -52,7 +52,7 @@ Four ideas organize the system:
 3. A **canonical URL** is found by DNS, then by the host's longest readable
    mount boundary ([locators §5](1.6-locators.md#5-finding-trees)). It can be
    renamed; `overstory://<TreeID>/` cannot.
-4. An **app** is ordinary files in a tree: tables, views and mutations written in VAD, a
+4. An **app** is ordinary files in a tree: tables, views and mutations written in Beetle, a
    declarative language, so every read is a plan a host can see. They run as
    their caller, bounded by [access control](3.2-access-control.md), and mean
    the same whichever placement or host runs them.
@@ -67,7 +67,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | | [reading and watching](1.2-reading-and-watching.md) | Reading a tree, a snapshot, an object or a path; watching; conflicts; encodings; presence: who else is in a tree, ephemeral, never part of it; and the `views` route, with answer forms, plans and live dependencies |
 | | [updates and merging](1.3-updates-and-merging.md) | The update route, request identity, results and deltas; authored changes: traces, operations, property operations; acceptance, explicit resolution, and merge rules; and the `mutate` route |
 | | [collections](1.4-collections.md) | A folder whose children are rows: what the tree holds, row identity and order, validation and merge |
-| | [VAD](1.5-vad.md) | VAD, the views-and-data language (`.vad` files, view blocks, a collection's `schema.vad`): tables, connections and keys, with data, storage (`@`) and presentation (`~`) layers; views, state, rules, mutations and expressions; collection views; fingerprints; the relational layout; handles and code versions; the grammar |
+| | [Beetle](1.5-beetle.md) | Beetle, the views-and-data language (`.beetle` files, view blocks, a collection's `schema.beetle`): tables, connections and keys, with data and storage (`@`) layers; views, state, rules, mutations and expressions; collection views; fingerprints; the relational layout; handles and code versions; the grammar |
 | | [locators](1.6-locators.md) | References by TreeID, path and stable key; canonical names and domains; finding trees; reading at the canonical URL; view addresses |
 | 2. Clients | [working trees](2.1-working-trees.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The three ways to hold a tree (Browse, Replica, alongside Story Sync), and the update machine a working tree runs: the change log, one prepared request in flight, one successor, validated apply, held rejections, exact ambiguous recovery, and editor capture |
 | | [placements on disk](2.2-placements-on-disk.md) | How a placement writes a tree into a folder: page frontmatter, tree membership and ignore files, and collections as CSV, JSON, Markdown rows or SQLite; local placements |
@@ -146,7 +146,7 @@ inline mention links here; accepted implementation work is indexed under
 
 1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([accounts and devices](3.1-accounts-and-devices.md#32-invariants)).
 2. **Cross-server plan discovery, delegated authorization, and server-to-server execution routing** ([updates and merging §4.1](1.3-updates-and-merging.md#41-relationship-to-tree-synchronization), [reading and watching §4.2](1.2-reading-and-watching.md#42-plans-and-live-dependencies)).
-3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([VAD](1.5-vad.md#4-mutations)).
+3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([Beetle](1.5-beetle.md#4-mutations)).
 4. **Hosted agents**: apps whose body is a prompt, with their tools, confinement and transcripts ([Apps 002](../../plans/later/apps-002-overstoryd-hosted-agents.md)).
 5. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
 6. **Grouping beyond expansion, aggregates beyond `count`, `sum`, `min` and `max`, pagination, and unbounded traversal** in views; today they are capability extensions ([reading and watching §4.2](1.2-reading-and-watching.md#42-plans-and-live-dependencies)).

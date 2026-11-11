@@ -53,6 +53,10 @@ discussion. Where it says *query* or *endpoint*, read *view*
   in code. A reader's choice of sort or grouping is a `keep` control (a picker) that the
   view reads, kept in personal data per placement. A layout shared by everyone reading a
   page is dropped for now; if it matters, it comes back as a `page model` the view reads.
+- **Native `Rows` cells** (Joe, 2026-11-11, deferred to here): Story draws a `Rows` element
+  ([Beetle §3.1](../../docs/overstory-spec/1.5-beetle.md#31-elements)) as its native list when
+  every cell is one it knows. Proposed starter set: `Bullet`, `Text`, `People`, `Count`,
+  `Date`. A `Rows` with any other cell falls back to ordinary view drawing.
 - **Views run locally on a placed tree when they can,** and on the host otherwise.
 - **The UI language becomes its own package, like USL:**
   - The component model and vocabulary.
