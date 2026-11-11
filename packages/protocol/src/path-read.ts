@@ -1,6 +1,6 @@
 import { canonicalNodePath, normalizeTreePath } from "./model/logical-path.ts";
 import { decodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "./objects.ts";
-import { checkEntryTimes, decodeBundle, decodeSparseSnapshotBundle, encodeSparseSnapshotBundle, type EntryTimes } from "./snapshots.ts";
+import { decodeSparseSnapshotBundle, encodeSparseSnapshotBundle } from "./snapshots.ts";
 
 /**
  * Path reads (tree operations §1.2.4): the directory objects from an accepted
@@ -118,8 +118,8 @@ export class PathReadMissingRoot extends Error {
 }
 
 /** The bundle a path read answers with: the snapshot bundle's exact shape (sparse). */
-export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>, times?: EntryTimes): Uint8Array {
-  return encodeSparseSnapshotBundle(objects, times);
+export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>): Uint8Array {
+  return encodeSparseSnapshotBundle(objects);
 }
 
 /**
@@ -129,15 +129,6 @@ export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>, times
  */
 export async function decodePathReadBundle(root: ObjectHash, path: string, bytes: Uint8Array): Promise<Map<ObjectHash, Uint8Array>> {
   return checkPathReadObjects(root, path, decodeSparseSnapshotBundle(bytes));
-}
-
-/** Decode and check a timed path read's bundle (`?times`): the objects as
- * `decodePathReadBundle` checks them, and times for exactly its directories' entries. */
-export async function decodeTimedPathReadBundle(root: ObjectHash, path: string, bytes: Uint8Array): Promise<{ objects: Map<ObjectHash, Uint8Array>; times: EntryTimes }> {
-  const { objects, times } = decodeBundle(bytes);
-  if (!times) throw new Error("Path read bundle has no times");
-  await checkPathReadObjects(root, path, objects);
-  return { objects, times: checkEntryTimes(root, objects, times) };
 }
 
 async function checkPathReadObjects(root: ObjectHash, path: string, supplied: Map<ObjectHash, Uint8Array>): Promise<Map<ObjectHash, Uint8Array>> {

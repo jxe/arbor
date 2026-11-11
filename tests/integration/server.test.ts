@@ -408,14 +408,6 @@ describe("story-sync standard reads", () => {
       sub.entries.find((entry) => entry.name === "child.md")!.file!]));
     const photoHash = hashObject(new Uint8Array([1, 2, 3, 4, 5]));
     expect(hashObject(await reads.object(tree, photoHash))).toBe(photoHash);
-    expect((await reads.entryMetadata(tree)).update).toBe(current.update);
-    // Entry times (§1.1.2a) are the host's, passed on with the same objects.
-    const timed = await reads.timedSnapshot(tree, current.root);
-    expect(timed.snapshot).toEqual(snapshot);
-    expect(Object.keys(timed.times)).toContain("/sub/child.md");
-    const timedPage = await reads.timedPathRead(tree, current.root, "/sub/child");
-    expect(new Set(timedPage.objects.keys())).toEqual(new Set(page.keys()));
-    expect(timedPage.times["/sub/child.md"]).toBe(timed.times["/sub/child.md"]!);
   });
 
   test("answers the accepted host root while the folder has an unpublished edit", async () => {

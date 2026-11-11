@@ -46,7 +46,7 @@ test("only a revoked device may have no key", () => {
   db.close();
 });
 
-test("a device's clients are noted when one names a new version", () => {
+test("a device's clients are noted when one names a new version, and kept in devices.clients", () => {
   const { db, accounts } = directory();
   expect(accounts.noteClient("dv_1", null)).toBeNull();
   expect(accounts.noteClient("dv_1", " story-sync/0.1.8+12 ")).toBe("story-sync/0.1.8+12");
@@ -54,5 +54,10 @@ test("a device's clients are noted when one names a new version", () => {
   expect(accounts.noteClient("dv_1", "story-sync/0.1.8+12")).toBeNull();
   expect(accounts.noteClient("dv_1", "story-sync/0.1.9+13")).toBe("story-sync/0.1.9+13");
   expect(accounts.deviceClients("dv_1")).toEqual(["story-sync/0.1.9+13", "Story/0.1.8 (12; macOS)"]);
+  expect(JSON.parse((db.query("SELECT clients FROM devices WHERE id = 'dv_1'").get() as { clients: string }).clients))
+    .toEqual({ "story-sync": "story-sync/0.1.9+13", Story: "Story/0.1.8 (12; macOS)" });
+  // A new process starts from what was kept.
+  const again = new AccountDirectory(db);
+  expect(again.noteClient("dv_1", "Story/0.1.8 (12; macOS)")).toBeNull();
   db.close();
 });

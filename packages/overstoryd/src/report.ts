@@ -40,6 +40,8 @@ export interface ReportAccount {
   devices: number;
   revokedDevices: number;
   lastSeenAt: number | null;
+  /** Each live device: its label, last use and the clients it last named itself as. */
+  deviceDetails: Array<{ id: string; label: string; lastUsedAt: number | null; clients: string[] }>;
 }
 
 export interface ReportTree {
@@ -71,8 +73,8 @@ export async function hostReport(dataRoot: string, now = Date.now()): Promise<Ho
     const accountRows = db.query("SELECT id, handle, enabled, home_host FROM accounts ORDER BY handle").all() as
       Array<{ id: string; handle: string; enabled: number; home_host: string | null }>;
     const handleOf = new Map(accountRows.map((row) => [row.id, row.handle]));
-    const deviceRows = db.query("SELECT id, account_id, last_used_at, revoked_at FROM devices").all() as
-      Array<{ id: string; account_id: string; last_used_at: number | null; revoked_at: number | null }>;
+    const deviceRows = db.query("SELECT id, account_id, label, last_used_at, revoked_at, clients FROM devices ORDER BY id").all() as
+      Array<{ id: string; account_id: string; label: string; last_used_at: number | null; revoked_at: number | null; clients: string | null }>;
     const deviceAccount = new Map(deviceRows.map((row) => [row.id, row.account_id]));
     const accounts: ReportAccount[] = accountRows.map((row) => {
       const devices = deviceRows.filter((device) => device.account_id === row.id);
@@ -81,6 +83,10 @@ export async function hostReport(dataRoot: string, now = Date.now()): Promise<Ho
       return {
         handle: row.handle, profileTree: row.id, enabled: row.enabled === 1, homeHost: row.home_host,
         devices: live.length, revokedDevices: devices.length - live.length, lastSeenAt: seen.length ? Math.max(...seen) : null,
+        deviceDetails: live.map((device) => ({
+          id: device.id, label: device.label, lastUsedAt: device.last_used_at,
+          clients: Object.values(device.clients ? JSON.parse(device.clients) as Record<string, string> : {}),
+        })),
       };
     });
 
@@ -238,6 +244,13 @@ export function formatHostReport(report: HostReport): string {
       formatAge(account.lastSeenAt, now),
       [account.enabled ? "" : "disabled", account.homeHost ? `home ${account.homeHost}` : ""].filter(Boolean).join(", "),
     ])));
+    const devices = report.accounts.flatMap((account) => account.deviceDetails.map((device) => ({ account, device })));
+    if (devices.length) {
+      out.push("", "Devices:");
+      out.push(...table(["HANDLE", "DEVICE", "LAST USED", "CLIENTS"], devices.map(({ account, device }) => [
+        `~${account.handle}`, device.label, formatAge(device.lastUsedAt, now), device.clients.join(", "),
+      ])));
+    }
   }
 
   const ordinary = report.trees.filter((tree) => tree.kind === "ordinary");

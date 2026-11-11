@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { encodeProtocolDirectory, hashObject, transitionPayload, TreeReader, walkTreeDiff, type ObjectHash, type ProtocolDirectoryEntry } from "@ovst/protocol";
-import { entryChanges } from "../../../packages/overstoryd/src/updates/entry-metadata.ts";
+import { entryChanges } from "../../../packages/overstoryd/src/updates/document-versions.ts";
 
 function store() {
   const objects = new Map<ObjectHash, Uint8Array>();

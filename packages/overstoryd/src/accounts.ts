@@ -76,7 +76,7 @@ export class AccountDirectory {
     return { account: this.account(device.account_id)!, subject: `device:${device.device_id}` as const, device: device.device_id, expiresAt: device.expires_at };
   }
 
-  /** Each device's clients by product (the name before `/`), as each last named itself since this process started. */
+  /** Each device's clients by product (the name before `/`), as each last named itself; `devices.clients` keeps them. */
   private readonly clients = new Map<string, Map<string, string>>();
 
   /**
@@ -89,13 +89,20 @@ export class AccountDirectory {
     const named = client?.trim().slice(0, 200);
     if (!named) return null;
     const product = named.split(/[/ ]/, 1)[0]!;
-    const clients = this.clients.get(device) ?? new Map<string, string>();
+    let clients = this.clients.get(device);
+    if (!clients) {
+      const stored = (this.db.query("SELECT clients FROM devices WHERE id = ?").get(device) as { clients: string | null } | null)?.clients;
+      clients = new Map(Object.entries(stored ? JSON.parse(stored) as Record<string, string> : {}));
+      this.clients.set(device, clients);
+    }
     if (clients.get(product) === named) return null;
-    this.clients.set(device, clients.set(product, named));
+    clients.set(product, named);
+    // Written only when a product's name changes, so not on every request.
+    this.db.run("UPDATE devices SET clients = ? WHERE id = ?", [JSON.stringify(Object.fromEntries(clients)), device]);
     return named;
   }
 
-  /** The clients a device last named, since this process started. */
+  /** The clients a device last named, as far as this process has seen. */
   deviceClients(device: string): string[] {
     return [...(this.clients.get(device)?.values() ?? [])];
   }

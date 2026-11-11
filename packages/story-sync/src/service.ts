@@ -245,11 +245,6 @@ export class StorySyncDaemon implements AsyncDisposable {
     return index.at(root);
   }
 
-  /** The host's entry metadata for a placed tree, read through its account. */
-  async entryMetadata(tree: string): Promise<Awaited<ReturnType<ProtocolClient["entryMetadata"]>>> {
-    return (await this.hostClient(tree)).entryMetadata(tree);
-  }
-
   /** The tree's host, through the placement's account: what loopback reads fall through to. */
   async hostClient(tree: string): Promise<ProtocolClient> {
     const placement = this.trees.placementFor(tree);

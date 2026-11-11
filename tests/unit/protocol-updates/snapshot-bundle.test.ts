@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { decodeCBOR, encodeCanonicalCBOR } from "@ovst/protocol";
 import {
   decodeSnapshotBundle,
-  decodeTimedSnapshotBundle,
   encodeSnapshotBundle,
   encodeProtocolDirectory,
   hashObject,
@@ -40,27 +39,6 @@ describe("immutable snapshot bundle", () => {
       expect(Buffer.from(body).toString("base64")).toBe(vector.canonicalCborBase64);
       expect(decodeSnapshotBundle(vector.root, body)).toEqual(snapshot);
     }
-  });
-
-  test("a timed bundle (?times) matches its vector and dates exactly its directories' entries", async () => {
-    const vectors = JSON.parse(await readFile(join(import.meta.dir, "../../../docs/overstory-spec/conformance/protocol-snapshot-bundles.json"), "utf8")) as {
-      timed: Array<{ root: string; objects: Array<{ hash: string; canonicalCborBase64: string }>; times: Record<string, number>; canonicalCborBase64: string }>;
-    };
-    for (const vector of vectors.timed) {
-      const snapshot = {
-        root: vector.root,
-        objects: new Map(vector.objects.map(({ hash, canonicalCborBase64 }) => [hash, new Uint8Array(Buffer.from(canonicalCborBase64, "base64"))])),
-      };
-      const body = encodeSnapshotBundle(snapshot, vector.times);
-      expect(Buffer.from(body).toString("base64")).toBe(vector.canonicalCborBase64);
-      expect(decodeTimedSnapshotBundle(vector.root, body)).toEqual({ snapshot, times: vector.times });
-      // Without asking for times, a timed body is not a snapshot bundle.
-      expect(() => decodeSnapshotBundle(vector.root, body)).toThrow("fields are invalid");
-    }
-    const snapshot = fixture();
-    expect(() => decodeTimedSnapshotBundle(snapshot.root, encodeSnapshotBundle(snapshot, {}))).toThrow("leave out /note.md");
-    expect(() => decodeTimedSnapshotBundle(snapshot.root, encodeSnapshotBundle(snapshot, { "/note.md": 1, "/other.md": 2 }))).toThrow("does not hold");
-    expect(() => decodeTimedSnapshotBundle(snapshot.root, encodeSnapshotBundle(snapshot))).toThrow("no times");
   });
 
   test("encodes only version and hash-ordered object byte strings", () => {

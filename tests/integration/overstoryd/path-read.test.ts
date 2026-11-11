@@ -121,22 +121,6 @@ describe("path reads", () => {
     expect(escape.status).toBe(400);
   });
 
-  test("entry times come for just the directories a path read walks", async () => {
-    const all = await client.entryMetadata(community);
-    const paris = await client.entryMetadata(community, { path: "/Trips/Paris" });
-    expect(paris.update).toBe(all.update);
-    expect(Object.keys(paris.entries)).toContain("/Trips/Paris.md");
-    expect(Object.keys(paris.entries)).toContain("/Notes.md");
-    expect(Object.keys(paris.entries)).not.toContain("/Trips/Rome/_index.md");
-    for (const [path, value] of Object.entries(paris.entries)) expect(all.entries[path]).toEqual(value);
-    // Any spelling of the node walks the same directories; a folder's own entries come too.
-    expect(await client.entryMetadata(community, { path: "/Trips/Rome/_index.md" }))
-      .toEqual(await client.entryMetadata(community, { path: "/Trips/Rome" }));
-    expect(Object.keys((await client.entryMetadata(community, { path: "/Trips/Rome" })).entries)).toContain("/Trips/Rome/_index.md");
-    const escape = await fetch(`${running.url}/.overstory/trees/${community}/entry-metadata?path=${encodeURIComponent("/Trips/../..")}`);
-    expect(escape.status).toBe(400);
-  });
-
   test("the bundle is exactly the walk: a producer cannot add or leave out objects", async () => {
     const { decodePathReadBundle, encodePathReadBundle } = await import("@ovst/protocol");
     const objects = await pathReadObjects(root, "/Trips/Paris", (hash) => client.object(community, hash));

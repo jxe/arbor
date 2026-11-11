@@ -1,10 +1,9 @@
 import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, isServerFault, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { MergeWorkerError } from "./merge-tool.ts";
-import { EntryTimesBehind } from "./updates/entry-times.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
 import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, DOMAIN_PROFILE_PATH, validateAccountChallenge } from "@ovst/protocol";
-import { canonicalNodePath, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
+import { decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
@@ -794,10 +793,8 @@ export async function serveHost(options: {
           const snapshot = await overstoryd.snapshotForRoot(tree.id, root);
           if (!snapshot) return notFound("Snapshot not found");
           // The bundle is a deterministic encoding of the root's graph, so the
-          // root names it; hashing the body again would add nothing. Entry
-          // times are a function of the root too (§1.1.2a).
-          const times = url.searchParams.has("times") ? await overstoryd.entryTimesFor(tree.id, root, snapshot.objects) : undefined;
-          return new Response(encodeSnapshotBundle(snapshot, times) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, times ? `${root};times` : root) });
+          // root names it; hashing the body again would add nothing.
+          return new Response(encodeSnapshotBundle(snapshot) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, root) });
         }
         const pathRead = /^\/\.overstory\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})\/path(\/.*)?$/.exec(url.pathname);
         if (pathRead && request.method === "GET") {
@@ -810,20 +807,7 @@ export async function serveHost(options: {
           if (!objects) return notFound("Snapshot not found");
           // The root and the path name the body: it is as immutable as the snapshot.
           // The path is percent-encoded as in the URL, since a header holds only ASCII.
-          const times = url.searchParams.has("times") ? await overstoryd.entryTimesFor(tree.id, root, objects) : undefined;
-          return new Response(encodePathReadBundle(objects, times) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, `${root}${encodePathReadPath(path)}${times ? ";times" : ""}`) });
-        }
-        const metadata = /^\/\.overstory\/trees\/([^/]+)\/entry-metadata$/.exec(url.pathname);
-        if (metadata && request.method === "GET") {
-          const { tree } = readableTree(metadata[1]!);
-          const along = url.searchParams.get("path");
-          let path: string | undefined;
-          if (along !== null) {
-            try { path = canonicalNodePath(along); }
-            catch { return protocolError("invalid-request", "The path is not a valid logical path", 400); }
-          }
-          const value = overstoryd.entryMetadata(tree.id, path);
-          return value ? json(value) : notFound("Entry metadata not found");
+          return new Response(encodePathReadBundle(objects) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, `${root}${encodePathReadPath(path)}`) });
         }
         const updates = /^\/\.overstory\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
@@ -1299,7 +1283,7 @@ export async function serveHost(options: {
         if (error instanceof PermissionDeniedError) return protocolError("permission-denied", message, 403);
         if (error instanceof NotFoundError) return protocolError("not-found", message, 404);
         if (error instanceof ExpiredChallengeError) return protocolError("invalid-request", message, 400, false, { challenge: "expired" });
-        if (error instanceof ServerBusyError || error instanceof EntryTimesBehind) return protocolError("internal-error", message, 503, true);
+        if (error instanceof ServerBusyError) return protocolError("internal-error", message, 503, true);
         if (error instanceof PlacementAccountError) return protocolError("permission-denied", message, 403, false, { homeHost: error.homeHost });
         if (error instanceof HomeHostUnavailableError) return protocolError("internal-error", message, 503, true, { homeHost: error.homeHost });
         if (isServerFault(error)) {
