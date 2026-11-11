@@ -80,7 +80,7 @@ describe("story invite", () => {
       return resolved?.kind === "overstory" ? resolved.invite! : "";
     };
     const anonymous = new ProtocolClient(host.url);
-    await expect(anonymous.createAccountChallenge({ profileTree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", configurationTree: "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb", inviteCode: code(made.stdout) })).rejects.toThrow();
+    await expect(anonymous.createAccountChallenge({ profileTree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", inviteCode: code(made.stdout) })).rejects.toThrow();
 
     const cancelled = await story(["invite", "cancel", account]);
     expect(cancelled.exit, cancelled.stderr).toBe(0);

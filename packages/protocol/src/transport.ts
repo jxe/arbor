@@ -143,10 +143,8 @@ export interface AccountClaimResult {
   configuration: RemoteTreeDescriptor;
 }
 
+/** A claim's body: the host reads the account, profile and configuration from the signed challenge (accounts §1.2). */
 export interface ExistingProfileAccountRequest {
-  account: string;
-  profileTree: TreeID;
-  configurationTree: TreeID;
   challenge: AccountChallenge;
   publicKey: string;
   signature: string;
@@ -361,18 +359,19 @@ export class ProtocolClient {
     return response.json();
   }
 
+  /** A challenge to join this host's community: `profile` (the profile's
+   * locator at its home host) makes it a placement's, else a claim's
+   * (accounts §1.2, federation §3). The host derives the configuration TreeID. */
   async createAccountChallenge(input: {
     account?: string;
     profileTree: TreeID;
-    configurationTree: TreeID;
     inviteCode?: string;
-    /** The profile's locator at its home host, to accept the invitation as a placement (accounts §1.4). */
     profile?: string;
   }): Promise<AccountChallenge> {
-    const response = await this.checked(await this.request("/.overstory/account-challenges", {
+    const response = await this.checked(await this.request("/.overstory/challenges", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ purpose: input.profile === undefined ? "account" : "placement", ...input }),
     }));
     return response.json();
   }
@@ -383,9 +382,6 @@ export class ProtocolClient {
       method: "PUT",
       headers: { "content-type": WIRE_CONTENT_TYPE[encoding] },
       body: encodeWireBody({
-        account: input.account,
-        profileTree: input.profileTree,
-        configurationTree: input.configurationTree,
         challenge: input.challenge,
         publicKey: input.publicKey,
         signature: input.signature,
@@ -397,22 +393,17 @@ export class ProtocolClient {
     return response.json();
   }
 
-  /** Accept an invitation with a profile homed at another host: this host places it (accounts §1.4). */
+  /** Accept an invitation with a profile homed at another host: this host places it (federation §3). */
   async acceptInvitationAsPlacement(input: {
-    account: string;
-    profile: string;
-    profileTree: TreeID;
-    configurationTree: TreeID;
     inviteCode: string;
     challenge: AccountChallenge;
     publicKey: string;
     signature: string;
   }): Promise<RemotePlacementAccountDescriptor> {
-    // One route joins a community, as a new home or, with `profile`, as a member (accounts §1.4).
     const response = await this.checked(await this.request("/.overstory/accounts", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ challenge: input.challenge, publicKey: input.publicKey, signature: input.signature, inviteCode: input.inviteCode }),
     }));
     return ((await response.json()) as { account: RemotePlacementAccountDescriptor }).account;
   }
@@ -424,10 +415,10 @@ export class ProtocolClient {
   }
 
   async createDeviceSessionChallenge(input: { profileTree?: TreeID; device: string; homeHost?: string }): Promise<DeviceSessionChallenge> {
-    const response = await this.checked(await this.request("/.overstory/device-sessions/challenges", {
+    const response = await this.checked(await this.request("/.overstory/challenges", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ purpose: "session", ...input }),
     }));
     return response.json();
   }

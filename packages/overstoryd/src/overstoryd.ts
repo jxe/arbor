@@ -901,13 +901,15 @@ export class HostDaemon implements AsyncDisposable {
 
   createAccountChallenge(input: {
     origin: string;
+    purpose: "account" | "placement";
     account?: string;
     profileTree: string;
-    configurationTree: string;
     inviteCode?: string;
-    /** The profile's locator at its home host, to accept an invitation as a placement (accounts §1.4). */
+    /** A placement's profile: its canonical locator at its home host (federation §3). */
     profile?: string;
   }): AccountChallenge {
+    if ((input.purpose === "placement") !== (input.profile !== undefined)) throw new Error("A placement challenge, and only one, names the profile's locator");
+    if (input.purpose === "placement" && input.inviteCode === undefined) throw new Error("A placement challenge names the invitation's code");
     const inviteDigest = input.inviteCode ? inviteCodeDigest(input.inviteCode) : null;
     if (input.profile !== undefined) this.checkPlacementLocator(input.profile, input.origin, inviteDigest);
     const matches = input.account === undefined
@@ -924,7 +926,6 @@ export class HostDaemon implements AsyncDisposable {
       throw new Error("Account challenge requires an exact profile reservation");
     }
     if (!isPersonProfileTreeID(input.profileTree)) throw new Error("Account challenge requires a self-certifying person Profile TreeID");
-    if (input.configurationTree !== treeConfigurationID(input.profileTree)) throw new Error("Account challenge requires the profile's configuration TreeID");
     if (this.accounts.account(input.profileTree) || this.get(input.profileTree)) throw new AlreadyClaimedError(null);
     if (new URL(input.origin).origin !== input.origin || new URL(account).origin !== input.origin) {
       throw new Error("Account challenge target must use canonical host URLs");
@@ -933,11 +934,14 @@ export class HostDaemon implements AsyncDisposable {
     const issuedAt = Date.now();
     const challenge: AccountChallenge = {
       version: 1,
+      purpose: input.purpose,
       id: generateOverstoryID("ax"),
       origin: input.origin,
       account,
       profileTree: input.profileTree,
-      configurationTree: input.configurationTree,
+      // The host derives it; the challenge still binds it (accounts §1.2).
+      configurationTree: treeConfigurationID(input.profileTree),
+      ...(input.profile !== undefined ? { profile: input.profile } : {}),
       nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
       issuedAt,
       expiresAt: issuedAt + 5 * 60 * 1000,
@@ -947,6 +951,9 @@ export class HostDaemon implements AsyncDisposable {
   }
 
   private verifyAccountIdentityProof(input: {
+    /** The signed purpose this route accepts: a claim's is never a placement's. */
+    purpose: AccountChallenge["purpose"];
+    profile?: string;
     accountLocator: string;
     profileTree: string;
     configurationTree: string;
@@ -956,7 +963,9 @@ export class HostDaemon implements AsyncDisposable {
   }): { challenge: AccountChallenge; proofDigest: string } {
     const challenge = validateAccountChallenge(input.challenge);
     if (
-      challenge.account !== input.accountLocator
+      challenge.purpose !== input.purpose
+      || challenge.profile !== input.profile
+      || challenge.account !== input.accountLocator
       || challenge.origin !== new URL(input.accountLocator).origin
       || challenge.profileTree !== input.profileTree
       || challenge.configurationTree !== input.configurationTree
@@ -1216,7 +1225,7 @@ export class HostDaemon implements AsyncDisposable {
     const issuedAt = Date.now();
     const challenge: DeviceSessionChallenge = {
       version: 1,
-      purpose: "device-session",
+      purpose: "session",
       id: generateOverstoryID("ax"),
       origin: input.origin,
       profileTree,
@@ -1819,7 +1828,7 @@ export class HostDaemon implements AsyncDisposable {
     /** The activation element's `change`, recorded on the configuration's first accepted update. */
     configurationChange?: string;
   }): Promise<{ account: HostAccount; configuration: HostTree }> {
-    const proof = this.verifyAccountIdentityProof(input);
+    const proof = this.verifyAccountIdentityProof({ ...input, purpose: "account" });
     const claimDigest = sha256(stableJSONString({
       handle: input.handle,
       accountLocator: input.accountLocator,
@@ -1958,7 +1967,7 @@ export class HostDaemon implements AsyncDisposable {
     signature: string;
     inviteCode: string;
   }): Promise<HostAccount> {
-    const proof = this.verifyAccountIdentityProof(input);
+    const proof = this.verifyAccountIdentityProof({ ...input, purpose: "placement" });
     const homeHost = parseProfileLocator(input.profile)?.origin;
     const existing = this.accounts.account(input.profileTree);
     // Exact retry after success: the challenge was consumed with the acceptance.

@@ -3,9 +3,9 @@ import { MergeWorkerError } from "./merge-tool.ts";
 import { EntryTimesBehind } from "./updates/entry-times.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
+import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH, validateAccountChallenge } from "@ovst/protocol";
 import { canonicalNodePath, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
-import type { AccountChallenge, LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
+import type { LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
 import {
@@ -62,6 +62,11 @@ function childListMarkdown(title: string, children: readonly PublicPageChild[]):
 
 function markdown(value: string): Response {
   return new Response(value, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
+}
+
+/** Whether a request body names every `required` member, any of `optional`, and nothing else. */
+function exactFields(body: Record<string, unknown>, required: readonly string[], optional: readonly string[]): boolean {
+  return required.every((key) => body[key] !== undefined) && Object.keys(body).every((key) => required.includes(key) || optional.includes(key));
 }
 
 function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -601,70 +606,39 @@ export async function serveHost(options: {
           // Public: a placement host reads it without authenticating (accounts §5.4).
           return json(await overstoryd.publishedDeviceKeys(publishedKeys[1]!), 200, { "cache-control": "no-cache" });
         }
-        if (url.pathname === "/.overstory/device-sessions/challenges" && request.method === "POST") {
-          const body = await bodyFields(request) as { profileTree?: unknown; device?: unknown; homeHost?: unknown };
-          // The profile may be left out at a device's home host, which knows whose device it is (accounts §5.1).
-          if ((body.profileTree !== undefined && typeof body.profileTree !== "string") || typeof body.device !== "string") throw new Error("A session challenge names a DeviceID, and a profile TreeID unless this is the device's home host");
-          if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree ?? body.device}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
-          if (body.homeHost !== undefined && (typeof body.homeHost !== "string" || typeof body.profileTree !== "string")) throw new Error("A visitor's session challenge names its profile TreeID and its home host's origin");
-          return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree, device: body.device, ...(typeof body.homeHost === "string" ? { homeHost: body.homeHost } : {}) }), 201);
+        // Every challenge comes from one route; its purpose is signed with it (accounts §1.2).
+        if (url.pathname === "/.overstory/challenges" && request.method === "POST") {
+          const body = await bodyFields(request) as Record<string, unknown>;
+          const optionalString = (value: unknown) => value === undefined || typeof value === "string";
+          if (body.purpose === "session") {
+            if (!exactFields(body, ["purpose", "device"], ["profileTree", "homeHost"])) throw new Error("A session challenge names purpose, device, profileTree and homeHost only");
+            // The profile may be left out at a device's home host, which knows whose device it is (accounts §4.1).
+            if (!optionalString(body.profileTree) || typeof body.device !== "string") throw new Error("A session challenge names a DeviceID, and a profile TreeID unless this is the device's home host");
+            if (challenges && !challenges.allow(`${callerAddress(request, server)}:session:${body.profileTree ?? body.device}`)) return protocolError("rate-limited", "Too many challenges", 429, true);
+            if (body.homeHost !== undefined && (typeof body.homeHost !== "string" || typeof body.profileTree !== "string")) throw new Error("A visitor's session challenge names its profile TreeID and its home host's origin");
+            return json(await overstoryd.createDeviceSessionChallenge({ origin: publicOrigin, profileTree: body.profileTree as string | undefined, device: body.device, ...(typeof body.homeHost === "string" ? { homeHost: body.homeHost } : {}) }), 201);
+          }
+          if (body.purpose === "account" || body.purpose === "placement") {
+            const placement = body.purpose === "placement";
+            if (!exactFields(body, placement ? ["purpose", "profileTree", "inviteCode", "profile"] : ["purpose", "profileTree"], ["account", "inviteCode"])
+              || typeof body.profileTree !== "string" || !optionalString(body.account) || !optionalString(body.inviteCode) || !optionalString(body.profile)) {
+              throw new Error(placement ? "A placement challenge names profileTree, profile, account and inviteCode" : "An account challenge names profileTree, and optionally account and inviteCode");
+            }
+            return json(overstoryd.createAccountChallenge({
+              origin: publicOrigin,
+              purpose: body.purpose,
+              account: body.account as string | undefined,
+              profileTree: body.profileTree,
+              inviteCode: body.inviteCode as string | undefined,
+              profile: body.profile as string | undefined,
+            }), 201);
+          }
+          throw new Error("A challenge's purpose is account, placement or session");
         }
         if (url.pathname === "/.overstory/device-sessions" && request.method === "POST") {
           const body = await bodyFields(request) as { challenge?: unknown; signature?: unknown };
           if (!body.challenge || typeof body.signature !== "string") throw new Error("A session requires the signed challenge and its signature");
           return json(await overstoryd.openDeviceSession({ origin: publicOrigin, challenge: body.challenge, signature: body.signature }), 201);
-        }
-        if (url.pathname === "/.overstory/account-challenges" && request.method === "POST") {
-          const body = await bodyFields(request) as { account?: unknown; profileTree?: unknown; configurationTree?: unknown; inviteCode?: unknown; profile?: unknown };
-          if ((body.account !== undefined && typeof body.account !== "string") || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
-            || (body.profile !== undefined && typeof body.profile !== "string") || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
-            throw new Error("Account challenge requires profile TreeID, configuration TreeID, and an optional account URL");
-          }
-          return json(overstoryd.createAccountChallenge({
-            origin: publicOrigin,
-            account: body.account,
-            profileTree: body.profileTree,
-            configurationTree: body.configurationTree,
-            inviteCode: body.inviteCode as string | undefined,
-            profile: body.profile as string | undefined,
-          }), 201);
-        }
-        /** An invitation accepted by a profile homed at another host (accounts §1.4). */
-        const acceptAsPlacement = async (fields: unknown) => {
-          const body = fields as {
-            account?: unknown;
-            profile?: unknown;
-            profileTree?: unknown;
-            configurationTree?: unknown;
-            inviteCode?: unknown;
-            challenge?: AccountChallenge;
-            publicKey?: unknown;
-            signature?: unknown;
-          };
-          let accountURL: URL | undefined;
-          try { if (typeof body.account === "string") accountURL = new URL(body.account); } catch {}
-          if (
-            accountURL?.origin !== publicOrigin || typeof body.profile !== "string" || typeof body.profileTree !== "string"
-            || typeof body.configurationTree !== "string" || typeof body.inviteCode !== "string" || !body.challenge
-            || typeof body.publicKey !== "string" || typeof body.signature !== "string"
-          ) throw new Error("Accepting an invitation as a placement requires the account, the profile's locator, its code, and the signed challenge");
-          const placed = await overstoryd.acceptInvitationAsPlacement({
-            accountLocator: body.account as string,
-            origin: publicOrigin,
-            profile: body.profile,
-            profileTree: body.profileTree,
-            configurationTree: body.configurationTree,
-            challenge: body.challenge,
-            publicKey: body.publicKey,
-            signature: body.signature,
-            inviteCode: body.inviteCode,
-          });
-          return placed;
-        };
-        // The old route, kept until clients send `PUT /accounts` with `profile`
-        // (plans/soon/protocol-001-spec-review-route-changes.md).
-        if (url.pathname === "/.overstory/placements" && request.method === "PUT") {
-          return json(accountDescriptor(publicOrigin, overstoryd, await acceptAsPlacement(await bodyFields(request))), 201);
         }
         const pairingClaim = /^\/\.overstory\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
         if (pairingClaim && request.method === "PUT") {
@@ -712,42 +686,53 @@ export async function serveHost(options: {
         }
         if (url.pathname === "/.overstory/accounts" && request.method === "PUT") {
           const { value, encoding } = await wireBody(request);
-          // Joining with a profile homed at another host: a membership here (accounts §1.4).
-          if ((value as { profile?: unknown }).profile !== undefined) {
-            const placed = await acceptAsPlacement(value);
-            return wire({ account: accountDescriptor(publicOrigin, overstoryd, placed) }, answerEncoding(request), 201);
-          }
+          // The body names no account, profile or configuration of its own:
+          // the host reads them from the signed challenge, whose purpose tells
+          // a claim from a placement (accounts §1.2, federation §3).
           const body = value as {
-            account?: unknown;
-            profileTree?: unknown;
-            configurationTree?: unknown;
-            challenge?: AccountChallenge;
+            challenge?: unknown;
             publicKey?: unknown;
             signature?: unknown;
             inviteCode?: unknown;
             device?: { id?: unknown; label?: unknown; key?: unknown };
             configuration?: unknown;
           };
-          let accountURL: URL | undefined;
-          try { if (typeof body.account === "string") accountURL = new URL(body.account); } catch {}
-          const reservation = accountURL?.origin === publicOrigin ? overstoryd.accountReservation(body.account as string) : null;
+          const challenge = validateAccountChallenge(body.challenge);
+          if (typeof body.publicKey !== "string" || typeof body.signature !== "string" || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")) {
+            throw new Error("Joining requires the signed challenge, the profile's public key and its signature");
+          }
+          if (challenge.purpose === "placement") {
+            if (!exactFields(body as Record<string, unknown>, ["challenge", "publicKey", "signature", "inviteCode"], [])) throw new Error("Accepting an invitation as a placement carries the challenge, key, signature and invitation code, and no device or configuration");
+            if (new URL(challenge.account).origin !== publicOrigin) throw new Error("The challenge names another host");
+            const placed = await overstoryd.acceptInvitationAsPlacement({
+              accountLocator: challenge.account,
+              origin: publicOrigin,
+              profile: challenge.profile!,
+              profileTree: challenge.profileTree,
+              configurationTree: challenge.configurationTree,
+              challenge,
+              publicKey: body.publicKey,
+              signature: body.signature,
+              inviteCode: body.inviteCode as string,
+            });
+            return wire({ account: accountDescriptor(publicOrigin, overstoryd, placed) }, answerEncoding(request), 201);
+          }
+          const reservation = new URL(challenge.account).origin === publicOrigin ? overstoryd.accountReservation(challenge.account) : null;
           if (
-            !reservation || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
-            || !body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string"
-            || (body.inviteCode !== undefined && typeof body.inviteCode !== "string")
+            !reservation || !exactFields(body as Record<string, unknown>, ["challenge", "publicKey", "signature", "device", "configuration"], ["inviteCode"])
             || typeof body.device?.id !== "string" || typeof body.device.label !== "string"
             || typeof body.device.key !== "string" || !body.configuration
-          ) throw new Error("Account join requires an exact community reservation, generated identities, a device key, and initial configuration");
-          if (reservation.profileTree && reservation.profileTree !== body.profileTree) {
+          ) throw new Error("Account join requires an exact community reservation, a generated device identity and key, and initial configuration");
+          if (reservation.profileTree && reservation.profileTree !== challenge.profileTree) {
             throw new Error("Account reservation names a different profile TreeID");
           }
           const result = await overstoryd.claimAccountWithConfiguration({
-            accountLocator: body.account as string,
+            accountLocator: challenge.account,
             handle: reservation.handle,
             origin: publicOrigin,
-            profileTree: body.profileTree,
-            configurationTree: body.configurationTree,
-            challenge: body.challenge,
+            profileTree: challenge.profileTree,
+            configurationTree: challenge.configurationTree,
+            challenge,
             publicKey: body.publicKey,
             signature: body.signature,
             inviteCode: body.inviteCode as string | undefined,

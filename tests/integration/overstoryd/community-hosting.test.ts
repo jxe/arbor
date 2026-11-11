@@ -108,7 +108,7 @@ describe("client-generated profile and account bootstrap", () => {
     const invited = newTestDevice("invited");
     const deviceID = invited.device;
     const client = new ProtocolClient(running.url);
-    const challenge = await client.createAccountChallenge({ profileTree: identity.profileTree, configurationTree, inviteCode });
+    const challenge = await client.createAccountChallenge({ profileTree: identity.profileTree, inviteCode });
     expect(challenge.account).toBe(`${origin}/~${handle}`);
     const request = {
       account: challenge.account,
@@ -185,14 +185,12 @@ describe("client-generated profile and account bootstrap", () => {
   test("community-only challenges resolve the reservation and bind the profile's configuration", async () => {
     const client = new ProtocolClient(running.url);
     const configurationTree = treeConfigurationID(bobProfileTree);
-    const challenge = await client.createAccountChallenge({ profileTree: bobProfileTree, configurationTree });
+    const challenge = await client.createAccountChallenge({ profileTree: bobProfileTree });
     expect(challenge.account).toBe(`${new URL(running.url).origin}/~bob`);
     expect(challenge.profileTree).toBe(bobProfileTree);
     expect(challenge.configurationTree).toBe(configurationTree);
-    await expect(client.createAccountChallenge({ profileTree: bobProfileTree, configurationTree: generateOverstoryID("tr") }))
-      .rejects.toThrow("configuration TreeID");
     const stranger = testProfileIdentity().profileTree;
-    await expect(client.createAccountChallenge({ profileTree: stranger, configurationTree: treeConfigurationID(stranger) }))
+    await expect(client.createAccountChallenge({ profileTree: stranger }))
       .rejects.toThrow("has not reserved");
   });
 
@@ -212,14 +210,14 @@ describe("client-generated profile and account bootstrap", () => {
       configuration,
     };
     const client = new ProtocolClient(running.url);
-    const challenge = await client.createAccountChallenge({ account: `${origin}/~bob`, profileTree, configurationTree });
+    const challenge = await client.createAccountChallenge({ account: `${origin}/~bob`, profileTree });
     const identityProof = { challenge, publicKey: bobIdentity.publicKey, signature: bobIdentity.sign(challenge) };
     // A person's configuration names that person as its only administrator.
     const coAdministered = activationElement(snapshotTreeConfig({ ...initial, access: [...initial.access, { who: { profile: aliceProfileTree }, allow: ["admin"] }] }, directoryStamper(undefined, 0)));
-    await expect(new ProtocolClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: coAdministered }))
+    await expect(new ProtocolClient(running.url).joinAccount({ ...request, ...identityProof, configuration: coAdministered }))
       .rejects.toThrow("no one else");
     const mounting = activationElement(snapshotTreeConfig({ ...initial, mounts: { notes: generateOverstoryID("tr") } }, directoryStamper(undefined, 0)));
-    await expect(new ProtocolClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof, configuration: mounting }))
+    await expect(new ProtocolClient(running.url).joinAccount({ ...request, ...identityProof, configuration: mounting }))
       .rejects.toThrow("mounts nothing");
     // The configuration travels as an activation element; the retired `{ root, objects }` shape is refused.
     const retired = await fetch(`${running.url}/.overstory/accounts`, {
@@ -230,7 +228,7 @@ describe("client-generated profile and account bootstrap", () => {
       } }),
     });
     expect(retired.status).toBe(400);
-    const claimed = await client.joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof });
+    const claimed = await client.joinAccount({ ...request, ...identityProof });
     expect(claimed.account).toMatchObject({ handle: "bob", profileTree, id: profileTree });
     expect(claimed.configuration).toMatchObject({ id: configurationTree, kind: "tree-configuration", canonical: null });
     expect(running.overstoryd.get(profileTree)).toBeNull();
@@ -288,7 +286,7 @@ describe("client-generated profile and account bootstrap", () => {
     const configurationTree = treeConfigurationID(profileTree);
     const origin = new URL(running.url).origin;
     const client = new ProtocolClient(running.url);
-    await expect(client.createAccountChallenge({ account: `${origin}/~mallory`, profileTree, configurationTree }))
+    await expect(client.createAccountChallenge({ account: `${origin}/~mallory`, profileTree }))
       .rejects.toThrow("exact profile reservation");
     expect(running.overstoryd.get(configurationTree)).toBeNull();
   });
@@ -417,7 +415,7 @@ describe("client-generated profile and account bootstrap", () => {
         .map((tree) => [join(secondSource, tree.canonicalPath!.split("/").filter(Boolean).at(-1)!), tree.id]));
       await owner.submitUpdate(communityAfterClaim.tree.id, communityAfterClaim.tree.update, await resolveSnapshot(await snapshotDirectory(secondSource, secondNested)));
       await expect(new ProtocolClient(running.url).createAccountChallenge({
-        account: `${new URL(running.url).origin}/~charlie-two`, profileTree: localProfileTree, configurationTree,
+        account: `${new URL(running.url).origin}/~charlie-two`, profileTree: localProfileTree,
       })).rejects.toMatchObject({ status: 409, code: "already-claimed", message: expect.stringContaining("already claimed or hosted") });
       await expect(new LocalAccountService({ trees: service.trees, events: service.events })
         .claimHostAccount(`${new URL(running.url).origin}/~charlie-two`, profilePath, "Charlie")).rejects.toThrow("one home host");
@@ -497,7 +495,7 @@ describe("self-certifying profile account proof", () => {
       const deviceID = guest.device;
       const configuration = activationElement(snapshotTreeConfig(initialPersonConfig(profileTree, { id: deviceID, label: "Guest's Mac", key: guest.key }), directoryStamper(undefined, 0)));
       const anonymous = new ProtocolClient(target.url);
-      const challenge = await anonymous.createAccountChallenge({ account: targetAccountLocator, profileTree, configurationTree });
+      const challenge = await anonymous.createAccountChallenge({ account: targetAccountLocator, profileTree });
 
       const request = {
         account: targetAccountLocator,
@@ -699,15 +697,11 @@ test("community administrators may mount a tree at an unclaimed /~name, which th
 describe("membership does not administer the host", () => {
   /** Claim `handle` at `host` with a new device of `identity`; returns that device's client. */
   async function claimAccount(host: Awaited<ReturnType<typeof serveHost>>, identity: ReturnType<typeof testProfileIdentity>, handle: string, inviteCode?: string) {
-    const configurationTree = treeConfigurationID(identity.profileTree);
     const device = newTestDevice(handle);
     const anonymous = new ProtocolClient(host.url);
     const account = `${new URL(host.url).origin}/~${handle}`;
-    const challenge = await anonymous.createAccountChallenge({ account, profileTree: identity.profileTree, configurationTree, ...(inviteCode ? { inviteCode } : {}) });
+    const challenge = await anonymous.createAccountChallenge({ account, profileTree: identity.profileTree, ...(inviteCode ? { inviteCode } : {}) });
     await anonymous.joinAccount({
-      account,
-      profileTree: identity.profileTree,
-      configurationTree,
       challenge,
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),

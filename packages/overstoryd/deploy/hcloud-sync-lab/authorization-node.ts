@@ -21,7 +21,6 @@ import {
   personProfileTreeID,
   ProtocolClient,
   snapshotTreeConfig,
-  treeConfigurationID,
   type AccountChallenge,
 } from "@ovst/protocol";
 import {
@@ -95,17 +94,13 @@ async function setup(): Promise<void> {
   const result = {} as Record<Role, Identity>;
   for (const role of ROLES) {
     const identity = identities[role];
-    const configurationTree = treeConfigurationID(identity.profileTree);
     const device = generateOverstoryID("dv");
     const label = `${role} authorization device`;
     const seed = generateDeviceKeySeed();
     const key = deviceKeyFromSeed(seed);
     const anonymous = new ProtocolClient(LOCAL_COMMUNITY, undefined, TIMEOUT);
-    const challenge = await anonymous.createAccountChallenge({ profileTree: identity.profileTree, configurationTree });
+    const challenge = await anonymous.createAccountChallenge({ profileTree: identity.profileTree});
     await anonymous.joinAccount({
-      account: challenge.account,
-      profileTree: identity.profileTree,
-      configurationTree,
       challenge,
       publicKey: identity.publicKey,
       signature: identity.sign(challenge),

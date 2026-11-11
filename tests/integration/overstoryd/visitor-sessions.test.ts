@@ -15,7 +15,6 @@ import {
   personProfileTreeID,
   ProtocolClient,
   snapshotTreeConfig,
-  treeConfigurationID,
   type TreeSnapshot,
 } from "@ovst/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
@@ -111,12 +110,10 @@ beforeAll(async () => {
 
   // Dana claims ~dana at A with her Mac and pairs her phone; her profile is public.
   await reserve(a.url, "visitor-owner-a", { dana: dana.profileTree });
-  const configurationTree = treeConfigurationID(dana.profileTree);
   const anonymous = new ProtocolClient(a.url);
-  const challenge = await anonymous.createAccountChallenge({ account: `${home}/~dana`, profileTree: dana.profileTree, configurationTree });
+  const challenge = await anonymous.createAccountChallenge({ account: `${home}/~dana`, profileTree: dana.profileTree });
   const config = initialPersonConfig(dana.profileTree, { id: macID, label: "Dana's Mac", key: mac.key });
-  await anonymous.joinAccount({
-    account: `${home}/~dana`, profileTree: dana.profileTree, configurationTree, challenge,
+  await anonymous.joinAccount({ challenge,
     publicKey: dana.publicKey, signature: dana.sign(accountChallengeBytes(challenge)),
     device: { id: macID, label: "Dana's Mac", key: mac.key },
     configuration: activationElement(snapshotTreeConfig({ ...config, access: [...config.access, { who: "everyone", allow: ["read"] }] }, directoryStamper(undefined, 0))),

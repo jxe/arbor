@@ -13,7 +13,6 @@ import {
   personProfileTreeID,
   ProtocolClient,
   snapshotTreeConfig,
-  treeConfigurationID,
 } from "@ovst/protocol";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { editTreeConfig, readTreeConfig } from "../../helpers/tree-config.ts";
@@ -224,13 +223,9 @@ describe("recovery pairing (accounts §5.3)", () => {
 
   test("a profile claimed with a key device signs in with it", async () => {
     const origin = new URL(running.url).origin;
-    const configurationTree = treeConfigurationID(carol.profileTree);
     const client = new ProtocolClient(running.url);
-    const challenge = await client.createAccountChallenge({ account: `${origin}/~carol`, profileTree: carol.profileTree, configurationTree });
+    const challenge = await client.createAccountChallenge({ account: `${origin}/~carol`, profileTree: carol.profileTree });
     await client.joinAccount({
-      account: `${origin}/~carol`,
-      profileTree: carol.profileTree,
-      configurationTree,
       challenge,
       publicKey: carol.publicKey,
       signature: carol.sign(accountChallengeBytes(challenge)),

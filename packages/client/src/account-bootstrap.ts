@@ -189,10 +189,9 @@ async function claimAccountProfileBootstrap(
     pending.challenge = await client.createAccountChallenge({
       account: pending.account === origin ? undefined : pending.account,
       profileTree: pending.profileTree,
-      configurationTree: pending.configurationTree,
       inviteCode: pending.inviteCode,
     });
-    if (pending.challenge.origin !== origin || pending.challenge.profileTree !== pending.profileTree || pending.challenge.configurationTree !== pending.configurationTree || (pending.account !== origin && pending.challenge.account !== pending.account)) {
+    if (pending.challenge.purpose !== "account" || pending.challenge.origin !== origin || pending.challenge.profileTree !== pending.profileTree || pending.challenge.configurationTree !== pending.configurationTree || (pending.account !== origin && pending.challenge.account !== pending.account)) {
       throw new ProtocolError("conflict", "Account challenge target disagrees with the requested community", 409);
     }
     pending.account = pending.challenge.account;
@@ -209,9 +208,6 @@ async function claimAccountProfileBootstrap(
     await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
     await rename(temporary, pendingPath);
     return client.joinAccount({
-      account: pending.account,
-      profileTree: pending.profileTree,
-      configurationTree: pending.configurationTree,
       inviteCode: pending.inviteCode,
       challenge: pending.challenge!,
       publicKey: pending.publicKey!,
@@ -231,10 +227,9 @@ async function claimAccountProfileBootstrap(
     pending.challenge = await client.createAccountChallenge({
       account: pending.account === origin ? undefined : pending.account,
       profileTree: pending.profileTree,
-      configurationTree: pending.configurationTree,
       inviteCode: pending.inviteCode,
     });
-    if (pending.challenge.origin !== origin || pending.challenge.profileTree !== pending.profileTree || pending.challenge.configurationTree !== pending.configurationTree || (pending.account !== origin && pending.challenge.account !== pending.account)) {
+    if (pending.challenge.purpose !== "account" || pending.challenge.origin !== origin || pending.challenge.profileTree !== pending.profileTree || pending.challenge.configurationTree !== pending.configurationTree || (pending.account !== origin && pending.challenge.account !== pending.account)) {
       throw new ProtocolError("conflict", "Account challenge target disagrees with the requested community", 409);
     }
     pending.account = pending.challenge.account;

@@ -14,7 +14,6 @@ import {
   ProtocolClient,
   resolveLogicalURL,
   snapshotTreeConfig,
-  treeConfigurationID,
 } from "@ovst/protocol";
 import { serveHost } from "@ovst/overstoryd";
 import { cancelInvitation, createInvitation, editTreeFile, pendingInvitations, renewInvitation } from "@ovst/client";
@@ -55,14 +54,10 @@ async function claim(link: string): Promise<string> {
   if (resolved?.kind !== "overstory" || !resolved.invite) throw new Error("not a join link");
   const inviteCode = resolved.invite;
   const identity = testProfileIdentity();
-  const configurationTree = treeConfigurationID(identity.profileTree);
   const device = newTestDevice("invited");
   const client = new ProtocolClient(running.url);
-  const challenge = await client.createAccountChallenge({ profileTree: identity.profileTree, configurationTree, inviteCode });
+  const challenge = await client.createAccountChallenge({ profileTree: identity.profileTree, inviteCode });
   await client.joinAccount({
-    account: challenge.account,
-    profileTree: identity.profileTree,
-    configurationTree,
     challenge,
     publicKey: identity.publicKey,
     signature: identity.sign(challenge),

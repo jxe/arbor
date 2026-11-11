@@ -38,9 +38,9 @@ const previousDataHome = process.env.STORY_HOME;
 
 try {
   const directoryFixture = JSON.parse(await readFile(join(fixtures.STORY_REFERENCE_FIXTURES, "overstoryd/directory.json"), "utf8")) as {
-    snapshot?: Array<{ profile?: string; sources?: string[] }>;
+    people?: Array<{ profile?: string; sources?: string[] }>;
   };
-  if ("observedThrough" in directoryFixture || !directoryFixture.snapshot?.every(entry => entry.profile?.startsWith("tr_") && entry.sources?.length)) {
+  if (Object.keys(directoryFixture).join() !== "people" || !directoryFixture.people?.every(entry => entry.profile?.startsWith("tr_") && entry.sources?.length)) {
     throw new Error("Malformed shared profile-directory fixture");
   }
   await run(["bun", "test", "tests/unit/protocol.test.ts", "tests/unit/resource-policy.test.ts", "tests/unit/protocol-updates/update-intent.test.ts", "tests/unit/protocol-updates/operations.test.ts", "tests/unit/protocol-updates/authored-contract.test.ts", "tests/unit/protocol-updates/accepted-contract.test.ts", "tests/unit/protocol-updates/accepted-transport.test.ts", "tests/unit/protocol-updates/authored-transport.test.ts", "tests/unit/protocol-updates/cbor-transport.test.ts", "tests/unit/protocol-updates/path-read.test.ts"]);

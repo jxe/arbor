@@ -67,18 +67,16 @@ async function acceptInvitation(invitation: { account: string; code: string }): 
     throw new ProtocolError("conflict", `${origin} is this profile's home host; an invitation there is for a new profile`, 409);
   }
   const profileTree = home.profileTree;
-  const configurationTree = treeConfigurationID(profileTree);
   const client = new ProtocolClient(origin);
   const challenge = await client.createAccountChallenge({
-    account: invitation.account, profileTree, configurationTree, inviteCode: invitation.code, profile: home.account,
+    account: invitation.account, profileTree, inviteCode: invitation.code, profile: home.account,
   });
-  if (challenge.origin !== origin || challenge.account !== invitation.account || challenge.profileTree !== profileTree) {
+  if (challenge.purpose !== "placement" || challenge.origin !== origin || challenge.account !== invitation.account || challenge.profileTree !== profileTree
+    || challenge.configurationTree !== treeConfigurationID(profileTree) || challenge.profile !== home.account) {
     throw new ProtocolError("conflict", "The invitation's host answered for another account", 409);
   }
   const { publicKey, signature } = await new ProfileIdentityStore().signChallenge(challenge);
-  await client.acceptInvitationAsPlacement({
-    account: invitation.account, profile: home.account, profileTree, configurationTree, inviteCode: invitation.code, challenge, publicKey, signature,
-  });
+  await client.acceptInvitationAsPlacement({ inviteCode: invitation.code, challenge, publicKey, signature });
 }
 
 /** The one home account this data home holds. */

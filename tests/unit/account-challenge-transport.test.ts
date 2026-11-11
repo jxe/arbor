@@ -11,23 +11,31 @@ test("community, exact account and invitation requests retain their signed accou
       return Response.json(fixture.response, { status: 201 });
     } });
     try {
-      const challenge = await new ProtocolClient(server.url.toString().replace(/\/$/, "")).createAccountChallenge(fixture.request);
+      const { purpose: _purpose, ...input } = fixture.request as typeof fixture.request & { purpose: string };
+      const challenge = await new ProtocolClient(server.url.toString().replace(/\/$/, "")).createAccountChallenge(input);
       expect(request).toEqual(fixture.request);
-      expect(challenge).toEqual({ ...fixture.response, version: 1 });
+      expect(challenge).toEqual(fixture.response as unknown as AccountChallenge);
     } finally { server.stop(true); }
   }
 });
 
-test("a challenge's signature covers its canonical CBOR, and a challenge naming a home host is refused", () => {
+test("a challenge's signature covers its canonical CBOR, purpose included", () => {
   const { signing } = fixtures;
   const publicKey = Buffer.from(signing.publicKey, "base64url");
   const key = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), publicKey]), format: "der", type: "spki" });
-  const [home] = signing.challenges as Array<{ name: string; challenge: AccountChallenge; canonicalCBORHex: string; signature: string }>;
-  expect(home!.name).toBe("home");
-  expect(personProfileTreeID(publicKey)).toBe(home!.challenge.profileTree);
-  expect(Buffer.from(accountChallengeBytes(home!.challenge)).toString("hex")).toBe(home!.canonicalCBORHex);
-  expect(verify(null, Buffer.from(home!.canonicalCBORHex, "hex"), key, Buffer.from(home!.signature, "base64url"))).toBe(true);
-  // Placement accounts come from reservations (accounts §1.3); the withdrawn
-  // placement challenge named a home host.
+  const challenges = signing.challenges as Array<{ name: string; challenge: AccountChallenge; canonicalCBORHex: string; signature: string }>;
+  expect(challenges.map((c) => c.name)).toEqual(["home", "placement"]);
+  for (const signed of challenges) {
+    expect(personProfileTreeID(publicKey)).toBe(signed.challenge.profileTree);
+    expect(Buffer.from(accountChallengeBytes(signed.challenge)).toString("hex")).toBe(signed.canonicalCBORHex);
+    expect(verify(null, Buffer.from(signed.canonicalCBORHex, "hex"), key, Buffer.from(signed.signature, "base64url"))).toBe(true);
+  }
+  const [home, placement] = challenges;
+  // The purpose decides what a challenge binds: only a placement's names a profile.
+  expect(() => validateAccountChallenge({ ...home!.challenge, profile: placement!.challenge.profile })).toThrow("Malformed account challenge");
+  const { profile: _profile, ...unnamed } = placement!.challenge;
+  expect(() => validateAccountChallenge(unnamed)).toThrow("Malformed account challenge");
+  const { purpose: _purpose, ...purposeless } = home!.challenge;
+  expect(() => validateAccountChallenge(purposeless)).toThrow("Malformed account challenge");
   expect(() => validateAccountChallenge({ ...home!.challenge, homeHost: "https://home.example" })).toThrow("Malformed account challenge");
 });

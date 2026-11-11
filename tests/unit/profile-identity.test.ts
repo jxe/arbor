@@ -14,6 +14,7 @@ describe("person profile identity", () => {
   test("canonically encodes every signed challenge field", () => {
     const challenge = {
       version: 1 as const,
+      purpose: "account" as const,
       id: "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       origin: "https://arb.example",
       account: "https://arb.example/~joe",
@@ -26,7 +27,7 @@ describe("person profile identity", () => {
     const first = Buffer.from(accountChallengeBytes(challenge));
     const second = Buffer.from(accountChallengeBytes({ ...challenge }));
     expect(first.equals(second)).toBe(true);
-    expect(first.toString("hex")).toStartWith("a9626964");
+    expect(first.toString("hex")).toStartWith("aa626964");
     expect(Buffer.from(accountChallengeBytes({ ...challenge, account: "https://arb.example/~mariana" })).equals(first)).toBe(false);
   });
 });
