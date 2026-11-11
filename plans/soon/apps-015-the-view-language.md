@@ -2,8 +2,8 @@
 
 **Why and when:** Joe decided on 2026-11-11 that views and mutations are written in a
 declarative language in `.view` files, and TypeScript support for both is dropped. The spec
-describes the target ([apps and views](../../docs/overstory-spec/4.1-apps-and-views.md),
-syntax in [the grammar](../../docs/overstory-spec/4.1-apps-and-views.md#13-grammar)). The
+describes the target ([apps](../../docs/overstory-spec/4.1-apps.md),
+syntax in [the grammar](../../docs/overstory-spec/1.5-vad.md#13-grammar)). The
 reasons, from the thread "Review the Overstory spec with Joe":
 
 - A view's plan comes from its source, so tracing, stand-in rows, dual evaluation and
@@ -102,8 +102,8 @@ the removed modules.
 
 Joe decided on 2026-11-11 that a `.view` file is a node's body, like a `.md` file, so
 `List.view` answers at `List`, and that pages may hold fenced `view` blocks
-([apps and views §8](../../docs/overstory-spec/4.1-apps-and-views.md#8-addresses),
-[§2.2](../../docs/overstory-spec/4.1-apps-and-views.md#22-view-blocks-in-pages)).
+([apps](../../docs/overstory-spec/4.1-apps.md#1-addresses),
+[§2.3](../../docs/overstory-spec/1.5-vad.md#23-view-blocks-in-pages)).
 
 - Node mapping in both stacks (`packages/protocol` pages and path reads, Swift
   `ProtocolPage`/`ProtocolPathRead`): `x.view` and `x/_index.view` supply node `x`;

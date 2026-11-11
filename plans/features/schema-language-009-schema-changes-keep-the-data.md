@@ -16,7 +16,7 @@ was open question 6 in [candidates](../candidates.md); Joe made it a feature in 
 
 ## What USL meant
 
-USL ([spec 11](../../docs/overstory-spec/1.5-schema-language.md)) meant migrations between
+USL ([spec 11](../../docs/overstory-spec/1.5-vad.md)) meant migrations between
 relation forms to be small edits to one declaration: change the storage, widen or narrow an
 arity (`Episode.series` to many), promote a value array to a model and a connection, or grow
 an `enum` into a `seed` model. None is built; Joe deferred a migration diff on 2026-10-14.

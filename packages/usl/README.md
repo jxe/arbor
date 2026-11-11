@@ -1,7 +1,7 @@
 # usl
 
 Ultimate Schema Language (`.usl`), Overstory's schema language
-([spec](../../docs/overstory-spec/1.5-schema-language.md)). A collection's or
+([spec](../../docs/overstory-spec/1.5-vad.md)). A collection's or
 database's `schema.usl` is compiled here: `collection-schema` builds row
 validation from its data-file layout, and `apps-runtime` checks SQLite
 databases and derives query relationships from its database layout.

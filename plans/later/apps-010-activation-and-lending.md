@@ -98,7 +98,7 @@ Never widen authority to get a fixture passing.
 
 ## Text moved from the spec (2026-11-11)
 
-Joe moved these undecided designs out of [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md) on 2026-11-11, since they aren't built. They come back into the spec when this plan decides them. Old section numbers are from that chapter before the move.
+Joe moved these undecided designs out of [apps](../../docs/overstory-spec/4.1-apps.md) on 2026-11-11, since they aren't built. They come back into the spec when this plan decides them. Old section numbers are from that chapter before the move.
 
 ### From §7 Compilation and hosting
 

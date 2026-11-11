@@ -95,16 +95,16 @@ failed guards or exceeded bounds can instead produce an explicit rejection
 
 ## 6. Add a collection
 
-Joe creates `practices/schema.usl` declaring a `Practice` model, and
+Joe creates `practices/schema.vad` declaring a `Practice` table, and
 `practices/_store.csv` with a header row. The
 folder is now a collection: each CSV row is a child node of
 `/practices`, its fields are the child's properties, and its stable key is
 the canonical key JSON of its `id` ([collections](1.4-collections.md),
 [row identity](1.4-collections.md#3-row-identity-and-order)). The CSV is only
 how Joe's Mac projects the rows: the tree holds the rows themselves, in
-canonical form, beside the exact bytes of `schema.usl`, and his iPhone keeps
+canonical form, beside the exact bytes of `schema.vad`, and his iPhone keeps
 the same rows in SQLite. Story Sync turns each edit to the CSV into row
-operations, and the authority replays them and recomputes the model
+operations, and the authority replays them and recomputes the schema
 fingerprint and the collection's logical hash
 ([what the tree holds](1.4-collections.md#1-what-the-tree-holds)).
 Each row has an ordinary public address such as
@@ -112,11 +112,11 @@ Each row has an ordinary public address such as
 
 ## 7. Show it on a page
 
-Joe writes a view in `views/practices.view`, which is the node `views/practices`
+Joe writes a view in `views/practices.vad`, which is the node `views/practices`
 the way a `.md` file is a page:
 
 ```
-use "../practices/schema.usl"
+use "../practices/schema.vad"
 
 view():
   <Column>
@@ -124,25 +124,25 @@ view():
   </Column>
 ```
 
-and draws it in his page with a view block ([view blocks](4.1-apps-and-views.md#22-view-blocks-in-pages)):
+and draws it in his page with a view block ([view blocks](1.5-vad.md#23-view-blocks-in-pages)):
 
 ````md
 ```view
-use "views/practices.view" (view as Practices)
+use "views/practices.vad" (view as Practices)
 <Practices />
 ```
 ````
 
 The server has enabled hosting for the tree, so it checks the file and binds
-`Practice` to `(tr_…, /practices, model fingerprint)` ([handles](4.1-apps-and-views.md#101-handles-and-code-versions)).
+`Practice` to `(tr_…, /practices, schema fingerprint)` ([handles](4.1-apps.md#41-handles-and-code-versions)).
 The plan comes from the source alone: the `Link` expands once per published
-practice ([expansion](4.1-apps-and-views.md#27-expansion), [the language](4.1-apps-and-views.md)).
+practice ([expansion](1.5-vad.md#44-expansion), [the language](1.5-vad.md)).
 A visitor's browser receives the page with the view drawn as HTML. Story opens
 `QUERY /.overstory/trees/tr_…/views` naming the view's handle and code version,
 receives the plan's rows as `result`, then `ready`, and draws the view natively.
 When Joe edits the CSV, the tree advances, the host sees which rows the plan
 read changed, and a new `result` with a new `outputHash` follows
-([apps and views §11.1](4.1-apps-and-views.md#111-evaluate-and-stream-views)).
+([apps §5.1](4.1-apps.md#51-evaluate-and-stream-views)).
 
 ## 8. Run a mutation
 
@@ -161,8 +161,8 @@ caller-chosen `mutationID`. The runtime checks the guards, then submits the
 insert as one guarded update of row operations. The receipt's `affected` names
 that accepted update, and Alice's watch sees an ordinary `tree.update` frame;
 Joe's Mac rewrites the CSV. A retry with the same `mutationID` returns the
-original receipt and does nothing twice ([mutations](4.1-apps-and-views.md#5-mutations),
-[apps and views §11.2](4.1-apps-and-views.md#112-execute-named-mutations), [actions](4.1-apps-and-views.md#4-actions-forms-and-events)).
+original receipt and does nothing twice ([mutations](1.5-vad.md#7-mutations),
+[apps §5.2](4.1-apps.md#52-execute-named-mutations), [actions](1.5-vad.md#6-actions-forms-and-events)).
 
 ## 9. Rename the canonical URL
 

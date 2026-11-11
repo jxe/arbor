@@ -176,19 +176,20 @@ change you can review, and undo, like anyone else's.
 
 A folder of similar pages is already almost a database. Think past meeting
 agendas, each with a date and attendees in its front matter. Add a
-`schema.usl` beside them and it becomes one: a typed collection you can
-query, written in a small schema language
-([USL](../overstory-spec/1.5-schema-language.md)):
+`schema.vad` beside them and it becomes one: a typed collection you can
+query, declared in VAD, a small language for views and data
+([VAD](../overstory-spec/1.5-vad.md)):
 
 ```text
-// essays/schema.usl
-model Essay {
+// essays/schema.vad
+main table Essay:
   title  Text
   date   Date
   status Status
-}
 
-enum Status { draft, published }
+enum Status:
+  Draft
+  Published
 ```
 
 The backing can be Markdown files with front matter, one CSV, one JSONL
@@ -202,20 +203,21 @@ row is a web page too.
 Since these trees are on the web anyway, you should be able to put little
 apps inside them, right next to the data. Here's what that looks like.
 
-An app is just more files in the tree, written in a small declarative
-language. A `.view` file holds a view, and the mutations it uses:
+An app is just more files in the tree, written in the same declarative
+language. A `.vad` file holds a view, and the mutations it uses:
 
 ```
-// views/reading-room.view
-use "../essays/schema.usl"
+// views/reading-room.vad
+use "../essays/schema.vad"
 
-mutation recommend(e: Essay):
-  require me != null else user-required
-  insert Recommendation { essay: e, person: me } where me not in e.recommendations.person
+mutation recommend(e Essay):
+  if me == null:
+    unauthorized "Sign in to recommend an essay"
+  Recommendation(essay: e, person: me)
 
 view(status):
   <Column>
-    <Row for={e in Essay} where={e.status == (status ?? "published")} orderBy={e.date desc}>
+    <Row for={e in Essay} where={e.status == (status ?? Published)} orderBy={e.date desc}>
       <Link to="../essays/{e.id}">{e.title}</Link>
       <Text style="secondary">{e.date}</Text>
       <Button action={recommend(e: e)}>Recommend</Button>
@@ -227,14 +229,14 @@ To use it, draw it from a `view` block in any page:
 
 ````md
 ```view
-use "views/reading-room.view" (view as ReadingRoom)
-<ReadingRoom status="draft" />
+use "views/reading-room.vad" (view as ReadingRoom)
+<ReadingRoom status="Draft" />
 ```
 ````
 
 and it draws right there, live. Its attributes are its input. There's no
 route table and no app manifest: like a page, the view is a node, so it also
-answers at `views/reading-room?status=draft` on its own, where the query
+answers at `views/reading-room?status=Draft` on its own, where the query
 string is its input, and its path is the address you use, link to, or fetch.
 For a one-off, you don't even need the file: a `view` block can hold the
 whole view, and can read the page it sits in, such as its frontmatter and its
@@ -339,7 +341,7 @@ Here's what works today: the Story app for Mac and iPhone; sharing folders
 with canonical URLs and access lists; placing other people's trees on your
 disk; continuous sync with history and block-level merging; public trees
 served to ordinary browsers; profiles and invitation links; your own agents
-as visible collaborators; USL collections backed by files or SQLite; and
+as visible collaborators; collections backed by files or SQLite; and
 little apps drawn natively in Story pages. Moving trees between hosts and
 lending access to apps are next. The [status page](../../status.md) has the precise boundary.
 

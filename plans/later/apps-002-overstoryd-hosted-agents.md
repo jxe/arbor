@@ -189,7 +189,7 @@ The same authored agent and overstoryd runner render through local Story for the
 
 ## Text moved from the spec (2026-11-11)
 
-Joe moved these undecided designs out of [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md) on 2026-11-11, since they aren't built. They come back into the spec when this plan decides them. Old section numbers are from that chapter before the move.
+Joe moved these undecided designs out of [apps](../../docs/overstory-spec/4.1-apps.md) on 2026-11-11, since they aren't built. They come back into the spec when this plan decides them. Old section numbers are from that chapter before the move.
 
 ### From §13 Agents
 
@@ -208,7 +208,7 @@ Every runtime may expose Overstory's built-in read, navigate, search, backlinks,
 node-query, and mutation operations. The node-query surface includes schema-
 governed collection and relational capabilities when the addressed source
 provides them. An agent may additionally name compiled
-[app](../../docs/overstory-spec/4.1-apps-and-views.md#101-handles-and-code-versions) query and mutation handles. Each
+[app](../../docs/overstory-spec/4.1-apps.md#41-handles-and-code-versions) query and mutation handles. Each
 tool has a typed input/output boundary and retains tree/path provenance in its
 results.
 
@@ -225,11 +225,11 @@ Before execution, the runtime resolves an effective namespace from:
 
 The intersection is the complete authority. The agent and its tools cannot address a path, tree, credential, network target, or host capability outside it. A tool cannot widen the namespace of the agent that called it. Access changes during a run take effect before subsequent operations.
 
-This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](../../docs/overstory-spec/4.1-apps-and-views.md#21-view-files) applies to agents and their tools.
+This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](../../docs/overstory-spec/1.5-vad.md#22-vad-files) applies to agents and their tools.
 
 #### 13.4 Consent and effects
 
-Before an effectful run, the client presents the [consent statement](../../docs/overstory-spec/4.1-apps-and-views.md#93-authority-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
+Before an effectful run, the client presents the [consent statement](../../docs/overstory-spec/4.1-apps.md#23-authority-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
 
 All tree effects pass through ordinary Overstory or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Overstory mutation. Ambiguous mutation retries reuse the original mutation identity.
 

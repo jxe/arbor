@@ -1,7 +1,7 @@
 # uvl
 
 UVL, the Ultimate View Language: views, rules and mutations in `.view` files and in
-pages' fenced `view` blocks ([spec](../../docs/overstory-spec/4.1-apps-and-views.md),
+pages' fenced `view` blocks ([spec](../../docs/overstory-spec/4.1-apps.md),
 grammar in §13). This package is UVL's counterpart of [`usl`](../usl/README.md). The
 language's name appears only in the package name and docs; the API speaks of views.
 
