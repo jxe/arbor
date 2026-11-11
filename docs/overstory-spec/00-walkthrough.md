@@ -127,7 +127,7 @@ view Practices() =
 The server has enabled hosting for the tree, so it checks the file and binds
 `Practice` to `(tr_…, /practices, model fingerprint)` ([files and handles](4.1-apps-and-views.md#3-files-and-named-handles)).
 The plan comes from the source alone: the `Link` expands once per published
-practice ([expansion](4.1-apps-and-views.md#413-expansion), [the language](4.1-apps-and-views.md#15-the-language)).
+practice ([expansion](4.1-apps-and-views.md#43-expansion), [the language](4.1-apps-and-views.md#15-the-language)).
 A visitor's browser receives the page with the view drawn as HTML. Story opens
 `QUERY /.overstory/trees/tr_…/views` naming the view's handle and code version,
 receives the plan's rows as `result`, then `ready`, and draws the view natively.

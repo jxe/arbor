@@ -148,11 +148,11 @@ inline mention links here; accepted implementation work is indexed under
 [spec extensions](../../plans/spec-extensions/README.md).
 
 1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([accounts and devices](3.1-accounts-and-devices.md#32-invariants)).
-2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([apps and views §12.3](4.1-apps-and-views.md#123-relationship-to-tree-synchronization), [apps and views](4.1-apps-and-views.md#4-queries)).
+2. **Cross-server plan discovery, delegated authorization, and server-to-server execution routing** ([apps and views §12.3](4.1-apps-and-views.md#123-relationship-to-tree-synchronization), [apps and views](4.1-apps-and-views.md#46-plans-and-live-dependencies)).
 3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([apps and views](4.1-apps-and-views.md#5-mutations)).
 4. **Hosted agents**: apps whose body is a prompt, with their tools, confinement and transcripts ([apps and views](4.1-apps-and-views.md#13-agents)).
 5. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
-6. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([apps and views](4.1-apps-and-views.md#4-queries)).
+6. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([apps and views](4.1-apps-and-views.md#46-plans-and-live-dependencies)).
 7. **A capability field that may reference a `system:` address** without making it a content locator ([locators](1.6-locators.md#1-forms)).
 8. **Additional fine-grained operation families** beyond the resource operations defined in access control. Exact-state preconditions are concurrency guards, not permissions ([updates and merging §3.1](1.3-updates-and-merging.md#31-exact-state-preconditions), [access control §3.2](3.2-access-control.md#32-updates-and-guards)).
 9. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.
