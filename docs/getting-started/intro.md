@@ -202,48 +202,52 @@ row is a web page too.
 Since these trees are on the web anyway, you should be able to put little
 apps inside them, right next to the data. Here's what that looks like.
 
-An app is just more files in the tree. A view is a `.tsx` file whose default
-export reads rows and returns what to draw:
+An app is just more files in the tree, written in a small declarative
+language. A `.view` file holds a view, and the mutations it uses:
 
-```tsx
-// views/reading-room.tsx
-import { node, view } from "overstory/data"
-import { Button, Column, Link, Row, Text } from "overstory/ui"
-import { z } from "zod"
-import { recommend } from "../mutations.ts"
+```
+// views/reading-room.view
+use "../essays/schema.usl"
 
-const Essay = node("../essays").children
+mutation recommend(e: Essay) =
+  require me != null else user-required
+  insert Recommendation { essay: e, person: me } where me not in e.recommendations.person
 
-export default view(z.object({ status: z.string().default("published") }), ({ status }) =>
+view ReadingRoom(status) =
   <Column>
-    {Essay.all(e => [e.status.is(status)]).map(e =>
-      <Row key={e.id}>
-        <Link href={`../essays/${e.id}`}>{e.title}</Link>
-        <Text style="secondary">{e.date}</Text>
-        <Button action={recommend({ essay: e.id })}>Recommend</Button>
-      </Row>)}
-  </Column>)
+    <Row for={e in Essay} where={e.status == (status ?? "published")} orderBy={e.date desc}>
+      <Link to="../essays/{e.id}">{e.title}</Link>
+      <Text style="secondary">{e.date}</Text>
+      <Button action={recommend(e: e)}>Recommend</Button>
+    </Row>
+  </Column>
 ```
 
 To use it, put a link to it on a line by itself in any page:
 
 ```md
-[](views/reading-room.tsx?status=draft)
+[](views/reading-room.view?status=draft)
 ```
 
 and it draws right there, live. The query string is its input. There's no
 route table and no app manifest: the file's path is its address, the same
-spelling you import, embed, link to, or fetch.
+spelling you use, embed, link to, or fetch.
 
-It isn't React, and there's no web view. The JSX builds a plain tree of
-`Column`, `Row`, `Text` and `Button`, which Story draws natively on the Mac
-and iPhone and a browser gets as HTML. You also never write a query. The
-facts inside `Essay.all(…)` are the narrowing, and the host works out the
-whole plan by tracing what the view reads. The view's own code then runs on
-your device over the rows that come back, so a tap or a picker redraws it
-without a round trip. It's live by default: when the tree changes, the rows
-change, and the view redraws. On a tree you've placed, it all runs against
-your local copy.
+It looks like JSX, but it isn't JavaScript, and there's no web view. The
+`Row` repeats once per essay that matches its `for` and `where`, and that's
+the whole query: you never write one separately. Elements build a plain
+tree of `Column`, `Row`, `Text` and `Button`, which Story draws natively on
+the Mac and iPhone and a browser gets as HTML. Because nothing in the file is
+general-purpose code, the host knows exactly what a view reads before it
+runs anything. The view is evaluated on your device over the rows that come
+back, so a tap or a picker redraws it without a round trip. It's live by
+default: when the tree changes, the rows change, and the view redraws. On a
+tree you've placed, it all runs against your local copy.
+
+Mutations are declarative too. Every line of `recommend` reads the tree as it
+was before the mutation, so recommending twice does nothing, and the
+`require` lines are the whole of its checks. Your device can apply it at once
+for an instant response, and the host runs the same thing to confirm.
 
 Then there's the security model, where this gets interesting.
 
@@ -252,8 +256,8 @@ or distrusted *by site*. That's why your data has to live on the app's
 site, under its account system, behind its private API. And it's why
 combining data from two sources is a nightmare of CORS, OAuth, and API keys.
 
-Here, code arrives with no network, no file system, and no clock. It runs as
-you, the reader. On its own it can reach only what everyone can read and
+Here, an app has no network, no file system, and no clock: the language
+doesn't have them. It runs as you, the reader. On its own it can reach only what everyone can read and
 what its own tree grants it. When it needs more, say to read your notes or
 to append to another community's public inbox, it asks in terms of trees:
 "this reads `essays` and appends to `submissions`." Your yes is recorded in
@@ -378,62 +382,39 @@ a side effect:
 # Appendix B: where views go next
 
 The usual move would have been to ship v1 on React and promise something
-better later. Views skipped most of that. There's no React: a view builds a
-plain tree of abstract primitives, `Column`, `Row`, `Text`, not `div` and
-`span`, and each client maps them to its own surface. Story draws them in
-SwiftUI, and a browser gets HTML, so a future browser doesn't have to
-implement the DOM. Reads are narrowed by Datalog-style facts, with shared
-variables for joins and named rules for reuse:
+better later. Views skipped that. There's no React: a view builds a plain
+tree of abstract primitives, `Column`, `Row`, `Text`, not `div` and `span`,
+and each client maps them to its own surface. Story draws them in SwiftUI,
+and a browser gets HTML, so a future browser doesn't have to implement the
+DOM. And there's no TypeScript either: reads are Datalog-style facts, with
+shared names for joins and named rules for reuse,
 
-```tsx
-Person.all({ p: Practice }, (other, { p }) => [
-  p.authors.has(person), p.authors.has(other), not(other.id.is(person.id)),
-])
+```
+<Avatar person={other}
+  for={p in Practice, other in p.authors}
+  where={person in p.authors, other != person} />
 ```
 
-and the host knows a view's plan, and so its exact read set, before it
-discloses anything.
+so the host knows a view's plan, and its exact read set, from the source
+alone, before it discloses anything.
 
 Three things are still ahead.
 
-**Streaming materialized views.** Today a view reruns when something it read
-changes. The better model is standing dataflow: incremental view
+**Streaming materialized views.** Today a view reevaluates when something it
+read changes. The better model is standing dataflow: incremental view
 maintenance, where changes stream *through* views and out to subscribers as
-deltas.
+deltas. A declarative language makes every view a candidate.
 
-**A plan you can read without running anything.** The host finds a view's
-plan by tracing it. A view language, deliberately less expressive than
-TypeScript, would make the whole body analyzable up front, so permissions
-can be checked and egress reasoned about before anything runs, and every
-view is incrementally maintainable by construction.
+**Real code, on the data side.** Some things want a real programming
+language: two-way date and text parsing, ranking, a physics engine. Instead
+of letting code back into views, it will extend the data: plugins that give
+the schema new value types, relations that work in either direction, derived
+fields, and live sources. A view just sees richer rows.
 
-**A compiled view language.** A genuine *projection* of data into UI rather
-than a program that produces one: compiled ahead of time, with a simpler
-type system and no garbage collector. The precedents are **Riffle**
-(everything, including UI state, lives in the store, and a component is a
-subscription to a query) and **SwiftUI** (value-semantic view trees,
-identity by structural position):
-
-```text
-view ReadingRoom(status: string) {
-  let essays = Essay(status: $status, title, date, author: ?a)
-  Column(spacing: 12) {
-    for e in essays {
-      Row {
-        Text(e.title).headline()
-        Spacer()
-        Text(relative(e.date))
-      }
-      .opens(e.path)
-    }
-  }
-}
-```
-
-The view trees, the facts and the native drawing are already the model;
-what changes is only the surface you write them in. TypeScript stays for
-now, because adoption comes first, and it already compiles to the same
-thing.
+**Games and fast state.** All state is rows: shared with a page or personal,
+kept or just for this session. A board game is a few mutations over page
+rows; a bouncing ball is a session model a clock steps sixty times a second,
+evaluated entirely on your device.
 
 # Credits
 
