@@ -1,0 +1,13 @@
+id = "beetle"
+name = "Beetle"
+version = "0.1.0"
+schema_version = 1
+authors = ["Joe Edelman"]
+description = "Syntax highlighting and outline for Beetle (.beetle) tables, views, rules and mutations."
+repository = "https://github.com/jxe/arbor"
+
+[grammars.beetle]
+repository = "https://github.com/jxe/arbor"
+# A commit of jxe/arbor that holds packages/beetle/editors/tree-sitter-beetle with its generated src/.
+rev = "95cb36ea783cb8a13154483819ce35d2b791c055"
+path = "packages/beetle/editors/tree-sitter-beetle"
