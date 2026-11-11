@@ -231,6 +231,7 @@ function accountDescriptor(origin: string, overstoryd: HostDaemon, account: Host
     handle: account.handle,
     profileTree: account.id,
     profileURL: profile ? overstoryLocator(origin, profile) : null,
+    homeHost: origin,
     community: descriptorWithUpdate(origin, overstoryd, community, overstoryd.canWrite(account, community) ? "write" : "read"),
     configuration: descriptorWithUpdate(origin, overstoryd, configuration, "write"),
     writableProfiles: overstoryd.writableProfiles(account).map((tree) => descriptorWithUpdate(origin, overstoryd, tree, "write")),

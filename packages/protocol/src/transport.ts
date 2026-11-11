@@ -74,12 +74,20 @@ export class ProtocolUnsupportedOperation extends Error {
   }
 }
 
+/**
+ * The account descriptor (locators §5) has one shape at every host: `homeHost`
+ * always (this host's own origin at the profile's home), `configuration`
+ * only at the home host, `placementRoot` only at a placement host. This is
+ * the home host's view; `RemotePlacementAccountDescriptor` is a placement host's.
+ */
 export interface RemoteAccountDescriptor {
   id: string;
   /** Optional host-specific presentation hint; never account identity. */
   handle?: string;
   profileTree: string | null;
   profileURL: string | null;
+  /** The origin of the profile's home host: this host, here. */
+  homeHost: string;
   community: RemoteTreeDescriptor;
   configuration: RemoteTreeDescriptor;
   writableProfiles: RemoteTreeDescriptor[];
@@ -104,8 +112,6 @@ export interface RemotePlacementRoot {
  * `configuration`: the profile's configuration lives only at `homeHost`.
  */
 export interface RemotePlacementAccountDescriptor extends Omit<RemoteAccountDescriptor, "configuration"> {
-  /** The origin of the profile's home host, whose device keys this host reads. */
-  homeHost: string;
   placementRoot: RemotePlacementRoot;
 }
 
@@ -135,7 +141,7 @@ export interface RemoteTreeAccess {
 export function isPlacementAccountDescriptor(
   account: RemoteAccountDescriptor | RemotePlacementAccountDescriptor,
 ): account is RemotePlacementAccountDescriptor {
-  return typeof (account as { homeHost?: unknown }).homeHost === "string";
+  return Object.hasOwn(account, "placementRoot");
 }
 
 export interface AccountClaimResult {

@@ -229,7 +229,9 @@ describe("client-generated profile and account bootstrap", () => {
     });
     expect(retired.status).toBe(400);
     const claimed = await client.joinAccount({ ...request, ...identityProof });
-    expect(claimed.account).toMatchObject({ handle: "bob", profileTree, id: profileTree });
+    // One descriptor shape everywhere: at the home host, `homeHost` is this host and there is no placement root.
+    expect(claimed.account).toMatchObject({ handle: "bob", profileTree, id: profileTree, homeHost: origin });
+    expect(claimed.account).not.toHaveProperty("placementRoot");
     expect(claimed.configuration).toMatchObject({ id: configurationTree, kind: "tree-configuration", canonical: null });
     expect(running.overstoryd.get(profileTree)).toBeNull();
     expect(running.overstoryd.boundary("/~bob")).toBeNull();
