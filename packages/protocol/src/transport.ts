@@ -17,7 +17,6 @@ import {
   type PresenceID,
   type PresenceUpdate, type PresenceMessageBody,
   decodePublishedDeviceKeys,
-  type SafeResourceAccessRule,
   type OverstoryError,
   type EventCursor,
   type LocatorResolution,
@@ -129,13 +128,6 @@ export interface RemotePlacementAccountSnapshot {
 export interface RemoteTreeList { trees: RemoteTreeDescriptor[] }
 /** `GET /.overstory/account/directory` (locators §5). */
 export interface RemotePeopleList { people: RemoteDirectoryEntry[] }
-
-/** `/.overstory/trees/{TreeID}/access` (access control §4): the tree's rules, and
- * the `overstory://` locator of each profile a rule names by TreeID. */
-export interface RemoteTreeAccess {
-  policy: SafeResourceAccessRule[];
-  locators: Record<TreeID, string>;
-}
 
 /** Whether an account descriptor is a placement host's. */
 export function isPlacementAccountDescriptor(
@@ -654,14 +646,6 @@ export class ProtocolClient {
       throw new Error("Server response update-string identity mismatch");
     }
     return result;
-  }
-
-  async access(tree: string): Promise<RemoteTreeAccess> {
-    const response = await this.checked(await this.request(
-      `/.overstory/trees/${encodeURIComponent(tree)}/access`,
-      { headers: this.headers() },
-    ));
-    return response.json();
   }
 
   /**

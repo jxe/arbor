@@ -20,6 +20,7 @@ import {
   initialPersonConfig,
   personProfileTreeID,
   ProtocolClient,
+  readTreeConfigGraph,
   snapshotTreeConfig,
   type AccountChallenge,
 } from "@ovst/protocol";
@@ -142,7 +143,9 @@ async function create(): Promise<void> {
   });
   const current = await client.descriptor(tree);
   if (current.tree.access !== "write" || !current.tree.canonical) throw new Error("Alice did not receive administrator write access");
-  const { policy } = await client.access(tree);
+  // Administrators read the rules from the tree's configuration (access control §4).
+  const { snapshot } = await client.treeConfiguration(tree);
+  const policy = readTreeConfigGraph(snapshot, "tree", tree).access;
   if (policy.some((rule) => typeof rule.who !== "object" || !("profile" in rule.who))) throw new Error("Private authorization tree grants a non-profile subject");
   const granted = (profile: string) => policy.find((rule) => typeof rule.who === "object" && "profile" in rule.who && rule.who.profile === profile)?.allow;
   if (!granted(value.bob)?.includes("read")) throw new Error("Bob read access is missing");

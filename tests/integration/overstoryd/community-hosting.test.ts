@@ -1,4 +1,4 @@
-import { activationElement, decodeProtocolDirectory, encodeProtocolDirectory, generateOverstoryID, hashObject, inviteCodeDigest, sha256, safeResourceRule, HostAccountStore, ProtocolClient } from "@ovst/protocol";
+import { activationElement, decodeProtocolDirectory, encodeProtocolDirectory, generateOverstoryID, hashObject, inviteCodeDigest, sha256, HostAccountStore, ProtocolClient } from "@ovst/protocol";
 import { LocalAccountService } from "../../../packages/story-sync/src/account-service.ts";
 import { afterAll, beforeAll, describe, expect, test, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -590,7 +590,7 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
     hostname: "127.0.0.1", port: Number(new URL(origin).port) });
   expect((await client.descriptor(config)).tree).toMatchObject({ update: merged.update.id, root: merged.update.root, conflicted: true });
   expect(running.overstoryd.execution.resolve(token)).toBeUndefined();
-  expect((await client.access(bobProfileTree)).policy).toEqual(accepted.access.map(safeResourceRule));
+  expect(readTreeConfigGraph((await client.treeConfiguration(bobProfileTree)).snapshot, "person", bobProfileTree).access).toEqual(accepted.access);
   const page = await client.conflicts(config, merged.update.id, merged.update.root);
   expect(page.decisions).toHaveLength(1);
   const resolves = page.decisions.map(d => ({ state: merged.update.id, conflict: d.id, alternatives: d.alternatives.map(a => a.id) }));
@@ -600,17 +600,17 @@ test("concurrent policy narrowing is accepted restrictively until exact administ
   await expect(client.submitUpdate(config, merged.update.id, policy(["write"]), { ifCurrent: merged.update.id, resolves })).rejects.toThrow();
 });
 
-test("access metadata exposes a tree's redacted rules to its administrators only", async () => {
+test("there is no access route: administrators read access.yaml from the configuration tree, and no one else can", async () => {
   const client = await deviceClient(running.url, bobCredential, { profileTree: bobProfileTree });
   const digest = `sha256:${"a".repeat(64)}`;
   await editBob(client, (values) => ({ ...values, access: [...values.access, { who: { link: digest }, app: "tr_supplies", allow: ["read"] }] }));
-  const visible = await client.access(bobProfileTree);
-  expect(visible.policy).toContainEqual({ who: { link: true }, app: "tr_supplies", allow: ["read"] });
-  expect(JSON.stringify(visible)).not.toContain(digest);
-  await expect(owner.access(bobProfileTree)).rejects.toThrow();
+  expect((await fetch(`${running.url}/.overstory/trees/${bobProfileTree}/access`)).status).toBe(404);
+  const rules = readTreeConfigGraph((await client.treeConfiguration(bobProfileTree)).snapshot, "person", bobProfileTree).access;
+  expect(rules).toContainEqual({ who: { link: digest }, app: "tr_supplies", allow: ["read"] });
+  await expect(owner.treeConfiguration(bobProfileTree)).rejects.toThrow();
   const token = running.overstoryd.execution.issue({ code: "tr_supplies", version: "v1", caller: bobProfileTree, subject: "bob", expiresAt: Date.now() + 60000, active: () => true,
     grants: [{ lender: null, tree: bobProfileTree, within: "/", allow: ["read"] }] });
-  await expect(new ProtocolClient(running.url, token).access(bobProfileTree)).rejects.toThrow();
+  await expect(new ProtocolClient(running.url, token).treeConfiguration(bobProfileTree)).rejects.toThrow();
   await expect(new ProtocolClient(running.url, token).account()).rejects.toThrow();
 });
 

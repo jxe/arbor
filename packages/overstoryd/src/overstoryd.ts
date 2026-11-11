@@ -1748,11 +1748,6 @@ export class HostDaemon implements AsyncDisposable {
     return this.access.directExecution(account, tree, subject, active, linkDigest);
   }
 
-  /** A tree's rules as its administrators see them; links redacted. */
-  resourcePolicy(account: HostAccount, tree: string) {
-    return this.canAdminister(account, tree) ? this.access.safePolicy(tree) : undefined;
-  }
-
   /** Every profile an `access.yaml` rule of the tree names, whatever its
    * scope, app or operations. */
   ruleProfiles(tree: string): string[] {

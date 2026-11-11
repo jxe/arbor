@@ -544,10 +544,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const replayed = await client.submitUpdate(treeID, null, initial, { change: activationChange, at: TEST_TIME });
       expect(replayed.outcome).toBe("accepted");
       expect(replayed.update).toEqual(activated.update);
-      const access = await client.access(treeID);
-      expect(Object.keys(access).sort()).toEqual(["locators", "policy"]);
-      // A link subject is redacted.
-      expect(access.policy).toContainEqual({ who: { link: true }, allow: ["read"] });
+      // Its administrators read the rules from its configuration; there is no access route.
+      expect(readTreeConfigGraph((await client.treeConfiguration(treeID)).snapshot, "tree", treeID).access).toContainEqual({ who: { link: `sha256:${sha256(linkSecret)}` }, allow: ["read"] });
       const refURL = `${running.url}/.overstory/trees/${treeID}`;
       expect((await fetch(refURL)).status).toBe(404);
       expect((await fetch(refURL, { headers: { "X-Overstory-Access": linkSecret } })).status).toBe(404);

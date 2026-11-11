@@ -3,7 +3,7 @@ import { MergeWorkerError } from "./merge-tool.ts";
 import { EntryTimesBehind } from "./updates/entry-times.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
-import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH, validateAccountChallenge } from "@ovst/protocol";
+import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, DOMAIN_PROFILE_PATH, validateAccountChallenge } from "@ovst/protocol";
 import { canonicalNodePath, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
@@ -744,24 +744,6 @@ export async function serveHost(options: {
             account: accountDescriptor(publicOrigin, overstoryd, result.account),
             configuration: descriptorWithUpdate(publicOrigin, overstoryd, result.configuration, "write"),
           }, answerEncoding(request), 201);
-        }
-        const access = /^\/\.overstory\/trees\/([^/]+)\/access$/.exec(url.pathname);
-        if (access) {
-          const treeID = hostedReference(access[1]!).id;
-          if (request.method === "GET") {
-            // Only administrators read a tree's rules (access control §4),
-            // with each profile a rule names by TreeID shown by its locator.
-            const policy = overstoryd.resourcePolicy(requireAccount(authentication), treeID);
-            if (!policy) return protocolError("not-found", "Tree not found", 404);
-            const locators: Record<string, string> = {};
-            for (const profile of overstoryd.ruleProfiles(treeID)) {
-              const tree = isTreeID(profile) ? overstoryd.get(profile) : null;
-              const locator = tree ? overstoryLocator(publicOrigin, tree) : null;
-              if (locator) locators[profile] = locator;
-            }
-            return json({ policy, locators });
-          }
-          return methodNotAllowed();
         }
         const wellKnown = url.pathname === "/.well-known/overstory"
           ? "/"
