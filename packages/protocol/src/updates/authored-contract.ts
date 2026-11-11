@@ -43,7 +43,7 @@ export type RowOperation = { key: string } & RowTarget & (
 /** Property operations on a page (spec 10 §4.1): `page` is an entry
  * reference, never ranged, to a page entry; `field` names any property but
  * `id`. Values are page values in their JSON spelling (`pageValueJSON`). */
-export type PageOperation = { key: string; page: MaterialRef } & (
+export type PageOperation = { key: string; page: MaterialRef; at?: string } & (
   | { kind: "set"; field: string; before: PageValueJSON; value: PageValueJSON }
   | { kind: "connect" | "disconnect"; field: string; member: PageValueJSON }
   | { kind: "move"; field: string; member: PageValueJSON; after: PageValueJSON | null }
@@ -238,7 +238,9 @@ function operation(raw: unknown): AuthoredOperation {
     }
     case "set": case "connect": case "disconnect": case "move": if (Object.hasOwn(v, "page")) {
       const fields = { set: ["field", "before", "value"], connect: ["field", "member"], disconnect: ["field", "member"], move: ["field", "member", "after"] }[v.kind as PageOperation["kind"]];
-      keys(v, ["key", "kind", "page", ...fields]); reference(v.page, true);
+      keys(v, ["key", "kind", "page", ...fields], ["at"]); reference(v.page, true);
+      // Allowed as on any property operation, though a page keeps no time of its own (§4.1).
+      if (Object.hasOwn(v, "at")) require(typeof v.at === "string" && ROW_TIME.test(v.at) && Number.isFinite(Date.parse(v.at)));
       text(v.field, 4096); require(v.field.length && v.field !== "id" && !v.field.includes("\0"));
       for (const value of [v.before, v.value, v.member, v.after]) if (value !== undefined) { json(value); pageValueFromJSON(value); }
       if (v.kind === "move" && v.after !== null) require(JSON.stringify(v.after) !== JSON.stringify(v.member));
@@ -321,7 +323,11 @@ export function decodeAuthoredCandidateIntent(raw: unknown): DerivableUpdateInte
       // One key names one authored contribution of this change, so it is unique
       // across the whole trace and a later frame may reference an earlier one.
       const operations = f.operations.map(operation);
-      for (const op of operations) { require(!seen.has(op.key)); seen.add(op.key); }
+      for (const op of operations) {
+        require(!seen.has(op.key)); seen.add(op.key);
+        // A property operation's own `at` is never later than its update's.
+        if (typeof (op as { at?: unknown }).at === "string" && isPropertyOperation(op)) require(Date.parse((op as { at: string }).at) <= Date.parse(u.at));
+      }
       frames.push({ ...(Object.hasOwn(f, "before") ? { before: f.before } : {}), ...(Object.hasOwn(f, "after") ? { after: f.after } : {}), operations });
     }
     require(u.trace.length === 0 || (previous ?? null) === u.candidate);

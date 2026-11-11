@@ -98,6 +98,9 @@ describe("page property operations", () => {
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "id", before: null, value: "x" }))).toThrow();
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: { ...ref, range: [0, 1] }, field: "t", before: null, value: "x" }))).toThrow();
     expect(() => decodeAuthoredCandidateIntent(frame({ kind: "rowCreate", page: ref, values: {} }))).toThrow();
+    // A stated `at` is allowed, but never later than its update's.
+    expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "t", before: null, value: "x", at: new Date(TEST_AT).toISOString() }))).not.toThrow();
+    expect(() => decodeAuthoredCandidateIntent(frame({ kind: "set", page: ref, field: "t", before: null, value: "x", at: new Date(TEST_AT + 1).toISOString() }))).toThrow();
   });
 });
 
