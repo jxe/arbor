@@ -30,8 +30,8 @@ laptop, with its key, as the first administrator device. The server derives the 
 Profile TreeID from the supplied public key, verifies the target-bound
 signature locally, and in one transaction creates the account and the
 configuration and declares the profile tree. It receives no profile bytes yet
-([accounts §1.1–1.2](3.2-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](3.2-accounts-and-devices.md#1-profiles-and-host-accounts),
-[configuration graph](3.2-accounts-and-devices.md#2-tree-configuration-graph)).
+([accounts §1.1–1.2](3.1-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](3.1-accounts-and-devices.md#1-profiles-and-host-accounts),
+[configuration graph](3.1-accounts-and-devices.md#2-tree-configuration-graph)).
 
 ## 2. Declare a tree
 
@@ -46,9 +46,9 @@ Joe also has an ordinary folder, `~/projects/atlas`. The laptop generates a fres
 `atlas: tr_…` to his profile's `mounts.yaml`, and records the local folder
 separately in `~/.story/placements.yaml`. The server validates each candidate
 under the `tree-config-v1` policy and reserves the tree; nothing is readable
-yet ([configuration YAML](3.2-accounts-and-devices.md#3-configuration-yaml),
-[accounts and devices §6](3.2-accounts-and-devices.md#6-governed-configuration-trees),
-[accounts and devices §5](3.2-accounts-and-devices.md#5-declaring-activating-and-mounting-a-tree)).
+yet ([configuration YAML](3.1-accounts-and-devices.md#3-configuration-yaml),
+[accounts and devices §6](3.1-accounts-and-devices.md#6-governed-configuration-trees),
+[accounts and devices §5](3.1-accounts-and-devices.md#5-declaring-activating-and-mounting-a-tree)).
 
 ## 3. Activate it
 
@@ -62,7 +62,7 @@ and makes the tree's descriptor and accepted snapshot readable in the same
 commit.
 `https://garden.example/~joe/atlas` and `overstory://tr_…/` now resolve to the
 same tree ([snapshot](1.2-tree-protocol.md#112-reading-an-accepted-snapshot),
-[locator forms](3.1-locators.md#1-forms), [canonical lookup](3.1-locators.md#5-finding-trees)).
+[locator forms](1.6-locators.md#1-forms), [canonical lookup](1.6-locators.md#5-finding-trees)).
 
 ## 4. Edit a file
 
@@ -110,7 +110,7 @@ operations, and the authority replays them and recomputes the model
 fingerprint and the collection's logical hash
 ([what the tree holds](1.4-collections.md#21-what-the-tree-holds)).
 Each row has an ordinary public address such as
-`/~joe/atlas/practices/walking;overstory-key=…` ([reading at the canonical URL](3.1-locators.md#6-reading-at-the-canonical-url)).
+`/~joe/atlas/practices/walking;overstory-key=…` ([reading at the canonical URL](1.6-locators.md#6-reading-at-the-canonical-url)).
 
 ## 7. Query it from a page
 
@@ -159,4 +159,4 @@ moving the canonical URL to `https://garden.example/~joe/atlas-2026`. The
 `TreeID`, every stable key, every object, and the accepted history are
 unchanged; only the secondary lookup moved. `overstory://tr_…/practices/walking;overstory-key=…`
 still resolves, and Alice's placement keeps following the same tree
-([canonical lookup](3.1-locators.md#5-finding-trees), [equality](1.1-data-model.md#4-representation-and-model-equality)).
+([canonical lookup](1.6-locators.md#5-finding-trees), [equality](1.1-data-model.md#4-representation-and-model-equality)).

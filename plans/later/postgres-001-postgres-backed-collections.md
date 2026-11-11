@@ -110,7 +110,7 @@ Also moved out by Joe: Story Sync's Postgres provider today connects directly, r
 and pages by offset (which spec 06 §1.2 forbids for live data); none of this projection exists.
 
 A device placement may instead request a private SQLite projection in its
-[accounts and devices](../../docs/overstory-spec/3.2-accounts-and-devices.md):
+[accounts and devices](../../docs/overstory-spec/3.1-accounts-and-devices.md):
 
 ```yaml
 projection:

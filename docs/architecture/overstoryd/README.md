@@ -46,7 +46,7 @@ configurations have their shape, and the tests for each refused case, are in
   `access.yaml` to change that.
 - **Accounts.** A community `members` entry's `handle` reserves `/~handle`
   for exactly that entry's person Profile TreeID; that person claims the
-  account with their profile key ([accounts and devices §1.2](../../overstory-spec/3.2-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
+  account with their profile key ([accounts and devices §1.2](../../overstory-spec/3.1-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)).
   A pending `handle` plus `inviteDigest` reserves the address without granting
   membership. A claimant presents the matching random code and proves their
   newly created Profile TreeID with the same profile-key signature. Claim
@@ -62,7 +62,7 @@ configurations have their shape, and the tests for each refused case, are in
   every other mount below its parent's boundary. The root's `mounts.yaml`
   holds its other top-level names and may not name a reserved or claimed
   `~handle`. Mounting a tree requires administering both parent and child
-  ([accounts and devices §3.1](../../overstory-spec/3.2-accounts-and-devices.md#31-who-may-edit-a-tree-configuration)),
+  ([accounts and devices §3.1](../../overstory-spec/3.1-accounts-and-devices.md#31-who-may-edit-a-tree-configuration)),
   so "below your own `/~handle`" is "administer your profile", and a free
   top-level name needs a root administrator.
 - **One rule for `/~name`.** A name is either a person's (reserved or
@@ -129,7 +129,7 @@ configurations have their shape, and the tests for each refused case, are in
   (`publishedDeviceKeys`; accounts §5.4): the listed, unrevoked devices'
   DeviceIDs, keys and administrator flags, never labels.
 - **Placement role.** overstoryd is also a placement host
-  ([accounts §1.3, §1.3](../../overstory-spec/3.2-accounts-and-devices.md#13-placement-accounts)).
+  ([accounts §1.3, §1.3](../../overstory-spec/3.1-accounts-and-devices.md#13-placement-accounts)).
   A placement account is an `accounts` row whose `home_host` names the
   profile's home origin (NULL for a home account, schema 27 (`packages/overstoryd/migrations/027-placement-accounts/README.md` at `66a76f5`)).
   There is no placement claim: a community member naming a profile by its
@@ -177,7 +177,7 @@ configurations have their shape, and the tests for each refused case, are in
   its home (`executionAllows` in `access.ts`).
 - **Pinned locators.** A profile another host holds is named by its
   canonical locator there, in a rule's `who.profile` or a group's member
-  ([locators §1](../../overstory-spec/3.1-locators.md#1-forms);
+  ([locators §1](../../overstory-spec/1.6-locators.md#1-forms);
   `parseProfileLocator` in `@ovst/protocol`). `LocatorPins` in
   `locator-pins.ts` keeps, per tree whose configuration names a locator,
   the Profile TreeID it first resolved to (`profile_locator_pins`, schema
@@ -194,7 +194,7 @@ configurations have their shape, and the tests for each refused case, are in
   through `pinnedProfile` in the rule context (`subjectProfile`).
 - **Remote groups.** A locator subject whose pinned TreeID is a group
   overstoryd does not hold
-  ([access control §3.4](../../overstory-spec/3.3-access-control.md#34-groups-another-host-holds))
+  ([access control §3.4](../../overstory-spec/3.2-access-control.md#34-groups-another-host-holds))
   matches through an in-memory copy of that group's members at the
   locator's origin (`RemoteGroups` in `remote-groups.ts`, `isGroupMember`
   in `access.ts`). A plain `http:` loopback origin is read only when overstoryd

@@ -164,7 +164,7 @@ GET /.overstory/trees/{TreeID}/history/{update}?path={logical-path}
 GET /.overstory/trees/{TreeID}/blame?path={logical-path}&at={accepted-update-id}
 ```
 
-Freeze in `docs/overstory-spec/1.2-tree-protocol.md` and `3.3-access-control.md`:
+Freeze in `docs/overstory-spec/1.2-tree-protocol.md` and `3.2-access-control.md`:
 
 1. The server resolves `path` in the current accepted root to the page's node, then reads
    by node id.

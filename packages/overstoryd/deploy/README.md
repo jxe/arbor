@@ -198,7 +198,7 @@ invite list`, `renew` and `cancel` manage pending ones). Either way it is one
 ### People's own domains
 
 A person can have the host serve their trees at a domain they own
-([locators §5.1](../../../docs/overstory-spec/3.1-locators.md#51-trees-at-a-persons-domain)):
+([locators §5.1](../../../docs/overstory-spec/1.6-locators.md#51-trees-at-a-persons-domain)):
 they list it in their profile's `domains` and point it at the host with a CNAME
 (`story me domain <domain>` prints it). The host serves the domain once
 `https://<domain>/.overstory/domain-check` answers with its own token, checked on the

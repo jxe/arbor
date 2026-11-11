@@ -11,7 +11,7 @@ sidecar is [`@ovst/overstoryd-exec`](../../../packages/overstoryd-exec/src/sidec
 host runs it only when `OVERSTORYD_ACTIVATIONS` names modules to run; otherwise the views
 and mutate routes answer `unsupported-operation`. Portable contracts are in
 [executable documents](../../overstory-spec/5.1-executable-documents.md#8-host-and-server-boundaries)
-and [execution tokens](../../overstory-spec/3.3-access-control.md#21-execution-tokens).
+and [execution tokens](../../overstory-spec/3.2-access-control.md#21-execution-tokens).
 
 ## Who owns what
 

@@ -56,7 +56,7 @@ observation, and a 1,024-event in-memory SSE replay buffer; a restart changes
 the event epoch and clients resynchronize. Private paths are documented for
 maintainers and migration tooling only, in [the local system](data-home.md);
 other implementations may choose a different layout. The synchronized
-[tree configuration](../../overstory-spec/3.2-accounts-and-devices.md#3-configuration-yaml)
+[tree configuration](../../overstory-spec/3.1-accounts-and-devices.md#3-configuration-yaml)
 contract is normative.
 
 See [the data home](data-home.md), [CLI reference](../../getting-started/cli.md), and [loopback API](../../implementing-sync-services/story-sync-api.md). Agents working in placed folders appear in presence through [agents](agents.md).

@@ -281,7 +281,7 @@ multiplayer often means adding operational transforms or CRDTs, presence
 servers, and conflict UX. Here, a component rendered over a shared Overstory tree
 can reuse the tree's synchronization and conflict semantics instead of
 inventing another data plane. The one ephemeral exception is
-[presence](../overstory-spec/3.4-presence.md), who is on which page right now,
+[presence](../overstory-spec/1.8-presence.md), who is on which page right now,
 which a host relays and never keeps.
 
 **Per-app identity can be replaced.** The web makes you an account at every

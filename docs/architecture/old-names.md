@@ -35,16 +35,16 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 
 | Old chapter | Now |
 |---|---|
-| 01 tree operations | [data model](../overstory-spec/1.1-data-model.md) (the model, objects, entry times, CBOR) and [tree protocol](../overstory-spec/1.2-tree-protocol.md) (reads, watch, updates, encodings); §1.3 canonical-URL reads moved to [locators §6](../overstory-spec/3.1-locators.md#6-reading-at-the-canonical-url), §3 editor round trip to [working trees](../overstory-spec/2.1-working-trees.md) |
-| 02 directory format | [data model §8–11](../overstory-spec/1.1-data-model.md) (bodies, pages, recognized and reserved names), [placements on disk](../overstory-spec/2.2-placements-on-disk.md) (frontmatter on disk, membership), [presenting pages](../overstory-spec/4.2-presenting-pages.md) (§4) |
-| 03 locators | [locators](../overstory-spec/3.1-locators.md) |
-| 04 accounts and devices | [accounts and devices](../overstory-spec/3.2-accounts-and-devices.md); §4 local placements moved to [client library §4](../overstory-spec/4.1-client-library.md#4-local-placements) |
-| 05 access control | [access control](../overstory-spec/3.3-access-control.md) |
+| 01 tree operations | [data model](../overstory-spec/1.1-data-model.md) (the model, objects, entry times, CBOR) and [tree protocol](../overstory-spec/1.2-tree-protocol.md) (reads, watch, updates, encodings); §1.3 canonical-URL reads moved to [locators §6](../overstory-spec/1.6-locators.md#6-reading-at-the-canonical-url), §3 editor round trip to [working trees](../overstory-spec/2.1-working-trees.md) |
+| 02 directory format | [data model §8–11](../overstory-spec/1.1-data-model.md) (bodies, pages, recognized and reserved names), [placements on disk](../overstory-spec/2.2-placements-on-disk.md) (frontmatter on disk, membership), [presenting pages](../overstory-spec/1.7-presenting-pages.md) (§4) |
+| 03 locators | [locators](../overstory-spec/1.6-locators.md) |
+| 04 accounts and devices | [accounts and devices](../overstory-spec/3.1-accounts-and-devices.md); §4 local placements moved to [client library §4](../overstory-spec/4.1-client-library.md#4-local-placements) |
+| 05 access control | [access control](../overstory-spec/3.2-access-control.md) |
 | 06 child backings | [collections](../overstory-spec/1.4-collections.md) (§1–2.3, 2.5), [placements on disk §4–6](../overstory-spec/2.2-placements-on-disk.md) (projections, SQLite, migration), [external stores](../overstory-spec/5.3-external-stores.md) (§4), [executable documents](../overstory-spec/5.1-executable-documents.md) (§5–6) |
 | 07 executable documents | [executable documents](../overstory-spec/5.1-executable-documents.md) |
 | 08 authoring API | [authoring API](../overstory-spec/5.2-authoring-api.md) |
 | 09 client synchronization | [working trees](../overstory-spec/2.1-working-trees.md) |
 | 10 source intent | [source intent](../overstory-spec/1.3-source-intent.md) |
 | 11 schema language | [schema language](../overstory-spec/1.5-schema-language.md) |
-| 12 presence | [presence](../overstory-spec/3.4-presence.md) |
+| 12 presence | [presence](../overstory-spec/1.8-presence.md) |
 | implementing-sync-services/porting-a-client.md | [client library](../overstory-spec/4.1-client-library.md) |
