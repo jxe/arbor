@@ -26,7 +26,8 @@ the same time.
 1. **Object format** in `packages/protocol` and Swift StoryKit: directory entries with
    `created`/`modified` (Unix ms) on file and page entries; row `created`/`modified` as Unix ms;
    row `Date` values as tags 1004/0; `CandidateUpdate.at` and request digest domain
-   `arbor-update/3`. Regenerate the conformance vectors.
+   `overstory-update/1` (was `arbor-update/2`; the TreeID derivation domains
+   `arbor-person-profile-v1` and `arbor-tree-config-v1` stay, since TreeIDs outlive history). Regenerate the conformance vectors.
 2. **Stamping:** every writer sets `at` and stamps the entries it creates or changes: Story
    (Swift), Story Sync, the CLI and working-tree. Renames, moves and file-page conversions keep
    both times. Derived candidates derive with `at`.

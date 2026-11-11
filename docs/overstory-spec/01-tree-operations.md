@@ -1205,7 +1205,7 @@ applied exactly becomes a new client-owned conflict before submission.
 
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
-of `{ domain: "arbor-update/3", tree, base, change, at, trace, candidate, resolves, ifCurrent }`,
+of `{ domain: "overstory-update/1", tree, base, change, at, trace, candidate, resolves, ifCurrent }`,
 with absent `ifCurrent` encoded as CBOR null, an omitted `trace` as CBOR null,
 an omitted `resolves` as an empty array, and a derived candidate's
 `candidate` as CBOR null. Omitting a field and sending its default therefore
@@ -1214,8 +1214,7 @@ give the same digest. Execution is deterministic (an update and each row operati
 including each frame's `before` and `after` as stated or omitted, so the same operations divided into
 different frames are a different change. Ordered arrays retain their submitted
 order, including resolution declarations and reviewed alternative IDs. Identity is
-scoped to the authenticated device, across its sessions. The `domain` string is
-a historical spelling that is part of the hashed bytes.
+scoped to the authenticated device, across its sessions.
 For the first element, `base` is the request's accepted update id or `null`.
 For each later element, `base` is
 `{ requestDigest: previousDigest, candidate: previousCandidate }`, where a
