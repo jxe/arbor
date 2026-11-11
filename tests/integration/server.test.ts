@@ -270,8 +270,8 @@ describe("story-sync object route (the standard read on loopback)", () => {
   });
 
   test("serves objects held only by a pending local change", async () => {
-    const { hashObject, encodeCandidateUpdateJSON } = await import("@ovst/protocol");
-    const { snapshotJSON } = await import("@ovst/working-tree");
+    const { hashObject } = await import("@ovst/protocol");
+    const { snapshotJSON, localUpdate } = await import("@ovst/working-tree");
     const { ChangeLog } = await import("@ovst/working-tree/node");
     const { folderStateRoot } = await import("../../packages/story-sync/src/folder-sync.ts");
     const bytes = new TextEncoder().encode("pending-only-object");
@@ -283,7 +283,7 @@ describe("story-sync object route (the standard read on loopback)", () => {
     await log.retain({ change, tree: scope, basis: { kind: "accepted", root: emptyHash, update: "up_pending_fixture" },
       graph: snapshotJSON({ root: emptyHash, objects: new Map([[emptyHash, empty]]) }), sourcePath: null, document: null,
       candidate: snapshotJSON({ root: directoryHash, objects: new Map([[directoryHash, directory], [hash, bytes]]) }),
-      update: encodeCandidateUpdateJSON({ at: TEST_TIME, change, candidate: directoryHash, trace: null, resolves: [], deltas: [],
+      update: localUpdate({ at: TEST_TIME, change, candidate: directoryHash, trace: null, resolves: [], deltas: [],
         objects: [{ hash: directoryHash, bytes: directory }, { hash, bytes }].sort((a, b) => a.hash.localeCompare(b.hash)) }) });
     try {
       expect(await (await loopbackReads()).object(scope, hash)).toEqual(bytes);

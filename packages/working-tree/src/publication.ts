@@ -1,16 +1,17 @@
-import { composeSourceEdits, deriveTrace, entryTimeOf, type ObjectHash, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolDirectoryEntry, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
+import { composeSourceEdits, deriveTrace, entryTimeOf, type ObjectHash, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolDirectoryEntry, type ProtocolObjectKind, type SourceOperation } from "@ovst/protocol";
+import type { LocalUpdate } from "./local-change.ts";
 import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 
 /** Immutable wire identity plus the durable local records/results it covers. */
 export interface ChangePublication {
   changes: string[];
-  update: CandidateUpdateJSON;
+  update: LocalUpdate;
   operations: Record<string, Record<string, string>>;
 }
 const identity = (prefix: string, changes: string[]) => prefix + hashObject(new TextEncoder().encode(JSON.stringify(changes))).replace("sha256:", "");
 
-type Frame = NonNullable<CandidateUpdateJSON["trace"]>[number];
+type Frame = NonNullable<LocalUpdate["trace"]>[number];
 
 /** Compose the same original span through repeated pure moves, by provenance
  * coordinates. Equal text at a different position never identifies that span. */
@@ -357,7 +358,7 @@ export function branchPublications(group: ChangePublication, shared: number, bra
  * The value of an added or replaced entry is kept, because execution reads
  * it rather than producing it. Snapshots and resolutions are left as
  * they are. */
-export function dropIntermediates(update: CandidateUpdateJSON, candidate: LocalChange["candidate"]): CandidateUpdateJSON {
+export function dropIntermediates(update: LocalUpdate, candidate: LocalChange["candidate"]): LocalUpdate {
   if (!update.trace || update.resolves.length || !update.objects.length) return update;
   const envelopes = new Map(update.objects.map(object => [object.hash, object.bytes]));
   const after = decodeTreeSnapshotJSON(candidate).objects, deltas = new Set(update.deltas.map(delta => delta.result));
@@ -386,7 +387,7 @@ export function dropIntermediates(update: CandidateUpdateJSON, candidate: LocalC
 
 /** Compress final reachable envelopes against the element's basis graph.
  * Transport matching never establishes semantic provenance. */
-export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange["graph"], candidate: LocalChange["candidate"]): CandidateUpdateJSON {
+export function compactTransport(update: LocalUpdate, basis: LocalChange["graph"], candidate: LocalChange["candidate"]): LocalUpdate {
   update = dropIntermediates(update, candidate);
   if (!update.objects.length) return update;
   const before = decodeTreeSnapshotJSON(basis).objects, after = decodeTreeSnapshotJSON(candidate).objects;
@@ -429,7 +430,7 @@ export function compactTransport(update: CandidateUpdateJSON, basis: LocalChange
  * replayed here (row operations, which need a collection replay), so the
  * update goes as it is.
  */
-export async function restampUpdate(update: CandidateUpdateJSON, basis: string, load: (hash: string) => Promise<Uint8Array>): Promise<{ update: CandidateUpdateJSON; generated: Map<string, Uint8Array> } | undefined> {
+export async function restampUpdate(update: LocalUpdate, basis: string, load: (hash: string) => Promise<Uint8Array>): Promise<{ update: LocalUpdate; generated: Map<string, Uint8Array> } | undefined> {
   if (!update.trace?.length) return;
   let derived: Awaited<ReturnType<typeof deriveTrace>>;
   try {

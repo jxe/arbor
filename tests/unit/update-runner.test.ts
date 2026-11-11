@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, updateRequestDigests, protocolEntryObject,
   ProtocolTransportError, ProtocolUnsupportedOperation, ProtocolUpdateConflict, type AcceptedUpdate, type CurrentTree, type TreeSnapshot,
-  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, encodeCandidateUpdateJSON, type ProtocolEntryKind } from "@ovst/protocol";
-import { prepareSourceChange, type LocalChange, UpdateCoordinator, type UpdateTransport } from "@ovst/working-tree";
+  decodeUpdateRequestJSON, decodeTreeSnapshotJSON, type UpdateRequest, type UpdateResponse, type UpdateResult, type WireEncoding, encodeBase64, encodeUpdateRequestJSON, encodeTreeSnapshotJSON, type ProtocolEntryKind } from "@ovst/protocol";
+import { localUpdate, wireUpdate, prepareSourceChange, type LocalChange, UpdateCoordinator, type UpdateTransport } from "@ovst/working-tree";
 import { publication } from "../../packages/working-tree/src/publication.ts";
 import { attemptRequest, type UpdateAttempt } from "../../packages/working-tree/src/control.ts";
 import { ChangeLog, FileControlStore } from "@ovst/working-tree/node";
@@ -226,7 +226,7 @@ test.each(["resolution", "guard", "ordinary"] as const)("unchanged-root %s prese
     const resolves = kind === "resolution" ? [{ state: "up_initial", conflict: "choice", alternatives: ["left", "right"] }] : [];
     await log.retain({ change: "keep-current", tree: TREE, basis: { kind: "accepted", root: initial.root, update: "up_initial" },
       graph, candidate: graph, sourcePath: null, document: null,
-      update: encodeCandidateUpdateJSON({ at: TEST_TIME, change: "keep-current", candidate: initial.root, trace: null, resolves,
+      update: localUpdate({ at: TEST_TIME, change: "keep-current", candidate: initial.root, trace: null, resolves,
         ...(kind === "guard" ? { ifCurrent: "up_initial" } : {}), objects: [], deltas: [] }) });
     await coordinator.noteLocalChange();
     await coordinator.syncOnce();
@@ -261,7 +261,7 @@ for (const frozen of [false, true]) test(`branched publication ${frozen ? "recov
     await log.compact(new Set([a.change, b.change]), false, [[a.change, b.change]]);
     expect((await log.retained()).map(record => record.change)).toEqual(["a", "b", "c"]);
     const group = publication([a,b], [])!;
-    const response = await host.submitUpdates(TREE, decodeUpdateRequestJSON({base: "up_initial", updates: [group.update]}));
+    const response = await host.submitUpdates(TREE, decodeUpdateRequestJSON({base: "up_initial", updates: [wireUpdate(group.update)]}));
     await working.install({root: group.update.candidate, update: response.head.update}, {root: group.update.candidate, object: hash => host.object(TREE, hash), snapshot: async () => decodeTreeSnapshotJSON(b.candidate)});
     await store.write({schema: 5, settled: [a.change,b.change], publications: [group]}, "current");
   }

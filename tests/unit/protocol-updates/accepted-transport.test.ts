@@ -1,29 +1,30 @@
 import { expect, test } from "bun:test";
 import { applyObjectDelta } from "../../../packages/protocol/src/updates/apply.ts";
-import { encodeAcceptedTransitionJSON, decodeUpdateResponseJSON, encodeUpdateResponseJSON, decodeObjectEnvelopes, verifyTreeSnapshotGraph } from "../../../packages/protocol/src/updates/json.ts";
+import { decodeUpdateResponseJSON, encodeUpdateResponseJSON, decodeObjectEnvelopes, verifyTreeSnapshotGraph } from "../../../packages/protocol/src/updates/json.ts";
 import { hashObject, type ObjectHash } from "../../../packages/protocol/src/objects.ts";
 import type { AcceptedTransition } from "../../../packages/protocol/src/updates/types.ts";
 import vectors from "../../../docs/overstory-spec/conformance/protocol-accepted-transport.json";
-import { decodeAcceptedWatchChange } from "../../../packages/protocol/src/updates/accepted-contract.ts";
+import { decodeAcceptedWatchChange, encodeAcceptedWatchChange } from "../../../packages/protocol/src/updates/accepted-contract.ts";
 
 type StateLink = { id: string; root: string };
 
 /** A watch case is a run of frames: each one transition, whose basis is the one before it. */
-function decodeFrames(frames: unknown[], basis: StateLink | undefined): AcceptedTransition[] {
+function decodeChanges(frames: unknown[], basis: StateLink | undefined) {
   return frames.map((frame) => {
-    const { transition } = decodeAcceptedWatchChange(frame, vectors.tree, basis);
-    basis = { id: transition.update.id, root: transition.update.root };
-    return transition;
+    const change = decodeAcceptedWatchChange(frame, vectors.tree, basis);
+    basis = { id: change.transition.update.id, root: change.transition.update.root };
+    return change;
   });
 }
+const decodeFrames = (frames: unknown[], basis: StateLink | undefined): AcceptedTransition[] => decodeChanges(frames, basis).map(change => change.transition);
 
 for (const c of vectors.cases) test(`accepted transport: ${c.name}`, () => {
   const value = structuredClone(c.value) as any;
   const decode = () => {
     // Decoding then encoding again must reproduce the vector exactly.
     if (c.kind === "watch") {
-      const transitions = decodeFrames(value, c.basis);
-      return value.map((frame: object, index: number) => ({ ...frame, transition: encodeAcceptedTransitionJSON(transitions[index]!) }));
+      // Unknown frame members stay data beside the decoded change.
+      return decodeChanges(value, c.basis).map((change, index) => ({ ...value[index], ...encodeAcceptedWatchChange(change) }));
     }
     return encodeUpdateResponseJSON(decodeUpdateResponseJSON(value));
   };

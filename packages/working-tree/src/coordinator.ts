@@ -3,7 +3,7 @@ import { applyTransitionPayload, AuthoredContractError, decodeBase64, decodeTree
 import { attemptEncoding, attemptRequest, emptyControl, encodeAttempt, verifyAttempt, UpdateStateError, UpdateValidationError,
   type ControlStore, type UpdateAttempt, type UpdateControl } from "./control.ts";
 import { compactTransport, dropIntermediates, branchPublications, publication, restampUpdate, type ChangePublication } from "./publication.ts";
-import { equal, type LocalChange } from "./local-change.ts";
+import { equal, wireUpdate, type LocalChange, type LocalUpdate } from "./local-change.ts";
 import { memorySource, ObjectSourceChain } from "@ovst/object-store/sources";
 import { reduceUpdate, type AcceptedBase, type AuthorityResult, type HeldReason, type LocalTip, type PreparedRequest,
   type UpdateEffect, type UpdateEvent, type UpdateOptions, type UpdateState } from "./update-machine.ts";
@@ -353,8 +353,8 @@ export class UpdateCoordinator {
     }
     try {
       const prepared = await this.log.request(tip.change, this.settledSet());
-      prepared.request = await this.composePublication(prepared.request);
-      const attempt = encodeAttempt(this.tree, prepared.base, prepared.request);
+      const composed = await this.composePublication(prepared.request);
+      const attempt = encodeAttempt(this.tree, prepared.base, { base: composed.base, updates: (composed.updates as LocalUpdate[]).map(wireUpdate) });
       this.control.attempt = attempt;
       this.control.attemptTip = tip.change;
       await this.writeControl();

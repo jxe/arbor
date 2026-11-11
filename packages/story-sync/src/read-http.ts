@@ -1,6 +1,6 @@
 import {
   decodePathReadPath,
-  encodeAcceptedTransitionJSON,
+  encodeAcceptedWatchChange,
   encodePathReadBundle,
   encodePathReadPath,
   encodeSnapshotBundle,
@@ -118,7 +118,7 @@ export function readHandler(service: ReadHTTPService) {
             controller.enqueue(encoder.encode(encodeSSEFrame({
               id: event.cursor,
               event: "tree.update",
-              data: { transition: encodeAcceptedTransitionJSON(event.transition), access: event.access, canonical: event.canonical },
+              data: encodeAcceptedWatchChange({ transition: event.transition, access: event.access, canonical: event.canonical }),
             })));
           } catch (error) {
             if (abort.signal.aborted) return controller.close();

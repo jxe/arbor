@@ -20,52 +20,39 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -81,64 +68,55 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [
-              {
-                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
-                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "instructions": [
-                  {
-                    "copy": [
-                      0,
-                      13
-                    ]
-                  },
-                  {
-                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
-                  }
-                ]
-              }
-            ],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "deltas": [
+            {
+              "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+              "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+              "instructions": [
+                {
+                  "copy": [
+                    0,
+                    13
+                  ]
+                },
+                {
+                  "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                }
+              ]
+            }
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -154,21 +132,17 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
@@ -203,9 +177,7 @@
                 "acceptedAt": 1,
                 "subject": null,
                 "conflicted": true
-              },
-              "objects": [],
-              "deltas": []
+              }
             },
             {
               "update": {
@@ -221,16 +193,9 @@
                 "conflicted": true
               },
               "objects": [
-                {
-                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-                },
-                {
-                  "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-                }
+                "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
               ],
-              "deltas": [],
               "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
             }
           ],
@@ -249,21 +214,17 @@
       },
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "admin",
           "canonical": null
@@ -292,16 +253,9 @@
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "reconciliation": {
               "objects": [
-                {
-                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-                },
-                {
-                  "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-                }
-              ],
-              "deltas": []
+                "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+              ]
             }
           }
         ],
@@ -336,16 +290,9 @@
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "reconciliation": {
               "objects": [
-                {
-                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-                },
-                {
-                  "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-                }
-              ],
-              "deltas": []
+                "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+              ]
             }
           }
         ],
@@ -380,16 +327,9 @@
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "reconciliation": {
               "objects": [
-                {
-                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-                },
-                {
-                  "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-                }
-              ],
-              "deltas": []
+                "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+              ]
             }
           }
         ],
@@ -424,16 +364,9 @@
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "reconciliation": {
               "objects": [
-                {
-                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-                },
-                {
-                  "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-                }
-              ],
-              "deltas": []
+                "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+              ]
             }
           }
         ]
@@ -462,16 +395,9 @@
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "reconciliation": {
               "objects": [
-                {
-                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-                },
-                {
-                  "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-                }
-              ],
-              "deltas": []
+                "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+              ]
             }
           },
           {
@@ -505,21 +431,17 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null,
@@ -528,35 +450,26 @@
           }
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true,
-              "futureProvenance": {
-                "anything": true
-              }
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true,
+            "futureProvenance": {
+              "anything": true
+            }
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -572,52 +485,39 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "wrong",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "wrong",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -633,32 +533,23 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -674,51 +565,38 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
@@ -735,52 +613,39 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -796,52 +661,39 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -857,52 +709,39 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "other",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "other",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -918,51 +757,38 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -978,109 +804,36 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": null,
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [],
-            "deltas": []
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": null,
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          },
-          "access": "write",
-          "canonical": null
-        }
-      ],
-      "valid": false,
-      "basis": {
-        "id": "accepted-before",
-        "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-      }
-    },
-    {
-      "name": "missing transport array rejected",
-      "kind": "watch",
-      "value": [
-        {
-          "transition": {
-            "update": {
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
               "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
-          "access": "write",
-          "canonical": null
-        },
-        {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -1096,117 +849,40 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              },
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          },
-          "access": "write",
-          "canonical": null
-        }
-      ],
-      "valid": false,
-      "basis": {
-        "id": "accepted-before",
-        "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-      }
-    },
-    {
-      "name": "wrong complete object bytes rejected",
-      "kind": "watch",
-      "value": [
-        {
-          "transition": {
-            "update": {
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
               "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
-          "access": "write",
-          "canonical": null
-        },
-        {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "YQ=="
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
-          },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA=",
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -1239,16 +915,9 @@
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "reconciliation": {
               "objects": [
-                {
-                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                  "bytes": "YR=="
-                },
-                {
-                  "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-                }
-              ],
-              "deltas": []
+                "YR==",
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+              ]
             }
           }
         ],
@@ -1315,16 +984,9 @@
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "reconciliation": {
               "objects": [
-                {
-                  "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                  "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-                },
-                {
-                  "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-                }
-              ],
-              "deltas": []
+                "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+              ]
             }
           }
         ],
@@ -1342,52 +1004,39 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "bad"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "bad",
           "access": "write",
           "canonical": null
         }
@@ -1403,79 +1052,70 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-é",
-              "tree": "transport-tree",
-              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
-              "previous": {
-                "id": "accepted-before",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-é",
+            "tree": "transport-tree",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
+            "previous": {
+              "id": "accepted-before",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [],
-            "deltas": []
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
           "access": "write",
           "canonical": null
         },
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [
-              {
-                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
-                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "instructions": [
-                  {
-                    "copy": [
-                      0,
-                      13
-                    ]
-                  },
-                  {
-                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
-                  }
-                ]
-              },
-              {
-                "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
-                "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "instructions": [
-                  {
-                    "copy": [
-                      0,
-                      13
-                    ]
-                  },
-                  {
-                    "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
-                  }
-                ]
-              }
-            ],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d"
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
           },
+          "objects": [
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "deltas": [
+            {
+              "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+              "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+              "instructions": [
+                {
+                  "copy": [
+                    0,
+                    13
+                  ]
+                },
+                {
+                  "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                }
+              ]
+            },
+            {
+              "base": "sha256:500a892bd7aaff71c7ae275eeeb2941e767ec954fb5932540308571c31ceaad9",
+              "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+              "instructions": [
+                {
+                  "copy": [
+                    0,
+                    13
+                  ]
+                },
+                {
+                  "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
+                }
+              ]
+            }
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "access": "write",
           "canonical": null
         }
@@ -1491,35 +1131,26 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
-            "from": {
-              "id": "accepted-before",
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-            }
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "from": {
+            "id": "accepted-before",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
           },
           "access": "write",
           "canonical": null
@@ -1536,35 +1167,26 @@
       "kind": "watch",
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
-            "from": {
-              "id": "wrong",
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-            }
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "from": {
+            "id": "wrong",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
           },
           "access": "write",
           "canonical": null
@@ -1579,6 +1201,116 @@
     {
       "name": "net catch-up rejects wrong basis root",
       "kind": "watch",
+      "value": [
+        {
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "from": {
+            "id": "accepted-before",
+            "root": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
+      }
+    },
+    {
+      "name": "net catch-up rejects self basis",
+      "kind": "watch",
+      "value": [
+        {
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "from": {
+            "id": "opaque-final",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
+          },
+          "access": "write",
+          "canonical": null
+        }
+      ],
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
+      }
+    },
+    {
+      "name": "net catch-up rejects null basis",
+      "kind": "watch",
+      "value": [
+        {
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
+            },
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          },
+          "objects": [
+            "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "from": null,
+          "access": "write",
+          "canonical": null
+        }
+      ],
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
+      }
+    },
+    {
+      "name": "a frame nested in transition is rejected (the form before Protocol 003)",
+      "kind": "watch",
+      "valid": false,
+      "basis": {
+        "id": "accepted-before",
+        "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
+      },
       "value": [
         {
           "transition": {
@@ -1608,105 +1340,55 @@
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "from": {
               "id": "accepted-before",
-              "root": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-            }
-          },
-          "access": "write",
-          "canonical": null
-        }
-      ],
-      "valid": false,
-      "basis": {
-        "id": "accepted-before",
-        "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-      }
-    },
-    {
-      "name": "net catch-up rejects self basis",
-      "kind": "watch",
-      "value": [
-        {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
-            },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
-            "from": {
-              "id": "opaque-final",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             }
           },
           "access": "write",
           "canonical": null
         }
-      ],
+      ]
+    },
+    {
+      "name": "objects as hash and bytes are rejected (the form before Protocol 003)",
+      "kind": "watch",
       "valid": false,
       "basis": {
         "id": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-      }
-    },
-    {
-      "name": "net catch-up rejects null basis",
-      "kind": "watch",
+      },
       "value": [
         {
-          "transition": {
-            "update": {
-              "id": "opaque-final",
-              "tree": "transport-tree",
-              "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-              "previous": {
-                "id": "opaque-é",
-                "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-              },
-              "acceptedAt": 1,
-              "subject": null,
-              "conflicted": true
+          "update": {
+            "id": "opaque-final",
+            "tree": "transport-tree",
+            "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+            "previous": {
+              "id": "opaque-é",
+              "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
-            "objects": [
-              {
-                "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
-                "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
-              },
-              {
-                "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-                "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
-              }
-            ],
-            "deltas": [],
-            "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
-            "from": null
+            "acceptedAt": 1,
+            "subject": null,
+            "conflicted": true
+          },
+          "objects": [
+            {
+              "hash": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
+              "bytes": "QSBwYXJhZ3JhcGguCkEgc2Vjb25kIHBhcmFncmFwaC4K"
+            },
+            {
+              "hash": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
+              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjU1ODk5NTM5Mjc4M2EwNGY5ZDNmOTVhNjM4MTQ2ZjNhYTg2YzdmMzRhZDEwZDgzMzUyNTZjNmMwNTRiNmMzYzZkbmFtZWdwYWdlLm1kZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cA="
+            }
+          ],
+          "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
+          "from": {
+            "id": "accepted-before",
+            "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
           },
           "access": "write",
           "canonical": null
         }
-      ],
-      "valid": false,
-      "basis": {
-        "id": "accepted-before",
-        "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
-      }
+      ]
     }
   ]
 }

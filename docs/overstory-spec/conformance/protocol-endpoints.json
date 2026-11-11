@@ -78,8 +78,6 @@
           "updates": [
             {
               "candidate": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
-              "objects": [],
-              "deltas": [],
               "change": "fixture-submit-current-update-1",
               "at": "2026-08-24T00:00:00.000Z",
               "trace": null,
@@ -130,12 +128,8 @@
             {
               "candidate": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
               "objects": [
-                {
-                  "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
-                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
-                }
+                "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
               ],
-              "deltas": [],
               "change": "fixture-activate-with-null-base-1",
               "at": "2026-08-24T00:01:40.000Z",
               "trace": null,

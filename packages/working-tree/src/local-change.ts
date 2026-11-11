@@ -1,8 +1,26 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { applySourceChange, applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit, type SourceMove } from "@ovst/protocol";
 import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory, decodeProtocolPage, encodeProtocolPage, isProtocolContentKind, parsePage, samePage, protocolObjectReferences, type ProtocolObjectKind,
-  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, entryTimeOf, stampedEntry, encodeCandidateUpdateJSON,
-  type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
+  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, entryTimeOf, stampedEntry, encodeCandidateUpdateJSON, encodeBase64,
+  type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdate, type CandidateUpdateJSON, type ObjectEnvelopeJSON, type ObjectDeltaJSON, type SourceOperation } from "@ovst/protocol";
+
+/**
+ * A queued record's update: the wire element, except that each object keeps
+ * its hash beside its bytes and both lists are always present, so publication
+ * can match objects to snapshots. `wireUpdate` gives the element as sent.
+ */
+export type LocalUpdate = Omit<CandidateUpdateJSON, "objects" | "deltas"> & { objects: ObjectEnvelopeJSON[]; deltas: ObjectDeltaJSON[] };
+export function localUpdate(update: CandidateUpdate): LocalUpdate {
+  const { objects: _objects, deltas, ...fields } = encodeCandidateUpdateJSON(update);
+  return { ...fields, objects: update.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })), deltas: deltas ?? [] };
+}
+export function wireUpdate(update: LocalUpdate): CandidateUpdateJSON {
+  const { objects, deltas, ...fields } = update;
+  return { ...fields, ...(objects.length ? { objects: objects.map(object => object.bytes) } : {}), ...(deltas.length ? { deltas } : {}) };
+}
+export function decodeLocalUpdate(update: LocalUpdate): CandidateUpdate {
+  return decodeCandidateUpdateJSON(wireUpdate(update));
+}
 
 export type LocalChangeBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
 /** One editor generation of a coalesced intent: its moves and edits against
@@ -27,11 +45,11 @@ export interface SourceDocumentCapture { path: string; basisRevision: string; in
 export interface LocalChange {
   creation?: SourcePageCreation;
   change: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshotJSON;
-  sourcePath: string | null; document: SourceDocumentCapture | null; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate: TreeSnapshotJSON; update: CandidateUpdateJSON;
+  sourcePath: string | null; document: SourceDocumentCapture | null; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate: TreeSnapshotJSON; update: LocalUpdate;
 }
 export interface StoredSnapshot { root: string; objects: string[] }
 export type StoredLocalChange = Omit<LocalChange, "graph" | "candidate" | "update"> & {
-  graph: StoredSnapshot; candidate: StoredSnapshot; update: CandidateUpdateJSON; updateObjects: string[];
+  graph: StoredSnapshot; candidate: StoredSnapshot; update: LocalUpdate; updateObjects: string[];
 };
 /** Schema 4 stores the wire element verbatim with its frame chain. */
 export interface ChangeLogJournal { schema: 4; tree: string; records: StoredLocalChange[] }
@@ -271,10 +289,10 @@ export function prepareSourceChange(input: {
     if (compacted.every(frame => reproduces(frame, sourcePath, sources))) frames = compacted;
   }
   if (frames.length > TRACE_FRAME_LIMIT || frames.reduce((total, frame) => total + frame.operations.length, 0) > TRACE_OPERATION_LIMIT) evidence = false;
-  const update = encodeCandidateUpdateJSON({ candidate: root, change, at,
+  const update = localUpdate({ candidate: root, change, at,
     trace: evidence && frames.length ? frames : null, resolves: [],
     objects: [...candidate.objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
-  decodeCandidateUpdateJSON(update);
+  decodeLocalUpdate(update);
   const document: SourceDocumentCapture = { path: intent.basis.path, basisRevision: intent.basis.revision, intentDigest: sourceIntentDigest(intent) };
   return JSON.parse(JSON.stringify({ change, tree, basis: input.basis, graph: snapshotJSON(graph), sourcePath, document, candidate: snapshotJSON(candidate), update }));
 }
@@ -367,7 +385,7 @@ export function preparePageCreation(input: {change: string; tree: string; basis:
   if (removed.candidate.root !== graph.root) throw Error("Creation does not reproduce original graph");
   verifyTreeSnapshotGraph(graph,"sparse-files"); verifyTreeSnapshotGraph(candidate,"sparse-files");
   const operations = creationOperations(creation.removals, graph, candidate);
-  const update = encodeCandidateUpdateJSON({change,at,candidate:candidate.root,trace:[{before:graph.root,after:candidate.root,operations}],resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  const update = localUpdate({change,at,candidate:candidate.root,trace:[{before:graph.root,after:candidate.root,operations}],resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   return {change,tree,basis,graph:snapshotJSON(graph),candidate:snapshotJSON(candidate),sourcePath:null,document:null,creation:{document:{...creation.document},removals:[...creation.removals]},update};
 }
 /** One `addEntry` per created branch, under the basis directory that held it. */
@@ -402,8 +420,8 @@ export function prepareEntryChange(input: {
   const context={change,candidate:input.candidate,at:entryTimeOf(at)};
   const {candidate,operations}=input.entryActions ? prepareEntryActions(input.graph,input.entryActions,context) : prepareEntryTransfer(input.graph,input.entryTransfer!,context);
   if(input.candidate && input.candidate.root!==candidate.root)throw Error("Entry intent does not reproduce candidate");
-  const update=encodeCandidateUpdateJSON({change,at,candidate:candidate.root,trace:operations.length?[{before:input.graph.root,after:candidate.root,operations}]:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
-  decodeCandidateUpdateJSON(update);
+  const update=localUpdate({change,at,candidate:candidate.root,trace:operations.length?[{before:input.graph.root,after:candidate.root,operations}]:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  decodeLocalUpdate(update);
   return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,document:null,...(input.entryActions ? {entryActions:structuredClone(input.entryActions)} : {entryTransfer:structuredClone(input.entryTransfer)}),candidate:snapshotJSON(candidate),update};
 }
 
@@ -415,7 +433,7 @@ export function validateLocalChange(record: LocalChange): void {
   if (new Set(record.graph.objects.map(o => o.hash)).size !== record.graph.objects.length ||
       new Set(record.candidate.objects.map(o => o.hash)).size !== record.candidate.objects.length) throw new Error("Duplicate snapshot object");
   verifyTreeSnapshotGraph(graph, "sparse-files"); verifyTreeSnapshotGraph(candidate, "sparse-files");
-  for (const object of decodeCandidateUpdateJSON(record.update).objects) {
+  for (const object of decodeLocalUpdate(record.update).objects) {
     const present = candidate.objects.get(object.hash);
     if (graph.objects.has(object.hash) || !present || !bytesEqual(present, object.bytes)) throw new Error("Update object is not a new candidate object");
   }
@@ -459,8 +477,8 @@ export function validateLocalChanges(records: LocalChange[], tree: string): void
 /** The request that publishes `through`: its chain of records back to an
  * accepted basis, oldest first. A settled record repeats without objects or
  * deltas. The change log and a preview of an unretained change both use it. */
-export function localChangeRequest(records: readonly LocalChange[], through: string, settled: ReadonlySet<string> = new Set()): { base: { root: string; update: string }; request: { base: string; updates: CandidateUpdateJSON[] } } {
-  const byChange = new Map(records.map(record => [record.change, record])), updates: CandidateUpdateJSON[] = [];
+export function localChangeRequest(records: readonly LocalChange[], through: string, settled: ReadonlySet<string> = new Set()): { base: { root: string; update: string }; request: { base: string; updates: LocalUpdate[] } } {
+  const byChange = new Map(records.map(record => [record.change, record])), updates: LocalUpdate[] = [];
   let current = through;
   for (;;) {
     const record = byChange.get(current); if (!record) throw new Error("Missing authored dependency");

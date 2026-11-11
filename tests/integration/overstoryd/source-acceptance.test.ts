@@ -1,3 +1,4 @@
+import { decodeLocalUpdate, localUpdate } from "../../../packages/working-tree/src/local-change.ts";
 import { compactTransport } from "../../../packages/working-tree/src/publication.ts";
 import { OVERSTORYD_SCHEMA_VERSION } from "../../../packages/overstoryd/src/schema.ts";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
@@ -5,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
-import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, encodeCandidateUpdateJSON, decodeCandidateUpdateJSON, encodeTreeSnapshotJSON, decodeTreeSnapshotJSON, encodeWireBody, type CandidateUpdate, type ObjectHash } from "@ovst/protocol";
+import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, encodeTreeSnapshotJSON, decodeTreeSnapshotJSON, encodeWireBody, type CandidateUpdate, type ObjectHash } from "@ovst/protocol";
 import { executeExactSourceEdits } from "../../support/source-edits.ts";
 import { appendSource, editorView, MemoryWorkingTree, readSource } from "../../support/memory-working-tree.ts";
 import { acceptedEntries } from "../../support/log-entries.ts";
@@ -1149,11 +1150,10 @@ test.each([
 
 test.each([false,true])("Markdown source copy accepts an independent edit and survives restart (copy first: %s)", async (copyFirst) => {
   const {prepareSourceChange}=await import("@ovst/working-tree");
-  const {decodeCandidateUpdateJSON}=await import("@ovst/protocol");
   const graph=await client.snapshot(tree,root);
   const record=prepareSourceChange({tree,change:"markdown-copy",basis:{kind:"accepted",root,update:base},graph,sourcePath:"/note.md",
     intent:{basis:{tree,path:"/note",revision:base,source:"abc\r\n"},source:"abc\r\nabc\r\n",edits:[{offset:5,length:0,replacement:"abc\r\n",copies:[{source:[0,5],replacement:[0,5]}]}]}});
-  const copied=decodeCandidateUpdateJSON(record.update), peer=await edit("ABC");
+  const copied=decodeLocalUpdate(record.update), peer=await edit("ABC");
   await client.submitUpdates(tree,{base,updates:[copyFirst?copied:peer]});
   const request={base,updates:[copyFirst?peer:copied]};
   const accepted=await client.submitUpdates(tree,request);
@@ -1237,8 +1237,8 @@ for (const encoding of ["json", "cbor"] as const) for (const peer of [false, tru
       visit(root, true);
       return encodeTreeSnapshotJSON({root, objects: reachable});
     }
-    const compact = (update: CandidateUpdate, basis: ObjectHash) => decodeCandidateUpdateJSON(compactTransport(
-      encodeCandidateUpdateJSON(update), graph(basis), graph(update.candidate),
+    const compact = (update: CandidateUpdate, basis: ObjectHash) => decodeLocalUpdate(compactTransport(
+      localUpdate(update), graph(basis), graph(update.candidate),
     ));
     const updates = [compact(first, root), compact(second, first.candidate)];
     expect(updates.every(update => update.deltas.length > 0)).toBe(true);
@@ -1291,8 +1291,8 @@ test("a later element may carry by delta an object an earlier element of the req
     visit(root, true);
     return encodeTreeSnapshotJSON({root, objects: reachable});
   }
-  const compact = (update: CandidateUpdate, basis: ObjectHash) => decodeCandidateUpdateJSON(compactTransport(
-    encodeCandidateUpdateJSON(update), graph(basis), graph(update.candidate),
+  const compact = (update: CandidateUpdate, basis: ObjectHash) => decodeLocalUpdate(compactTransport(
+    localUpdate(update), graph(basis), graph(update.candidate),
   ));
   const updates = [compact(first, root), compact(second, first.candidate), compact(third, second.candidate)];
   expect(updates.every(update => update.deltas.length > 0)).toBe(true);
@@ -1332,7 +1332,7 @@ test.each([false, true])("a batch of edits to one large file sends only the fina
   // the final candidate's, and regenerates the rest by executing the frames.
   const whole = published.update.objects.reduce((sum, object) => sum + object.bytes.length, 0);
   expect(whole).toBeGreaterThan(5 * 70_000);
-  const update = decodeCandidateUpdateJSON(compactTransport(published.update, local[0]!.graph, local.at(-1)!.candidate));
+  const update = decodeLocalUpdate(compactTransport(published.update, local[0]!.graph, local.at(-1)!.candidate));
   expect(update.objects).toHaveLength(0);
   expect(update.deltas.length).toBeGreaterThan(0);
   expect(encodeWireBody({ base, updates: [update] }, "cbor").byteLength).toBeLessThan(5_000);

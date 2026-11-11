@@ -10,7 +10,7 @@ import {
   overstoryPrivateRoot,
   decodeTreeSnapshotJSON,
   decodeProtocolDirectory,
-  encodeCandidateUpdateJSON,
+  type UpdateRequestJSON,
   entryTimeOf,
   encodeProtocolDirectory,
   hashObject,
@@ -45,6 +45,8 @@ import {
 import {
   equal,
   localChangeRequest,
+  localUpdate,
+  wireUpdate,
   snapshotJSON,
   UpdateCoordinator,
   UpdateValidationError,
@@ -642,7 +644,7 @@ export class FolderSync implements AcceptedTree {
         return bytes;
       }, { verified: true }), { known: retained })
       : { objects: [...objects].filter(([hash]) => !graph.objects.has(hash)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] };
-    const update = encodeCandidateUpdateJSON({ change, at, candidate: root,
+    const update = localUpdate({ change, at, candidate: root,
       trace: derived ? [{ before: graph.root, after: root, operations: derived.operations }] : null, resolves: [],
       deltas: payload.deltas.sort((a, b) => a.result.localeCompare(b.result)),
       objects: payload.objects.sort((a, b) => a.hash.localeCompare(b.hash)) });
@@ -794,7 +796,7 @@ export class FolderSync implements AcceptedTree {
    * held, the change a scan would append, assembled as the change log
    * assembles a request. Null when nothing is pending.
    */
-  async preview(): Promise<ReturnType<typeof localChangeRequest> | null> {
+  async preview(): Promise<{ base: { root: string; update: string }; request: UpdateRequestJSON } | null> {
     const placement = this.host.placement();
     if (!placement?.ref || !placement.update) return null;
     const change = await this.host.withWorkspaceIO(async () => {
@@ -808,7 +810,9 @@ export class FolderSync implements AcceptedTree {
     const unsettled = new Set((await this.coordinator.pendingChanges()).map((record) => record.change));
     const settled = new Set(records.filter((record) => !unsettled.has(record.change)).map((record) => record.change));
     const through = change?.change ?? await this.log.nextPublication(settled);
-    return through ? localChangeRequest(change ? [...records, change] : records, through, settled) : null;
+    if (!through) return null;
+    const { base, request } = localChangeRequest(change ? [...records, change] : records, through, settled);
+    return { base, request: { base: request.base, updates: request.updates.map(wireUpdate) } };
   }
 
   // MARK: Operations

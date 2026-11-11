@@ -4,7 +4,7 @@ import { canonicalUpdateIntent, decodeDerivableUpdateRequestJSON, encodeUpdateRe
 import type { UpdateIntentBase } from "@ovst/protocol";
 
 for (const fixture of fixtures.cases) test(`active authored grammar: ${fixture.name}`, () => {
-  const value = { ...fixture.value, updates: fixture.value.updates.map(u => ({...u,objects:[],deltas:[]})) };
+  const value = { ...fixture.value, updates: fixture.value.updates.map(u => { const { objects: _o, deltas: _d, ...rest } = u as Record<string, unknown>; return rest; }) };
   if (!fixture.valid) { expect(() => decodeDerivableUpdateRequestJSON(value)).toThrow(); return; }
   const request = decodeDerivableUpdateRequestJSON(value);
   expect<unknown>(encodeUpdateRequestJSON(request)).toEqual(value);

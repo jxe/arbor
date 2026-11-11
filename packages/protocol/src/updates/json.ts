@@ -87,9 +87,14 @@ export interface UpdateRequestJSON<B extends string | Uint8Array = string> {
 export interface CandidateUpdateJSON<B extends string | Uint8Array = string> extends AuthoredUpdateIntent, TransitionPayloadJSON<B> {}
 export interface DerivableCandidateUpdateJSON<B extends string | Uint8Array = string> extends DerivableUpdateIntent, TransitionPayloadJSON<B> {}
 
+/**
+ * Objects travel as their bytes alone (tree operations §2.1); the receiver
+ * hashes them. Either list may be omitted, meaning empty, and a sender omits
+ * an empty one.
+ */
 export interface TransitionPayloadJSON<B extends string | Uint8Array = string> {
-  objects: ObjectEnvelopeJSON<B>[];
-  deltas: ObjectDeltaJSON<B>[];
+  objects?: B[];
+  deltas?: ObjectDeltaJSON<B>[];
 }
 
 export interface AcceptedTransitionJSON extends TransitionPayloadJSON {
@@ -201,19 +206,31 @@ function assertDistinctResults(objects: Array<{ hash: ObjectHash }>, deltas: Obj
   }
 }
 
+/** A transition's `objects`: each member is an object's bytes, named by their hash. Absent means none. */
+export function decodeWireObjects(value: unknown, encoding: WireEncoding = "json"): Array<{ hash: ObjectHash; bytes: Uint8Array }> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("objects must be an array");
+  const objects = new Map<ObjectHash, Uint8Array>();
+  for (const item of value) {
+    const bytes = decodeWireBytes(item, encoding);
+    objects.set(hashObject(bytes), bytes);
+  }
+  return [...objects].map(([hash, bytes]) => ({ hash, bytes }));
+}
+
 export function decodeTransitionPayloadJSON(value: unknown, encoding: WireEncoding = "json"): TransitionPayload {
   if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
   const record = value as Record<string, unknown> & { objects?: unknown; deltas?: unknown };
-  const objects = decodeObjectEnvelopes(record.objects, encoding);
-  const deltas = decodeObjectDeltas(record.deltas, encoding);
+  const objects = decodeWireObjects(record.objects, encoding);
+  const deltas = record.deltas === undefined ? [] : decodeObjectDeltas(record.deltas, encoding);
   assertDistinctResults(objects, deltas, "Transition result supplied more than once");
   return { objects, deltas };
 }
 
 export function encodeTransitionPayloadJSON<E extends WireEncoding = "json">(payload: TransitionPayload, encoding: E = "json" as E): TransitionPayloadJSON<WireBytes<E>> {
   return {
-    objects: payload.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeWireBytes(bytes, encoding) })),
-    deltas: payload.deltas.map(delta => encodeObjectDeltaJSON(delta, encoding)),
+    ...(payload.objects.length ? { objects: payload.objects.map(({ bytes }) => encodeWireBytes(bytes, encoding)) } : {}),
+    ...(payload.deltas.length ? { deltas: payload.deltas.map(delta => encodeObjectDeltaJSON(delta, encoding)) } : {}),
   };
 }
 
@@ -295,7 +312,7 @@ export function decodeDerivableCandidateUpdateJSON(value: unknown, activation = 
   const { objects, deltas, ...fields } = value as Record<string, unknown>;
   const intent = decodeAuthoredCandidateIntent(fields);
   const payload = decodeTransitionPayloadJSON({ objects, deltas }, encoding);
-  if (payload.objects.length !== (objects as unknown[]).length) throw new Error("Duplicate complete object");
+  if (objects !== undefined && payload.objects.length !== (objects as unknown[]).length) throw new Error("Duplicate complete object");
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error("Complete object hash mismatch");
   }
@@ -350,7 +367,8 @@ export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
 /** Decode a transition payload once, verifying every complete object's hash and refusing one listed twice. */
 function decodeVerifiedTransitionPayload(value: unknown, encoding: WireEncoding = "json"): TransitionPayload {
   const payload = decodeTransitionPayloadJSON(value, encoding);
-  if (payload.objects.length !== (value as { objects: unknown[] }).objects.length) throw new Error("Transition object supplied more than once");
+  const listed = (value as { objects?: unknown[] }).objects;
+  if (listed !== undefined && payload.objects.length !== listed.length) throw new Error("Transition object supplied more than once");
   for (const object of payload.objects) {
     if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
   }

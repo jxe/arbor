@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { decodeCandidateUpdateJSON, decodeTreeSnapshotJSON, encodeObjectEnvelopes, hashObject, type CandidateUpdateJSON, type TreeSnapshotJSON } from "@ovst/protocol";
-import { bytesEqual, equal, localChangeRequest, requireOneChain, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
+import { decodeTreeSnapshotJSON, encodeObjectEnvelopes, hashObject, type TreeSnapshotJSON } from "@ovst/protocol";
+import { bytesEqual, decodeLocalUpdate, type LocalUpdate, equal, localChangeRequest, requireOneChain, snapshotJSON, validateLocalChanges, type ChangeLogJournal, type ChangeLogObjectStore, type LocalChange,
   type StoredLocalChange, type StoredSnapshot } from "../local-change.ts";
 import { publicationTip } from "../update-machine.ts";
 
@@ -100,7 +100,7 @@ export class ChangeLog {
       change: record.change, parent: record.basis.kind === "authored" ? record.basis.change : undefined,
     })), accepted);
   }
-  async request(through: string, accepted: ReadonlySet<string> = new Set()): Promise<{ base: { root: string; update: string }; request: { base: string; updates: CandidateUpdateJSON[] } }> {
+  async request(through: string, accepted: ReadonlySet<string> = new Set()): Promise<{ base: { root: string; update: string }; request: { base: string; updates: LocalUpdate[] } }> {
     return localChangeRequest(await this.retained(), through, accepted);
   }
 
@@ -137,7 +137,7 @@ export class ChangeLog {
     }
     // Update envelopes are exactly the objects introduced relative to each
     // graph. They remain queue-owned until the admission settles.
-    for (const record of records) for (const object of decodeCandidateUpdateJSON(record.update).objects) {
+    for (const record of records) for (const object of decodeLocalUpdate(record.update).objects) {
       presented.set(object.hash, object.bytes);
     }
     await mkdir(this.objectsPath, { recursive: true, mode: 0o700 });

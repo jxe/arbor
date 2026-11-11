@@ -76,20 +76,10 @@
           ],
           "resolves": [],
           "objects": [
-            {
-              "hash": "sha256:0b8ab5e4379e92e28c1c488803e9a924f867ccb11f7894e568762727bf08925d",
-              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA"
-            },
-            {
-              "hash": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2",
-              "bytes": "QWZ0ZXIg8J+qtA0K"
-            },
-            {
-              "hash": "sha256:55f7456376f284f27b09b32d203d8e892692b4138bb467c3536a3122aac686a2",
-              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6MGI4YWI1ZTQzNzllOTJlMjhjMWM0ODg4MDNlOWE5MjRmODY3Y2NiMTFmNzg5NGU1Njg3NjI3MjdiZjA4OTI1ZA=="
-            }
-          ],
-          "deltas": []
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA",
+            "QWZ0ZXIg8J+qtA0K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6MGI4YWI1ZTQzNzllOTJlMjhjMWM0ODg4MDNlOWE5MjRmODY3Y2NiMTFmNzg5NGU1Njg3NjI3MjdiZjA4OTI1ZA=="
+          ]
         }
       ]
     },
@@ -126,20 +116,10 @@
           ],
           "resolves": [],
           "objects": [
-            {
-              "hash": "sha256:0b8ab5e4379e92e28c1c488803e9a924f867ccb11f7894e568762727bf08925d",
-              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA"
-            },
-            {
-              "hash": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2",
-              "bytes": "QWZ0ZXIg8J+qtA0K"
-            },
-            {
-              "hash": "sha256:55f7456376f284f27b09b32d203d8e892692b4138bb467c3536a3122aac686a2",
-              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6MGI4YWI1ZTQzNzllOTJlMjhjMWM0ODg4MDNlOWE5MjRmODY3Y2NiMTFmNzg5NGU1Njg3NjI3MjdiZjA4OTI1ZA=="
-            }
-          ],
-          "deltas": []
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA",
+            "QWZ0ZXIg8J+qtA0K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6MGI4YWI1ZTQzNzllOTJlMjhjMWM0ODg4MDNlOWE5MjRmODY3Y2NiMTFmNzg5NGU1Njg3NjI3MjdiZjA4OTI1ZA=="
+          ]
         },
         {
           "candidate": "sha256:55f7456376f284f27b09b32d203d8e892692b4138bb467c3536a3122aac686a2",
@@ -169,9 +149,7 @@
               ]
             }
           ],
-          "resolves": [],
-          "objects": [],
-          "deltas": []
+          "resolves": []
         }
       ]
     },
@@ -208,20 +186,10 @@
           ],
           "resolves": [],
           "objects": [
-            {
-              "hash": "sha256:0b8ab5e4379e92e28c1c488803e9a924f867ccb11f7894e568762727bf08925d",
-              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA"
-            },
-            {
-              "hash": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2",
-              "bytes": "QWZ0ZXIg8J+qtA0K"
-            },
-            {
-              "hash": "sha256:55f7456376f284f27b09b32d203d8e892692b4138bb467c3536a3122aac686a2",
-              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6MGI4YWI1ZTQzNzllOTJlMjhjMWM0ODg4MDNlOWE5MjRmODY3Y2NiMTFmNzg5NGU1Njg3NjI3MjdiZjA4OTI1ZA=="
-            }
-          ],
-          "deltas": []
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA",
+            "QWZ0ZXIg8J+qtA0K",
+            "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWZuZXN0ZWRpZGlyZWN0b3J5eEdzaGEyNTY6MGI4YWI1ZTQzNzllOTJlMjhjMWM0ODg4MDNlOWE5MjRmODY3Y2NiMTFmNzg5NGU1Njg3NjI3MjdiZjA4OTI1ZA=="
+          ]
         }
       ]
     }

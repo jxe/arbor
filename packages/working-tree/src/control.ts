@@ -1,6 +1,7 @@
 import { decodeBase64, decodeWireBody, encodeBase64, encodeUpdateRequestJSON, encodeWireBody, updateRequestDigests, decodeUpdateRequestJSON,
   type UpdateRequest, type WireEncoding } from "@ovst/protocol";
 import type { ChangePublication } from "./publication.ts";
+import { wireUpdate } from "./local-change.ts";
 import type { HeldReason } from "./update-machine.ts";
 
 /**
@@ -91,7 +92,7 @@ export function decodeControl(value: unknown, file = "update-control.json"): Upd
     if (!Array.isArray(record.publications)) throw new UpdateStateError(`${file} has invalid publications`);
     control.publications = record.publications.map((group: ChangePublication) => {
       if (!strings(group.changes) || !group.changes.length || !group.update?.change || !group.operations || typeof group.operations !== "object") throw new UpdateStateError(`${file} has invalid publication mapping`);
-      decodeUpdateRequestJSON({ base: "publication-validation", updates: [group.update] });
+      decodeUpdateRequestJSON({ base: "publication-validation", updates: [wireUpdate(group.update)] });
       return group;
     });
   }

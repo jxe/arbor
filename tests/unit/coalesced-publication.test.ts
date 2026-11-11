@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { applyTransitionPayload, decodeCandidateUpdateJSON, applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@ovst/protocol";
-import { prepareSourceChange, type LocalChange } from "@ovst/working-tree";
+import { applyTransitionPayload, applySourceChange, decodeBase64, encodeBase64, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type TreeSnapshot, type SourceMove, type SourceOperation } from "@ovst/protocol";
+import { decodeLocalUpdate, wireUpdate, prepareSourceChange, type LocalChange } from "@ovst/working-tree";
 import { encodeAttempt } from "../../packages/working-tree/src/control.ts";
 import { compactTransport, branchPublications, publication } from "../../packages/working-tree/src/publication.ts";
 import { Fixture } from "./overstoryd-merge/fixture.ts";
@@ -34,7 +34,7 @@ for (const value of vectors.cases) test(`one publication: ${value.name}`, async 
   expect(local).toEqual(before);
   expect(publication(local, [])).toEqual(published);
   if (value.kinds.length === 1 && value.kinds[0] === "moveSource") {
-    const wireBytes = (updates: unknown[]) => decodeBase64(encodeAttempt("tr_publication", {root: local[0]!.graph.root, update: "up_initial"}, {base: "up_initial", updates}).body).length;
+    const wireBytes = (updates: unknown[]) => decodeBase64(encodeAttempt("tr_publication", {root: local[0]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: (updates as Parameters<typeof wireUpdate>[0][]).map(wireUpdate)}).body).length;
     expect(wireBytes([published.update])).toBeLessThan(wireBytes(local.map(record => record.update)));
   }
   // Execute the actual compiled frames in the host's merge engine.
@@ -193,13 +193,13 @@ test("fifty moves in a large document use compact accepted-base deltas, includin
     const compact = compactTransport(published.update, local[offset]!.graph, local.at(-1)!.candidate);
     const updates = [compact];
     const oldUpdates = [published.update];
-    const encoded = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates});
-    const old = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: oldUpdates});
+    const encoded = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: updates.map(wireUpdate)});
+    const old = encodeAttempt("tr_publication", {root: local[offset]!.graph.root, update: "up_initial"}, {base: "up_initial", updates: oldUpdates.map(wireUpdate)});
     expect(encoded.requestDigests).toEqual(old.requestDigests);
     expect(decodeBase64(encoded.body).length).toBeLessThan(fixture.maximumRequestBytes);
     expect(decodeBase64(encoded.body).length).toBeLessThan(decodeBase64(old.body).length / 10);
     const basis = decodeTreeSnapshotJSON(local[offset]!.graph);
-    const reconstructed = applyTransitionPayload(basis.objects, decodeCandidateUpdateJSON(compact));
+    const reconstructed = applyTransitionPayload(basis.objects, decodeLocalUpdate(compact));
     expect(reconstructed.get(compact.candidate)).toEqual(decodeTreeSnapshotJSON(local.at(-1)!.candidate).objects.get(compact.candidate));
     expect(compact.deltas.every(delta => basis.objects.has(delta.base))).toBe(true);
     console.log(`move payload (${offset ? "new accepted basis" : "whole burst"}): ${decodeBase64(old.body).length} -> ${decodeBase64(encoded.body).length} bytes`);

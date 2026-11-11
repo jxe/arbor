@@ -23,7 +23,7 @@ import { PhaseTimer, withPhaseTimer } from "./updates/timing.ts";
 import {
   decodeDerivableUpdateRequestJSON,
   isStatedUpdate,
-  encodeAcceptedTransitionJSON,
+  encodeAcceptedWatchChange,
   type AcceptedTransition,
   type AcceptedUpdate,
   type ObjectHash,
@@ -197,11 +197,7 @@ function descriptorWithUpdate(
  * frame's SSE `id` and the tree is the URL's.
  */
 function watchFrame(origin: string, tree: HostTree, transition: AcceptedTransition, access: ReadWriteAccess, domains?: CustomDomains) {
-  return {
-    transition: encodeAcceptedTransitionJSON(transition),
-    access,
-    canonical: descriptor(origin, tree, access, transition.update, false, domains).canonical,
-  };
+  return encodeAcceptedWatchChange({ transition, access, canonical: descriptor(origin, tree, access, transition.update, false, domains).canonical });
 }
 
 

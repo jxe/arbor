@@ -4,7 +4,7 @@
  * inspection pages. Each payload is decoded and hash-verified once, by the
  * transition decoder; nothing here decodes it again.
  */
-import { decodeAcceptedTransitionJSON } from "./json.ts";
+import { decodeAcceptedTransitionJSON, encodeAcceptedTransitionJSON } from "./json.ts";
 import { decodeMaterialRef, type MaterialRef, type EntryDestination } from "./authored-contract.ts";
 import type { AcceptedTransition, AcceptedUpdate } from "./types.ts";
 import type { JSONValue } from "../model/node-model.ts";
@@ -109,12 +109,15 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
   }
   return v as DecisionPage;
 }
-/** A tree watch's `tree.update` change: its descriptor and a contiguous, verified transition batch. */
 /** A `tree.update` frame's data: one transition, and the access and canonical placement the client's new descriptor takes. */
 export interface AcceptedWatchChange<Canonical = unknown> {
   transition: AcceptedTransition;
   access: "read" | "write";
   canonical: Canonical | null;
+}
+/** A `tree.update` frame's data, flat: the transition's members beside `access` and `canonical`. */
+export function encodeAcceptedWatchChange(change: AcceptedWatchChange): Record<string, unknown> {
+  return { ...encodeAcceptedTransitionJSON(change.transition), access: change.access, canonical: change.canonical };
 }
 /** The caller must deduplicate observation replay before checking its confirmed basis.
  * A cursor is never compared to an accepted ID. Descriptor policy fields are
@@ -130,10 +133,11 @@ export function decodeTransitionBasis(raw: unknown, update: AcceptedUpdate): Sta
 export function decodeAcceptedWatchChange<Canonical = unknown>(
   raw: unknown, tree: string, basis?: StateLink,
 ): AcceptedWatchChange<Canonical> {
-  const v=obj(raw); required(v,["transition","access","canonical"]);
+  const v=obj(raw); required(v,["update","access","canonical"]); check(!Object.hasOwn(v,"transition"));
   check(v.access==="read" || v.access==="write"); check(v.canonical===null || (typeof v.canonical==="object" && !Array.isArray(v.canonical)));
-  token(tree); required(obj(v.transition),["update","objects","deltas"]);
-  const transition=decodeAcceptedTransitionJSON(v.transition);
+  token(tree);
+  const { access: _access, canonical: _canonical, ...fields } = v;
+  const transition=decodeAcceptedTransitionJSON(fields);
   const update=transition.from ? {...transition.update, previous: transition.from} : transition.update;
   validateAcceptedChain(tree,basis ?? update.previous,[update],{id:update.id,root:update.root});
   return { transition, access: v.access, canonical: v.canonical as Canonical | null };

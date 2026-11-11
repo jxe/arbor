@@ -110,9 +110,9 @@ describe("REST v1 protocol fixtures", () => {
     expect(frames.map((frame) => frame.event)).toEqual(["tree.update", "resync-required"]);
     const [update, resync] = frames as [typeof frames[0], typeof frames[0]];
     expect(update.id).toBe("1");
-    const data = JSON.parse(update.data) as { transition: { update: { tree: string } }; canonical: { endpoint: string } };
-    expect(Object.keys(data).sort()).toEqual(["access", "canonical", "transition"]);
-    const tree = data.transition.update.tree;
+    const data = JSON.parse(update.data) as { update: { tree: string }; canonical: { endpoint: string } };
+    expect(Object.keys(data).sort()).toEqual(["access", "canonical", "update"]);
+    const tree = data.update.tree;
     // The frame is one the watch decoder accepts.
     expect(decodeAcceptedWatchChange(data, tree).transition.update.id).toBe("1");
     expect(data.canonical.endpoint).toBe(`https://community.example/.overstory/trees/${tree}`);
