@@ -218,7 +218,7 @@ async function verifyWriter(): Promise<void> {
 async function verifyOwner(): Promise<void> {
   const value = await input<{ device: LabDevice; tree: string; root: string; canonical: string }>();
   const owner = await labClient(LOCAL_COMMUNITY, value.device, TIMEOUT);
-  if ((await owner.list()).snapshot.some((tree) => tree.id === value.tree)) {
+  if ((await owner.list()).trees.some((tree) => tree.id === value.tree)) {
     throw new Error("No-access owner could list Alice private tree");
   }
   await expectNotFound(() => owner.descriptor(value.tree), "No-access owner could read Alice private descriptor");

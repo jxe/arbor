@@ -35,15 +35,15 @@ describe("authenticated user directory", () => {
     const client = await deviceClient(running.url, "alice-directory-token");
     const own = (await client.account()).account.profileTree;
     const directory = await client.directory();
-    expect(Object.keys(directory)).toEqual(["snapshot"]);
-    const alice = directory.snapshot.find((entry) => entry.profile === own);
+    expect(Object.keys(directory)).toEqual(["people"]);
+    const alice = directory.people.find((entry) => entry.profile === own);
     expect(alice).toMatchObject({
       kind: "person",
       handle: "alice",
       displayName: "Alice Story",
     });
     expect(alice?.sources).toContain("community");
-    const bob = directory.snapshot.find((entry) => entry.handle === "bob");
+    const bob = directory.people.find((entry) => entry.handle === "bob");
     expect(bob).toMatchObject({ kind: "person", displayName: "Bob Builder" });
     expect(bob?.sources).toContain("community");
   });
@@ -58,13 +58,13 @@ describe("authenticated user directory", () => {
       ...values,
       access: [...values.access, { who: { profile: bobProfile }, within: "/notes", allow: ["read"] }],
     }));
-    const entry = (await alice.directory()).snapshot.find((candidate) => candidate.profile === bobProfile);
+    const entry = (await alice.directory()).people.find((candidate) => candidate.profile === bobProfile);
     expect(entry?.sources).toContain("access");
   });
 
   test("rejects anonymous callers", async () => {
     expect((await fetch(`${running.url}/.overstory/account/directory`)).status).toBe(401);
-    // The old path answers the same until plans/soon/protocol-001 removes it.
-    expect((await fetch(`${running.url}/.overstory/directory`)).status).toBe(401);
+    // The old path is gone.
+    expect((await fetch(`${running.url}/.overstory/directory`)).status).toBe(404);
   });
 });

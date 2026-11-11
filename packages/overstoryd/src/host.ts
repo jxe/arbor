@@ -690,7 +690,7 @@ export async function serveHost(options: {
         }
         if (url.pathname === "/.overstory/trees") {
           if (request.method === "GET") {
-            return json({ snapshot: overstoryd.list()
+            return json({ trees: overstoryd.list()
               // A tree configuration is listed only for its own profile's account,
               // and a tree mounted nowhere only for its administrators.
               .filter((tree) => tree.kind === "tree-configuration" ? tree.governs === account?.id
@@ -703,12 +703,11 @@ export async function serveHost(options: {
           }
           return methodNotAllowed();
         }
-        // `/.overstory/directory` is the old path, answered until plans/soon/protocol-001 removes it.
-        if (url.pathname === "/.overstory/account/directory" || url.pathname === "/.overstory/directory") {
+        if (url.pathname === "/.overstory/account/directory") {
           if (request.method !== "GET") return methodNotAllowed();
           const authenticated = requireAccount(authentication);
           return json({
-            snapshot: buildDirectory(overstoryd, authenticated, publicOrigin),
+            people: buildDirectory(overstoryd, authenticated, publicOrigin),
           });
         }
         if (url.pathname === "/.overstory/accounts" && request.method === "PUT") {

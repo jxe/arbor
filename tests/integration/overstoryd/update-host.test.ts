@@ -295,8 +295,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         const account = await client.account();
         expect(account.account.profileURL).toBeNull();
         expect(account.account.writableProfiles.some((tree) => tree.id === profileTree)).toBe(false);
-        expect((await client.list()).snapshot.find((tree) => tree.id === profileTree)?.canonical).toBeNull();
-        expect((await new ProtocolClient(running.url).list()).snapshot.some((tree) => tree.id === profileTree)).toBe(false);
+        expect((await client.list()).trees.find((tree) => tree.id === profileTree)?.canonical).toBeNull();
+        expect((await new ProtocolClient(running.url).list()).trees.some((tree) => tree.id === profileTree)).toBe(false);
       } finally {
         db.run("INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)", [
           boundary.path,
@@ -317,8 +317,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         canonical: null,
       });
       const trees = await client.list();
-      expect(Object.keys(trees)).toEqual(["snapshot"]);
-      expect(trees.snapshot.some((tree) => tree.id === account.account.configuration.id)).toBe(true);
+      expect(Object.keys(trees)).toEqual(["trees"]);
+      expect(trees.trees.some((tree) => tree.id === account.account.configuration.id)).toBe(true);
       const configuration = await client.descriptor(account.account.configuration.id);
       const snapshot = await client.snapshot(configuration.tree.id, configuration.tree.root);
       const bytes = await client.object(account.account.configuration.id, snapshot.root);

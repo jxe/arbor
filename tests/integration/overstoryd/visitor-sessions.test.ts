@@ -162,7 +162,7 @@ describe("visitor sessions (accounts §5.6)", () => {
     expect(descriptor.tree.access).toBe("read");
     const snapshot = await visitor.snapshot(shared, descriptor.tree.root);
     expect(snapshot.root).toBe(descriptor.tree.root);
-    expect((await visitor.list()).snapshot.map((tree) => tree.id)).toContain(shared);
+    expect((await visitor.list()).trees.map((tree) => tree.id)).toContain(shared);
     await expect(visitor.descriptor(hidden)).rejects.toThrow("not-found");
     // A visitor never writes, whatever the rule allows.
     const write = await visitor.submitUpdate(shared, descriptor.tree.update, await snapshotOf({ "_index.md": "# Shared\n\nVisited.\n" })).catch((error: unknown) => error);

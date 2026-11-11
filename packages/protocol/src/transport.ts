@@ -119,10 +119,10 @@ export interface RemotePlacementAccountSnapshot {
   account: RemotePlacementAccountDescriptor;
 }
 
-/** A host list read: `/.overstory/trees` and `/.overstory/account/directory`. */
-export interface RemoteSnapshot<T> {
-  snapshot: T;
-}
+/** `GET /.overstory/trees` (locators §5). */
+export interface RemoteTreeList { trees: RemoteTreeDescriptor[] }
+/** `GET /.overstory/account/directory` (locators §5). */
+export interface RemotePeopleList { people: RemoteDirectoryEntry[] }
 
 /** `/.overstory/trees/{TreeID}/access` (access control §4): the tree's rules, and
  * the `overstory://` locator of each profile a rule names by TreeID. */
@@ -442,14 +442,18 @@ export class ProtocolClient {
     return response.json();
   }
 
-  async list(): Promise<RemoteSnapshot<RemoteTreeDescriptor[]>> {
+  async list(): Promise<RemoteTreeList> {
     const response = await this.checked(await this.request("/.overstory/trees", { headers: this.headers() }));
-    return response.json();
+    const value = await response.json() as RemoteTreeList;
+    if (!Array.isArray(value?.trees)) throw new Error("Tree list has no trees");
+    return value;
   }
 
-  async directory(): Promise<RemoteSnapshot<RemoteDirectoryEntry[]>> {
+  async directory(): Promise<RemotePeopleList> {
     const response = await this.checked(await this.request("/.overstory/account/directory", { headers: this.headers() }));
-    return response.json();
+    const value = await response.json() as RemotePeopleList;
+    if (!Array.isArray(value?.people)) throw new Error("Directory has no people");
+    return value;
   }
 
   /** The tree resource itself: its current descriptor and the cursor to watch after. */

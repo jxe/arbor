@@ -609,7 +609,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       excludedMounts: () => this.trees.excludedMountsWithin(workspace.root),
       refreshListing: async () => {
         const current = this.trees.placementFor(tree);
-        if (current) this.listings.set(accountKey, (await (await this.accountClient(current)).list()).snapshot);
+        if (current) this.listings.set(accountKey, (await (await this.accountClient(current)).list()).trees);
       },
       objectBytes: (hash) => this.objectCache.bytes(tree, hash),
       collections: (directory, object, load) => workspace.writeProtocolCollection(directory, object, load),
@@ -720,7 +720,7 @@ export class StorySyncDaemon implements AsyncDisposable {
             const accountKey = accountKeyOf(placement);
             let listed = remoteTreesByAccount.get(accountKey);
             if (!listed) {
-              listed = client.list().then((value) => value.snapshot);
+              listed = client.list().then((value) => value.trees);
               remoteTreesByAccount.set(accountKey, listed);
             }
             const remoteTrees = await listed;

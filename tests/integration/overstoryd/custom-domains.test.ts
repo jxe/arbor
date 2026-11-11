@@ -73,7 +73,7 @@ describe("a person's domain", () => {
     expect(canonicalURL(canonical)).toBe(`${domainURL}/`);
     const community = (await alice.account()).account.community;
     expect(community.canonical?.url).toBeUndefined();
-    const people = (await alice.directory()).snapshot;
+    const people = (await alice.directory()).people;
     expect(people.find((entry) => entry.profile === profile)?.domain).toBe(domain);
   });
 
