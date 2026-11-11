@@ -4,7 +4,7 @@
 // orderings that read state are split off for the client, which evaluates them over the
 // rows the host returns.
 
-import type { Element, Expr, RuleDecl, TextPart } from "./ast.ts";
+import type { DataRecord, Element, Expr, RuleDecl, TextPart } from "./ast.ts";
 import type { Checker } from "./check.ts";
 
 /** An expression in a plan: the source's expression with every name resolved. */
@@ -61,6 +61,18 @@ export interface ElementPlan {
   children?: ElementPlan[];
 }
 
+/** A data view's plan: its record's entries, each with what it reads. */
+export interface DataPlan {
+  entries: DataPlanEntry[];
+}
+
+export type DataPlanEntry =
+  | { key: string; value: PlanExpr }
+  /** A field of the row the record is about; with `record`, the rows it reaches. */
+  | { key: string; field: string; record?: DataPlan }
+  | { key: string; for: { name: string; source: PlanExpr }[]; where?: PlanExpr[]; orderBy?: OrderPlan[]; limit?: PlanExpr; record: DataPlan }
+  | { key: string; if: PlanExpr[]; record: DataPlan };
+
 /** `stateBinding` is a name bound to rows of a state table. */
 type Kind = "param" | "binding" | "stateBinding" | "state" | "keep" | "let" | "builtin" | "rule-arg";
 
@@ -89,6 +101,48 @@ export class ElementPlanner {
       return k as Kind | undefined;
     };
     return this.plan(el, env, lookup)[0] ?? null;
+  }
+
+  /** The plan of a data view's record; `scope` holds its parameters. */
+  data(record: DataRecord, scope: { get(name: string): { kind: string } | undefined }): DataPlan {
+    const env: Env = { kinds: new Map(), subst: new Map(), depth: 0 };
+    const lookup = (name: string): Kind | undefined => env.kinds.get(name) ?? (scope.get(name)?.kind as Kind | undefined);
+    return this.dataRecord(record, env, lookup);
+  }
+
+  private dataRecord(record: DataRecord, env: Env, lookup: (name: string) => Kind | undefined): DataPlan {
+    const entries: DataPlanEntry[] = [];
+    for (const entry of record.entries) {
+      switch (entry.kind) {
+        case "comment": break;
+        case "value": entries.push({ key: entry.key, value: this.expr(entry.value, env, lookup) }); break;
+        case "field":
+          entries.push({ key: entry.name, field: entry.name, ...(entry.record ? { record: this.dataRecord(entry.record, env, lookup) } : {}) });
+          break;
+        case "if":
+          entries.push({ key: entry.key, if: entry.conditions.map((c) => this.expr(c, env, lookup)), record: this.dataRecord(entry.record, env, lookup) });
+          break;
+        case "list": {
+          const inner: Env = { ...env, kinds: new Map(env.kinds) };
+          const innerLookup = (name: string) => inner.kinds.get(name) ?? lookup(name);
+          const bound = entry.bindings.map((b) => {
+            const source = this.expr(b.source, inner, innerLookup);
+            inner.kinds.set(b.name, "binding");
+            return { name: b.name, source };
+          });
+          entries.push({
+            key: entry.key,
+            for: bound,
+            ...(entry.where.length ? { where: entry.where.map((c) => this.expr(c, inner, innerLookup)) } : {}),
+            ...(entry.orderBy.length ? { orderBy: entry.orderBy.map((t) => ({ value: this.expr(t.value, inner, innerLookup), desc: t.desc })) } : {}),
+            ...(entry.limit ? { limit: this.expr(entry.limit, inner, innerLookup) } : {}),
+            record: this.dataRecord(entry.record, inner, innerLookup),
+          });
+          break;
+        }
+      }
+    }
+    return { entries };
   }
 
   private plan(el: Element, env: Env, lookup: (name: string) => Kind | undefined): ElementPlan[] {

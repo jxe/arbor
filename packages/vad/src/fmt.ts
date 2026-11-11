@@ -5,7 +5,7 @@
 // formatting refuses a source with syntax errors rather than lose any text.
 
 import type {
-  Attribute, Binding, Child, ConnectionDecl, Declaration, DeclarationEntry, Element, EndMember, Expr, Line, OrderTerm, Param,
+  Attribute, Binding, Child, ConnectionDecl, DataEntry, DataRecord, Declaration, DeclarationEntry, Element, EndMember, Expr, Line, OrderTerm, Param,
   RuleLine, SchemaAttribute, TableMember, TextPart, TypeRef, ViewLine,
 } from "./ast.ts";
 import { parseView } from "./parse.ts";
@@ -311,6 +311,45 @@ function memberLines(members: TableMember[], indent: string): string[] {
   return lines;
 }
 
+// ---------------------------------------------------------------- data views
+
+/**
+ * A data view's record: on one line, `{ a, b: x }`, when it was written on one and fits;
+ * otherwise one entry per line. The first line continues `head`; the rest are at `indent`.
+ */
+function dataRecordLines(record: DataRecord, head: string, indent: string): string[] {
+  const oneLine = record.entries.every((e) => !e.newline && e.kind !== "comment" && !e.comments.length);
+  if (oneLine) {
+    const parts = record.entries.map((e) => dataEntryLines(e, "", "").join("\n"));
+    const text = parts.length ? `{ ${parts.join(", ")} }` : "{}";
+    if (!text.includes("\n") && fits("", indent + head + text)) return [head + text];
+  }
+  const lines = [head + "{"];
+  record.entries.forEach((entry, i) => {
+    if (entry.blankBefore && i > 0) lines.push("");
+    lines.push(...withComments(dataEntryLines(entry, indent + "  ", indent + "  "), entry.comments, indent + "  "));
+  });
+  lines.push(indent + "}");
+  return lines;
+}
+
+/** An entry's lines: the first starts with `first`, the rest are at `indent` or deeper. */
+function dataEntryLines(entry: DataEntry, first: string, indent: string): string[] {
+  switch (entry.kind) {
+    case "comment": return [first + comment(entry.text)];
+    case "value": return [`${first}${entry.key}: ${expr(entry.value)}`];
+    case "field": return entry.record ? dataRecordLines(entry.record, `${first}${entry.name} `, indent) : [first + entry.name];
+    case "if": return dataRecordLines(entry.record, `${first}${entry.key}: if ${entry.conditions.map(expr).join(", ")} `, indent);
+    case "list": {
+      let head = `${first}${entry.key}: for ${bindingsText(entry.bindings)}`;
+      if (entry.where.length) head += ` where ${entry.where.map(expr).join(", ")}`;
+      if (entry.orderBy.length) head += ` orderBy ${orderBy(entry.orderBy)}`;
+      if (entry.limit) head += ` limit ${expr(entry.limit)}`;
+      return dataRecordLines(entry.record, head + " ", indent);
+    }
+  }
+}
+
 // ---------------------------------------------------------------- declarations
 
 function viewLine(line: ViewLine): string {
@@ -348,6 +387,7 @@ function declarationLines(entry: DeclarationEntry, connectionWidth: number): str
     case "element":
       return [...decl.element.comments.map(comment), ...indentElement(decl.element, "")];
     case "view": {
+      if (decl.data) return dataRecordLines(decl.data, `view${decl.name ? " " + decl.name : ""}${params(decl.params)} `, "");
       const lines = [`view${decl.name ? " " + decl.name : ""}${params(decl.params)}:${trailing}`];
       for (const line of decl.lines) {
         for (const c of line.leading ?? []) lines.push("  " + comment(c));

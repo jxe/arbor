@@ -7,7 +7,7 @@
 import {
   ERROR_CODES,
   type Arg, type Attribute, type AttributeValue, type Binding, type BinaryOperator, type Child, type ConnectionDecl,
-  type Declaration, type DeclarationEntry, type Diagnostic, type Element, type EndMember, type EnumDecl, type ErrorCode,
+  type DataEntry, type DataRecord, type Declaration, type DeclarationEntry, type Diagnostic, type Element, type EndMember, type EnumDecl, type ErrorCode,
   type Expr, type Line as MutationLine, type MutationDecl, type OrderTerm, type Param, type ReDecl, type RuleDecl,
   type RuleLine, type SchemaAttribute, type Span, type TableDecl, type TableMember, type TextPart, type TypeRef,
   type UseDecl, type ViewDecl, type ViewFile, type ViewLine,
@@ -533,6 +533,95 @@ function orderTerms(c: Cursor): OrderTerm[] {
     result.push({ value, desc });
   } while (c.accept(","));
   return result;
+}
+
+// ---------------------------------------------------------------- data views
+
+/** Skips spaces, line breaks, commas and comments between data entries; reports what it crossed. */
+function entryGap(c: Cursor): { newline: boolean; blank: boolean; comma: boolean; comments: { text: string; ownLine: boolean }[] } {
+  const gap = { newline: false, blank: false, comma: false, comments: [] as { text: string; ownLine: boolean }[] };
+  let lineHasContent = true;
+  let newlines = 0;
+  while (!c.atEnd()) {
+    const ch = c.peek();
+    if (ch === " " || ch === "\t" || ch === "\r") c.pos += 1;
+    else if (ch === "\n") {
+      c.pos += 1;
+      gap.newline = true;
+      newlines += 1;
+      if (newlines > 1 && !lineHasContent) gap.blank = true;
+      lineHasContent = false;
+    } else if (ch === ",") {
+      if (gap.comma) c.fail("Expected an entry between the commas");
+      c.pos += 1;
+      gap.comma = true;
+      lineHasContent = true;
+    } else if (c.startsWith("//")) {
+      gap.comments.push({ text: c.comment(), ownLine: gap.newline });
+      lineHasContent = true;
+      newlines = gap.newline ? 1 : newlines;
+    } else break;
+  }
+  return gap;
+}
+
+function dataRecord(c: Cursor): DataRecord {
+  c.ws();
+  const start = c.pos;
+  c.expect("{");
+  const entries: DataEntry[] = [];
+  for (;;) {
+    const gap = entryGap(c);
+    const last = entries.at(-1);
+    for (const comment of gap.comments) {
+      if (!comment.ownLine && last && last.kind !== "comment") last.comments.push(comment.text);
+      else entries.push({ kind: "comment", text: comment.text, span: c.span(c.pos), newline: true, blankBefore: false, comments: [] });
+    }
+    if (c.peek() === "}") {
+      c.pos += 1;
+      return { entries, span: c.span(start) };
+    }
+    if (c.atEnd()) c.fail("Expected '}'");
+    if (last && last.kind !== "comment" && !gap.comma && !gap.newline) c.fail("Expected ',', a new line or '}' after the entry");
+    const entry = dataEntry(c);
+    entry.newline = gap.newline;
+    entry.blankBefore = gap.blank && entries.length > 0;
+    entries.push(entry);
+  }
+}
+
+function dataEntry(c: Cursor): DataEntry {
+  const start = c.pos;
+  const key = c.ident("an entry: a field name, or key: value");
+  const keySpan = c.span(start);
+  const base = { newline: false, blankBefore: false, comments: [] as string[] };
+  c.inlineWs();
+  if (c.peek() === ":") {
+    c.pos += 1;
+    const word = c.nextIdent();
+    if (word === "for") {
+      c.keyword("for");
+      const bs = bindings(c);
+      const where = c.keyword("where") ? conditions(c) : [];
+      const orderBy = c.keyword("orderBy") ? orderTerms(c) : [];
+      const limit = c.keyword("limit") ? expression(c) : undefined;
+      const record = dataRecord(c);
+      return { kind: "list", key, keySpan, bindings: bs, where, orderBy, ...(limit ? { limit } : {}), record, span: c.span(start), ...base };
+    }
+    if (word === "if") {
+      c.keyword("if");
+      const conds = conditions(c);
+      const record = dataRecord(c);
+      return { kind: "if", key, keySpan, conditions: conds, record, span: c.span(start), ...base };
+    }
+    const value = expression(c);
+    return { kind: "value", key, keySpan, value, span: c.span(start), ...base };
+  }
+  if (c.peek() === "{") {
+    const record = dataRecord(c);
+    return { kind: "field", name: key, nameSpan: keySpan, record, span: c.span(start), ...base };
+  }
+  return { kind: "field", name: key, nameSpan: keySpan, span: c.span(start), ...base };
 }
 
 // ---------------------------------------------------------------- elements
@@ -1232,6 +1321,12 @@ function declaration(src: Source, first: number, last: number, diagnostics: Diag
     if (name) c.pos += name.length;
     const nameSpan = name ? c.span(nameStart) : c.src.span(start, start + 4);
     const ps = params(c);
+    if (c.lookingAt("{")) {
+      const data = dataRecord(c);
+      finish(c, "the data view");
+      const decl: ViewDecl = { kind: "view", name, nameSpan, params: ps, lines: [], body: null, data, span: c.span(start) };
+      return { decl };
+    }
     c.expect(":");
     const trailing = headerEnd(c);
     needBody();
@@ -1338,7 +1433,8 @@ export function parseView(text: string): ParseResult {
     for (let j = i + 1; j <= last; j += 1) {
       const next = src.lines[j]!;
       if (next.blank) continue;
-      if (next.indent === 0) break;
+      // A data view's closing brace sits in the first column and still belongs to it.
+      if (next.indent === 0 && src.text[next.start] !== "}") break;
       end = j;
     }
     if (line.indent > 0) {

@@ -34,6 +34,10 @@ mutations in `.vad` files and in pages' fenced `view` blocks.
     `clientOrderBy`, and a `limit` beside it is an error.
   - each mutation's **writes** (`insert`, `upsert`, `update`, `delete` by table, called
     mutations included), its `let` names, its public errors and the tables it reads.
+- **Data views** (`view Name(params) { … }`, §3.12) parse, format and check like UI
+  views (keys, fields of the row a record is about, relationships followed with
+  `field { … }`, `for … where … orderBy … limit … { … }`, `if … { … }`), and their
+  result carries a `DataPlan` in place of the element plan.
 - `viewBlocks(markdown)`, `pageSource(markdown)`: a page's view blocks as one file.
   Unnamed views on a page are named `#1`, `#2`, ….
 

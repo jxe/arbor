@@ -116,6 +116,11 @@ describe("vad formatting", () => {
     ].join("\n"));
   });
 
+  test("a data view's record stays on one line only when it was written on one", () => {
+    const source = "view A(o Person) {\n  x: for l in List { name, size: count(l.items) }\n  // note\n\n  y: 1, z: 2\n}\n";
+    expect(formatView(source)).toBe("view A(o Person) {\n  x: for l in List { name, size: count(l.items) }\n  // note\n\n  y: 1\n  z: 2\n}\n");
+  });
+
   test("a source with syntax errors isn't formatted", () => {
     expect(() => formatView("view(:\n  <Text/>\n")).toThrow();
   });
@@ -224,6 +229,21 @@ describe("vad plans", () => {
     const result = check("/supplies/Timer.vad");
     expect(result.views[0]!.events).toEqual(["every 1s"]);
     expect(result.mutations[0]!.writes).toEqual([{ op: "insert", table: "Lap", fields: ["at", "label"] }]);
+  });
+
+  test("Feeds: a data view's plan follows its record", () => {
+    const [byOwner] = check("/supplies/Feeds.vad").views;
+    expect(byOwner!.plan).toBeNull();
+    const lists = byOwner!.data!.entries[0]!;
+    expect(lists).toMatchObject({
+      key: "lists",
+      for: [{ name: "l", source: { model: "List" } }],
+      where: [{ op: "==", args: [{ path: { name: "l" }, fields: ["owner"] }, { param: "owner" }] }],
+      orderBy: [{ value: { path: { name: "l" }, fields: ["modified"] }, desc: true }],
+      limit: { value: 20 },
+    });
+    expect("record" in lists && lists.record!.entries.map((e) => e.key)).toEqual(["name", "size", "owner", "practices"]);
+    expect("record" in lists && lists.record!.entries[2]).toEqual({ key: "owner", field: "owner", record: { entries: [{ key: "name", field: "name" }, { key: "handle", field: "handle" }] } });
   });
 
   test("a page's blocks: unnamed views are #n, named ones keep their names", () => {

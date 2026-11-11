@@ -146,8 +146,37 @@ export interface ViewDecl {
   params: Param[];
   lines: ViewLine[];
   body: Element | null;
+  /** A data view's shape (`view Name(params) { … }`), in place of `lines` and `body`. */
+  data?: DataRecord;
   span: Span;
 }
+
+/** The braces of a data view: the shape of the JSON it returns. */
+export interface DataRecord {
+  entries: DataEntry[];
+  span: Span;
+}
+
+interface DataEntryBase {
+  span: Span;
+  /** On a line of its own after the previous entry, rather than after a comma. */
+  newline: boolean;
+  blankBefore: boolean;
+  /** Comments after the entry on its line. */
+  comments: string[];
+}
+
+export type DataEntry = DataEntryBase & (
+  /** `key: expression`. */
+  | { kind: "value"; key: string; keySpan: Span; value: Expr }
+  /** `key: for x in source where … orderBy … limit … { … }`. */
+  | { kind: "list"; key: string; keySpan: Span; bindings: Binding[]; where: Expr[]; orderBy: OrderTerm[]; limit?: Expr; record: DataRecord }
+  /** `field`, or `field { … }` to follow a relationship. */
+  | { kind: "field"; name: string; nameSpan: Span; record?: DataRecord }
+  /** `key: if condition { … }`. */
+  | { kind: "if"; key: string; keySpan: Span; conditions: Expr[]; record: DataRecord }
+  | { kind: "comment"; text: string }
+);
 
 /** An element written on its own in a view block: an unnamed view with no parameters. */
 export interface BlockElementDecl {

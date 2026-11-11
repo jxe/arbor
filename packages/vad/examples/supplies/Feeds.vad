@@ -1,0 +1,24 @@
+// Data views: JSON for other programs, with the same reads, plans and live results as
+// the UI views. Feeds?view=ListsByOwner&owner=… returns { "lists": [ … ] }.
+use "data/schema.vad"
+
+view ListsByOwner(owner Person) {
+  lists: for l in List where l.owner == owner orderBy l.modified desc limit 20 {
+    name
+    size: count(l.items)
+    owner { name, handle }
+    practices: for p in l.items.practice orderBy p.name {
+      name
+    }
+  }
+}
+
+view OnePractice(id) {
+  practice: for p in Practice where p.id == id {
+    name
+    about
+    authors { name }
+    lists: count(l in List where p in l.items.practice)
+    tagged: if count(p.tags) > 0 { tags { name, color } }
+  }
+}

@@ -5,12 +5,12 @@
 
 import { checkUsl, IMPLICIT_FIELDS, VALUE_TYPES, type CheckResult as UslResult, type ResolvedModel } from "@ovst/usl";
 import type {
-  Arg, Attribute, Binding, Declaration, Diagnostic, Element, ErrorCode, Expr, Line, MutationDecl, Param,
+  Arg, Attribute, Binding, DataRecord, Declaration, Diagnostic, Element, ErrorCode, Expr, Line, MutationDecl, Param,
   RuleDecl, Span, TextPart, TypeRef, ViewDecl, ViewFile,
 } from "./ast.ts";
 import { parseView } from "./parse.ts";
 import { pageSource, type PageSource } from "./blocks.ts";
-import { ElementPlanner, type ElementPlan, type PlanExpr } from "./plan.ts";
+import { ElementPlanner, type DataPlan, type ElementPlan, type PlanExpr } from "./plan.ts";
 import { uslFileOf } from "./schema.ts";
 
 // ---------------------------------------------------------------- types
@@ -160,6 +160,8 @@ export interface CheckedView {
   state: { name: string; kind: "state" | "keep" }[];
   events: string[];
   plan: ElementPlan | null;
+  /** A data view's plan, in place of `plan`. */
+  data?: DataPlan;
 }
 
 /**
@@ -1107,6 +1109,10 @@ export class Checker {
   private checkView(decl: ViewDecl, name: string): CheckedView {
     const scope = new Scope();
     this.paramsScope(decl.params, scope);
+    if (decl.data) {
+      this.checkData(decl.data, scope, null);
+      return { name, params: decl.params.map((p) => this.param(p)), state: [], events: [], plan: null, data: this.planner.data(decl.data, scope) };
+    }
     const state: CheckedView["state"] = [];
     const events: string[] = [];
     for (const line of decl.lines) {
@@ -1129,6 +1135,62 @@ export class Checker {
       events,
       plan: decl.body ? this.planner.element(decl.body, scope) : null,
     };
+  }
+
+  /** Checks a data view's record; `about` is the row its bare fields are of, or null at the top. */
+  private checkData(record: DataRecord, scope: Scope, about: Ty | null): void {
+    const ctx: Context = { mutation: false, action: false };
+    const keys = new Set<string>();
+    for (const entry of record.entries) {
+      if (entry.kind === "comment") continue;
+      const key = entry.kind === "field" ? entry.name : entry.key;
+      const keySpan = entry.kind === "field" ? entry.nameSpan : entry.keySpan;
+      if (keys.has(key)) this.error("duplicate-key", `${key} is given twice`, keySpan);
+      keys.add(key);
+      switch (entry.kind) {
+        case "value": {
+          const ty = this.typeOf(entry.value, scope, ctx);
+          if (ty.k === "action" || ty.k === "element") this.error("not-data", `A data view returns values, and this is ${describe(ty)}`, entry.value.span);
+          break;
+        }
+        case "field": {
+          if (!about) {
+            this.error("data-entry-key", `The outermost braces are about no row; write ${key}: and a value`, keySpan);
+            break;
+          }
+          const ty = this.field(about, entry.name, entry.nameSpan);
+          if (!entry.record) break;
+          if (ty.k === "any") this.checkData(entry.record, scope, ty);
+          else if (ty.k === "enum" && !ty.name.startsWith("#")) this.checkData(entry.record, scope, { k: "enum", name: ty.name });
+          else if (ty.k !== "row" || ty.model.startsWith("#")) {
+            this.error("not-a-relationship", `${entry.name} is ${describe(ty)}, not a relationship to follow`, entry.nameSpan);
+          } else this.checkData(entry.record, scope, { k: "row", model: ty.model });
+          break;
+        }
+        case "if":
+          for (const c of entry.conditions) this.condition(c, scope, ctx);
+          this.checkData(entry.record, scope, about);
+          break;
+        case "list": {
+          const inner = scope.child();
+          let row: Ty = ANY;
+          for (const b of entry.bindings) {
+            row = this.bindingType(b, scope, inner, ctx);
+            inner.set(b.name, { ty: row, kind: "binding" });
+          }
+          for (const c of entry.where) this.condition(c, inner, ctx);
+          for (const t of entry.orderBy) this.typeOf(t.value, inner, ctx);
+          if (entry.limit) {
+            const ty = this.typeOf(entry.limit, scope, ctx);
+            if (ty.k !== "any" && !(ty.k === "value" && (ty.t === "Int" || ty.t === "Number") && !ty.many)) {
+              this.error("limit", `limit takes a number, and this is ${describe(ty)}`, entry.limit.span);
+            }
+          }
+          this.checkData(entry.record, inner, row);
+          break;
+        }
+      }
+    }
   }
 
   private param(p: Param): CheckedParam {

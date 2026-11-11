@@ -20,7 +20,7 @@ export {
   type CheckedParam,
   type Write,
 } from "./check.ts";
-export type { ElementPlan, OrderPlan, PlanExpr } from "./plan.ts";
+export type { DataPlan, DataPlanEntry, ElementPlan, OrderPlan, PlanExpr } from "./plan.ts";
 
 import type { Diagnostic } from "./ast.ts";
 

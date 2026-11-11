@@ -2,6 +2,7 @@
   "description": "VAD (spec 1.5): each file's diagnostics (line, column, code), its views' plans, and its mutations' writes, let names and public errors, as packages/vad checks them. `files` is the tree, by logical path; a case checks one file in it. Regenerate with `bun tests/support/regenerate-vad.ts`.",
   "files": {
     "/invalid/cycle.vad": "// expect: use-cycle\nuse \"uses.vad\"\n",
+    "/invalid/data.vad": "// Data views that don't check.\nuse \"../supplies/data/schema.vad\"\n\nview Bad(id) {\n  // expect: data-entry-key\n  name\n  lists: for l in List where l.id == id {\n    // expect: unknown-field\n    colour\n    // expect: not-a-relationship\n    name { size }\n    // expect: duplicate-key\n    colour: 1\n  }\n  // expect: not-data\n  go: <Text>x</Text>\n  // expect: limit\n  few: for p in Practice limit \"ten\" { name }\n}\n",
     "/invalid/elements.vad": "// Drawing views, limits, conditions and state.\nuse \"../supplies/data/schema.vad\"\nuse \"../supplies/parts/cards.vad\"\n\nview():\n  state q = \"\"\n\n  <Column>\n    // expect: missing-attribute\n    <PracticeCard />\n    // expect: unknown-attribute\n    <Avatar person={me} size={3} />\n    // expect: type-mismatch\n    <PracticeCard p={l} for={l in List} />\n    // expect: limit-reads-state\n    <PracticeCard p={p}\n      for={p in Practice} where={q in p.name}\n      limit={10} />\n    // expect: not-a-condition\n    <Text for={p in Practice} where={p.name}>{p.name}</Text>\n    // expect: not-a-collection\n    <Text for={l in List} where={me in l.owner}>{l.name}</Text>\n    // expect: set-comparison\n    <Text for={p in Practice} where={p.authors == me}>{p.name}</Text>\n    // expect: where-without-for\n    <Text where={q == \"\"}>Type to search</Text>\n    // expect: if-with-for\n    <Text for={l in List} if={q == \"\"}>{l.name}</Text>\n    // expect: group-without-for\n    <Rows group={q} />\n    // expect: set-target\n    <Button action={set(p, 1)}>Go</Button>\n    // expect: fallback-element\n    <Text fallback=\"none\">x</Text>\n  </Column>\n",
     "/invalid/more-cards.vad": "// Used by uses.vad, to make Avatar ambiguous there.\nuse \"../supplies/data/schema.vad\"\n\nview Avatar(person Person):\n  <Text>{person.name}</Text>\n",
     "/invalid/mutations.vad": "// Mutations that write what they can't.\nuse \"../supplies/data/schema.vad\"\n\nmutation bad(l List, p Practice):\n  // expect: implicit-field\n  l.modified = now\n  // expect: missing-field\n  Tag(list: l)\n  // expect: fact-key\n  Contribution(list: l, last: today)\n  // expect: type-mismatch\n  l.items = [l]\n  // expect: not-writable\n  Visibility(name: \"Hidden\")\n  // expect: fact-argument\n  Practice(\"walking\")\n  // expect: unknown-table\n  Nothing(a: 1)\n  // expect: conflicting-writes\n  l.name = \"b\"\n  l.name = \"c\"\n  // expect: error-outside-if\n  forbidden \"never\"\n\nmutation guarded(l List):\n  if me == null:\n    // expect: error-not-alone\n    unauthorized \"Sign in\"\n    l.name = \"x\"\n\n// expect: row-action\nmutation edit(name Text) for List.edit:\n  if me == null:\n    unauthorized\n",
@@ -10,6 +11,7 @@
     "/invalid/syntax.vad": "// expect: syntax\nview(:\n  <Text>broken</Text>\n\nmutation m():\n  // expect: syntax\n  insert List { name: \"x\" }\n\nview ok():\n  // expect: syntax\n  <Column><Text>unclosed</Column>\n",
     "/invalid/tables.vad": "// Tables a file that isn't a schema declares.\nuse \"../supplies/data/schema.vad\"\n\n// expect: data-table-outside-schema\ntable Note:\n  text Text\n\nmy table Pin:\n  // expect: unknown-type\n  list    Lisst\n  // expect: implicit-field\n  created Date\n  // expect: default-value\n  at      Date = count(List)\n  // expect: state-connection\n  Practice.pins[]\n\n// expect: duplicate-name\nsession table List:\n  name Text\n\nenum Mood:\n  Calm\n  Busy\n\nview():\n  <Column>\n    // expect: enum-value\n    <Text for={p in Pin} where={Sleepy == Calm}>{p.list.name}</Text>\n  </Column>\n",
     "/invalid/uses.vad": "// Uses that don't resolve.\n// expect: use-not-found\nuse \"nowhere.vad\"\n// expect: use-cycle\nuse \"cycle.vad\"\n// expect: ambiguous-use\nuse \"../supplies/parts/cards.vad\"\nuse \"more-cards.vad\"\n\nview():\n  <Text>hi</Text>\n",
+    "/supplies/Feeds.vad": "// Data views: JSON for other programs, with the same reads, plans and live results as\n// the UI views. Feeds?view=ListsByOwner&owner=… returns { \"lists\": [ … ] }.\nuse \"data/schema.vad\"\n\nview ListsByOwner(owner Person) {\n  lists: for l in List where l.owner == owner orderBy l.modified desc limit 20 {\n    name\n    size: count(l.items)\n    owner { name, handle }\n    practices: for p in l.items.practice orderBy p.name {\n      name\n    }\n  }\n}\n\nview OnePractice(id) {\n  practice: for p in Practice where p.id == id {\n    name\n    about\n    authors { name }\n    lists: count(l in List where p in l.items.practice)\n    tagged: if count(p.tags) > 0 { tags { name, color } }\n  }\n}\n",
     "/supplies/Home.vad": "// Supplies' home page: the most liked public lists.\nuse \"data/schema.vad\"\nuse \"parts/cards.vad\"\n\nview():\n  <Shell title=\"Meaning Supplies\" subtitle=\"a directory of social practices\">\n    <Section title=\"Popular lists\">\n      <Grid columns={2}>\n        <ListCard list={l}\n          for={l in List} where={l.visibility == Public}\n          orderBy={count(l.reactions) desc} limit={12} />\n      </Grid>\n    </Section>\n  </Shell>\n",
     "/supplies/List.vad": "// The view at List: its curators, a like button, and its practices with this list's tags.\nuse \"data/schema.vad\"\nuse \"parts/cards.vad\" (PracticeCard, Avatar)\nuse \"mutations.vad\" (toggleListReaction)\n\nview(id):\n  state showTags = true\n\n  <Shell title={l.name}\n    for={l in List} where={l.id == id}\n    fallback={<Shell title=\"List unavailable\" />}>\n\n    <Row slot=\"subtitle\">\n      <Text style=\"secondary\">a list by</Text>\n      <Avatar person={l.owner} />\n      <Avatar person={c} for={c in l.contributors.person} where={c != l.owner} orderBy={c.name} />\n    </Row>\n\n    <Button slot=\"actions\" action={toggleListReaction(l: l)}\n      if={l.visibility == Public, me != null}>\n      👍 {count(l.reactions)}\n    </Button>\n    <Toggle slot=\"actions\" value={showTags}>Tags</Toggle>\n\n    <Markdown source={l.about} />\n\n    <Grid columns={3}>\n      <Column for={i in l.items}>\n        <PracticeCard p={i.practice} />\n        <Row if={showTags}>\n          <Badge color={t.color} for={t in i.practice.tags} where={t.list == l}>{t.name}</Badge>\n        </Row>\n      </Column>\n    </Grid>\n  </Shell>\n",
     "/supplies/Practices.vad": "// Search and sort practices. The search text is state, so it never leaves the device:\n// the host returns every practice and the client filters them.\nuse \"data/schema.vad\"\nuse \"parts/cards.vad\"\n\nview():\n  state q = \"\"\n  keep sortBy = \"name\"\n\n  <Shell title=\"Practices\">\n    <Row slot=\"actions\">\n      <TextField value={q} placeholder=\"Search\" />\n      <Button action={set(sortBy, \"name\")} selected={sortBy == \"name\"}>A–Z</Button>\n      <Button action={set(sortBy, \"authors\")} selected={sortBy == \"authors\"}>Most authors</Button>\n    </Row>\n    <Grid columns={3}>\n      <PracticeCard p={p}\n        for={p in Practice} where={q == \"\" or q in p.name}\n        orderBy={sortBy == \"name\" ? p.name : count(p.authors) desc}\n        fallback={<Text style=\"secondary\">No practices match “{q}”.</Text>} />\n    </Grid>\n  </Shell>\n",
@@ -31,6 +33,148 @@
         }
       ],
       "views": [],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/data.vad",
+      "diagnostics": [
+        {
+          "line": 6,
+          "column": 3,
+          "code": "data-entry-key"
+        },
+        {
+          "line": 9,
+          "column": 5,
+          "code": "unknown-field"
+        },
+        {
+          "line": 11,
+          "column": 5,
+          "code": "not-a-relationship"
+        },
+        {
+          "line": 13,
+          "column": 5,
+          "code": "duplicate-key"
+        },
+        {
+          "line": 16,
+          "column": 7,
+          "code": "not-data"
+        },
+        {
+          "line": 18,
+          "column": 32,
+          "code": "limit"
+        }
+      ],
+      "views": [
+        {
+          "name": "Bad",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": null,
+          "data": {
+            "entries": [
+              {
+                "key": "name",
+                "field": "name"
+              },
+              {
+                "key": "lists",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "id"
+                        ]
+                      },
+                      {
+                        "param": "id"
+                      }
+                    ]
+                  }
+                ],
+                "record": {
+                  "entries": [
+                    {
+                      "key": "colour",
+                      "field": "colour"
+                    },
+                    {
+                      "key": "name",
+                      "field": "name",
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "size",
+                            "field": "size"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "colour",
+                      "value": {
+                        "value": 1
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "key": "go",
+                "value": {
+                  "element": "Text"
+                }
+              },
+              {
+                "key": "few",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  }
+                ],
+                "limit": {
+                  "value": "ten"
+                },
+                "record": {
+                  "entries": [
+                    {
+                      "key": "name",
+                      "field": "name"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
       "mutations": []
     },
     {
@@ -659,6 +803,300 @@
           "state": [],
           "events": [],
           "plan": null
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Feeds.vad",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "ListsByOwner",
+          "params": [
+            {
+              "name": "owner",
+              "type": "Person",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": null,
+          "data": {
+            "entries": [
+              {
+                "key": "lists",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "owner"
+                        ]
+                      },
+                      {
+                        "param": "owner"
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "modified"
+                      ]
+                    },
+                    "desc": true
+                  }
+                ],
+                "limit": {
+                  "value": 20
+                },
+                "record": {
+                  "entries": [
+                    {
+                      "key": "name",
+                      "field": "name"
+                    },
+                    {
+                      "key": "size",
+                      "value": {
+                        "call": "count",
+                        "args": [
+                          {
+                            "path": {
+                              "name": "l"
+                            },
+                            "fields": [
+                              "items"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "owner",
+                      "field": "owner",
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "name",
+                            "field": "name"
+                          },
+                          {
+                            "key": "handle",
+                            "field": "handle"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "practices",
+                      "for": [
+                        {
+                          "name": "p",
+                          "source": {
+                            "path": {
+                              "name": "l"
+                            },
+                            "fields": [
+                              "items",
+                              "practice"
+                            ]
+                          }
+                        }
+                      ],
+                      "orderBy": [
+                        {
+                          "value": {
+                            "path": {
+                              "name": "p"
+                            },
+                            "fields": [
+                              "name"
+                            ]
+                          },
+                          "desc": false
+                        }
+                      ],
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "name",
+                            "field": "name"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "OnePractice",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": null,
+          "data": {
+            "entries": [
+              {
+                "key": "practice",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "id"
+                        ]
+                      },
+                      {
+                        "param": "id"
+                      }
+                    ]
+                  }
+                ],
+                "record": {
+                  "entries": [
+                    {
+                      "key": "name",
+                      "field": "name"
+                    },
+                    {
+                      "key": "about",
+                      "field": "about"
+                    },
+                    {
+                      "key": "authors",
+                      "field": "authors",
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "name",
+                            "field": "name"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "lists",
+                      "value": {
+                        "call": "count",
+                        "over": {
+                          "name": "l",
+                          "source": {
+                            "model": "List"
+                          }
+                        },
+                        "where": [
+                          {
+                            "op": "in",
+                            "args": [
+                              {
+                                "name": "p"
+                              },
+                              {
+                                "path": {
+                                  "name": "l"
+                                },
+                                "fields": [
+                                  "items",
+                                  "practice"
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "tagged",
+                      "if": [
+                        {
+                          "op": ">",
+                          "args": [
+                            {
+                              "call": "count",
+                              "args": [
+                                {
+                                  "path": {
+                                    "name": "p"
+                                  },
+                                  "fields": [
+                                    "tags"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "value": 0
+                            }
+                          ]
+                        }
+                      ],
+                      "record": {
+                        "entries": [
+                          {
+                            "key": "tags",
+                            "field": "tags",
+                            "record": {
+                              "entries": [
+                                {
+                                  "key": "name",
+                                  "field": "name"
+                                },
+                                {
+                                  "key": "color",
+                                  "field": "color"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
         }
       ],
       "mutations": []
