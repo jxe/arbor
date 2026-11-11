@@ -5,8 +5,8 @@ alongside [Apps 011](../soon/apps-011-widgets-in-story.md). Joe, 2026-11-11: the
 that matter most run on clients and make Beetle apps faster and more flexible: games,
 simulations, anything that changes every frame. Beetle has no general-purpose code
 ([Beetle](../../docs/overstory-spec/1.5-beetle.md)); real code is never mixed into a
-`.beetle` file. Plugins that run on both sides are [Apps 016](apps-016-pure-plugins.md),
-and host-only ones are [Apps 017](apps-017-host-plugins.md).
+`.beetle` file. Code with effects on shared data runs outside the host, as
+[bots](apps-017-bots.md).
 
 ## Status
 
@@ -84,8 +84,8 @@ Two jobs, in two places (proposed to Joe 2026-11-11):
   itself, and gets inertia from its `every` step. The shape attributes above are
   conveniences for the common case.
 - **Collision is the plugin's.** Ball against paddle, ranges, line of sight are game logic
-  inside `step`, over the rows it is given. A pure spatial relation such as
-  `within(a, b, 20)` can live in [Apps 016](apps-016-pure-plugins.md) for views to use too.
+  inside `step`, over the rows it is given. A spatial built-in such as
+  `within(a, b, 20)` could serve views too.
 
 ## Open questions
 

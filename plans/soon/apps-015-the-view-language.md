@@ -11,7 +11,7 @@ reasons, from the thread "Review the Overstory spec with Joe":
 - Hosting someone else's view needs no sandbox for arbitrary code.
 - Mutations are sets of row operations, so Story can apply them optimistically with the
   same evaluator, and consent can name the rows they write.
-- Real code comes back later as plugins ([client](../later/apps-014-client-plugins.md), [pure](../later/apps-016-pure-plugins.md), [host](../later/apps-017-host-plugins.md)), which
+- Real code comes back later as [client plugins](../later/apps-014-client-plugins.md) and [bots](../later/apps-017-bots.md), which
   extend the data rather than the language.
 
 The explorations that led here are in project files `view-notations/language/`
