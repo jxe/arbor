@@ -70,9 +70,11 @@ export type DataPlanEntry =
   | { key: string; value: PlanExpr }
   /** A field of the row the record is about; with `record`, the rows it reaches. */
   | { key: string; field: string; record?: DataPlan }
-  | { key: string; for: { name: string; source: PlanExpr }[]; where?: PlanExpr[]; orderBy?: OrderPlan[]; limit?: PlanExpr; record: DataPlan }
-  | { key: string; if: PlanExpr[]; record: DataPlan }
-  | { key: string; record: DataPlan };
+  /** A record: with `for`, one per match; with `if`, only when the conditions hold. */
+  | {
+      key: string; record: DataPlan; for?: { name: string; source: PlanExpr }[]; where?: PlanExpr[]; if?: PlanExpr[];
+      orderBy?: OrderPlan[]; limit?: PlanExpr;
+    };
 
 /** `stateBinding` is a name bound to rows of a state table. */
 type Kind = "param" | "binding" | "stateBinding" | "state" | "keep" | "let" | "builtin" | "rule-arg";
@@ -120,26 +122,27 @@ export class ElementPlanner {
         case "field":
           entries.push({ key: entry.name, field: entry.name, ...(entry.record ? { record: this.dataRecord(entry.record, env, lookup) } : {}) });
           break;
-        case "record":
-          entries.push({ key: entry.key, record: this.dataRecord(entry.record, env, lookup) });
-          break;
-        case "if":
-          entries.push({ key: entry.key, if: entry.conditions.map((c) => this.expr(c, env, lookup)), record: this.dataRecord(entry.record, env, lookup) });
-          break;
-        case "list": {
+        case "record": {
+          const get = (name: string) => entry.attributes.find((a) => a.name === name)?.value;
           const inner: Env = { ...env, kinds: new Map(env.kinds) };
           const innerLookup = (name: string) => inner.kinds.get(name) ?? lookup(name);
-          const bound = entry.bindings.map((b) => {
+          const forValue = get("for");
+          const bound = forValue?.kind === "for" ? forValue.bindings.map((b) => {
             const source = this.expr(b.source, inner, innerLookup);
             inner.kinds.set(b.name, "binding");
             return { name: b.name, source };
-          });
+          }) : undefined;
+          const where = get("where");
+          const ifValue = get("if");
+          const order = get("orderBy");
+          const limit = get("limit");
           entries.push({
             key: entry.key,
-            for: bound,
-            ...(entry.where.length ? { where: entry.where.map((c) => this.expr(c, inner, innerLookup)) } : {}),
-            ...(entry.orderBy.length ? { orderBy: entry.orderBy.map((t) => ({ value: this.expr(t.value, inner, innerLookup), desc: t.desc })) } : {}),
-            ...(entry.limit ? { limit: this.expr(entry.limit, inner, innerLookup) } : {}),
+            ...(bound ? { for: bound } : {}),
+            ...(where?.kind === "where" ? { where: where.conditions.map((c) => this.expr(c, inner, innerLookup)) } : {}),
+            ...(ifValue?.kind === "if" ? { if: ifValue.conditions.map((c) => this.expr(c, inner, innerLookup)) } : {}),
+            ...(order?.kind === "orderBy" ? { orderBy: order.terms.map((t) => ({ value: this.expr(t.value, inner, innerLookup), desc: t.desc })) } : {}),
+            ...(limit?.kind === "expr" ? { limit: this.expr(limit.expr, inner, innerLookup) } : {}),
             record: this.dataRecord(entry.record, inner, innerLookup),
           });
           break;

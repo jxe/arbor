@@ -599,28 +599,22 @@ function dataEntry(c: Cursor): DataEntry {
   if (c.peek() === ":") {
     c.pos += 1;
     const word = c.nextIdent();
-    if (word === "for" || word === "if") c.fail(`A list or a conditional record is written key: { … } ${word} …, the record first`, c.pos + 1);
+    if (word === "for" || word === "if") c.fail(`A list or a conditional record is written key: { … } ${word}={…}, the record first`, c.pos + 1);
     if (c.lookingAt("{")) {
       const record = dataRecord(c);
-      // A `for` or `if` after the record, on the line of its closing brace, makes it a list or a condition.
-      const m = c.mark();
-      c.inlineWs();
-      const suffix = c.identAt();
-      if (suffix === "for") {
-        c.pos += 3;
-        const bs = bindings(c);
-        const where = c.keyword("where") ? conditions(c) : [];
-        const orderBy = c.keyword("orderBy") ? orderTerms(c) : [];
-        const limit = c.keyword("limit") ? expression(c) : undefined;
-        return { kind: "list", key, keySpan, bindings: bs, where, orderBy, ...(limit ? { limit } : {}), record, span: c.span(start), ...base };
+      // Attributes follow the record on the line of its closing brace, as on an element.
+      const attributes: Attribute[] = [];
+      for (;;) {
+        const m = c.mark();
+        c.inlineWs();
+        const name = c.identAt();
+        if (name && c.text[c.pos + name.length] === "=") attributes.push(attribute(c));
+        else {
+          c.reset(m);
+          break;
+        }
       }
-      if (suffix === "if") {
-        c.pos += 2;
-        const conds = conditions(c);
-        return { kind: "if", key, keySpan, conditions: conds, record, span: c.span(start), ...base };
-      }
-      c.reset(m);
-      return { kind: "record", key, keySpan, record, span: c.span(start), ...base };
+      return { kind: "record", key, keySpan, record, attributes, span: c.span(start), ...base };
     }
     const value = expression(c);
     return { kind: "value", key, keySpan, value, span: c.span(start), ...base };

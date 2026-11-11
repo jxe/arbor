@@ -345,14 +345,10 @@ function dataEntryLines(entry: DataEntry, first: string, indent: string): string
     case "comment": return [first + comment(entry.text)];
     case "value": return [`${first}${entry.key}: ${expr(entry.value)}`];
     case "field": return entry.record ? dataRecordLines(entry.record, `${first}${entry.name} `, indent) : [first + entry.name];
-    case "record": return dataRecordLines(entry.record, `${first}${entry.key}: `, indent);
-    case "if": return suffixed(dataRecordLines(entry.record, `${first}${entry.key}: `, indent), ` if ${entry.conditions.map(expr).join(", ")}`);
-    case "list": {
-      let suffix = ` for ${bindingsText(entry.bindings)}`;
-      if (entry.where.length) suffix += ` where ${entry.where.map(expr).join(", ")}`;
-      if (entry.orderBy.length) suffix += ` orderBy ${orderBy(entry.orderBy)}`;
-      if (entry.limit) suffix += ` limit ${expr(entry.limit)}`;
-      return suffixed(dataRecordLines(entry.record, `${first}${entry.key}: `, indent), suffix);
+    case "record": {
+      const attributes = LANGUAGE_ATTRIBUTES.flatMap((name) => entry.attributes.filter((a) => a.name === name))
+        .concat(entry.attributes.filter((a) => !LANGUAGE_ATTRIBUTES.includes(a.name)));
+      return suffixed(dataRecordLines(entry.record, `${first}${entry.key}: `, indent), attributes.map((a) => " " + attribute(a)).join(""));
     }
   }
 }

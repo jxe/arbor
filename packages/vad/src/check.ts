@@ -212,6 +212,7 @@ export const BUILTIN_NAMES = ["me", "community", "page", "now", "today"] as cons
 export const BUILTIN_FUNCTIONS = ["count", "exists", "sum", "min", "max", "lower", "upper", "trim", "length", "set"] as const;
 const ROW_OPS = ["create", "edit", "delete", "move"];
 const LANGUAGE_ATTRIBUTES = new Set(["for", "where", "if", "orderBy", "group", "limit", "fallback", "key", "slot"]);
+const DATA_ATTRIBUTES = new Set(["for", "where", "if", "orderBy", "limit"]);
 
 // ---------------------------------------------------------------- paths
 
@@ -1167,26 +1168,38 @@ export class Checker {
           } else this.checkData(entry.record, scope, { k: "row", model: ty.model });
           break;
         }
-        case "record":
-          this.checkData(entry.record, scope, about);
-          break;
-        case "if":
-          for (const c of entry.conditions) this.condition(c, scope, ctx);
-          this.checkData(entry.record, scope, about);
-          break;
-        case "list": {
-          const inner = scope.child();
-          let row: Ty = ANY;
-          for (const b of entry.bindings) {
-            row = this.bindingType(b, scope, inner, ctx);
-            inner.set(b.name, { ty: row, kind: "binding" });
+        case "record": {
+          const get = (name: string) => entry.attributes.find((a) => a.name === name);
+          const seen = new Set<string>();
+          for (const a of entry.attributes) {
+            if (seen.has(a.name)) this.error("duplicate-attribute", `${a.name} is given twice`, a.nameSpan);
+            seen.add(a.name);
+            if (!DATA_ATTRIBUTES.has(a.name)) this.error("unknown-attribute", `A data view's record takes for, where, orderBy, limit and if, not ${a.name}`, a.nameSpan);
+            else if (a.name !== "limit" && a.value.kind !== a.name) this.error("syntax", `${a.name} takes {…}`, a.span);
+            else if (a.name === "limit" && a.value.kind !== "expr") this.error("limit", "limit takes a number: limit={12}", a.span);
           }
-          for (const c of entry.where) this.condition(c, inner, ctx);
-          for (const t of entry.orderBy) this.typeOf(t.value, inner, ctx);
-          if (entry.limit) {
-            const ty = this.typeOf(entry.limit, scope, ctx);
+          const inner = scope.child();
+          let row: Ty | null = about;
+          const forAttribute = get("for");
+          if (forAttribute?.value.kind === "for") {
+            for (const b of forAttribute.value.bindings) {
+              row = this.bindingType(b, scope, inner, ctx);
+              inner.set(b.name, { ty: row, kind: "binding" });
+            }
+          }
+          const where = get("where");
+          if (where && !forAttribute) this.error("where-without-for", "where narrows a for's matches; without for, write if={…}", where.nameSpan);
+          if (where?.value.kind === "where") for (const c of where.value.conditions) this.condition(c, inner, ctx);
+          const ifAttribute = get("if");
+          if (ifAttribute && forAttribute) this.error("if-with-for", "if is for a record without for; narrow a for's matches with where={…}", ifAttribute.nameSpan);
+          if (ifAttribute?.value.kind === "if") for (const c of ifAttribute.value.conditions) this.condition(c, inner, ctx);
+          const order = get("orderBy");
+          if (order?.value.kind === "orderBy") for (const t of order.value.terms) this.typeOf(t.value, inner, ctx);
+          const limit = get("limit");
+          if (limit?.value.kind === "expr") {
+            const ty = this.typeOf(limit.value.expr, scope, ctx);
             if (ty.k !== "any" && !(ty.k === "value" && (ty.t === "Int" || ty.t === "Number") && !ty.many)) {
-              this.error("limit", `limit takes a number, and this is ${describe(ty)}`, entry.limit.span);
+              this.error("limit", `limit takes a number, and this is ${describe(ty)}`, limit.value.expr.span);
             }
           }
           this.checkData(entry.record, inner, row);

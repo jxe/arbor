@@ -36,7 +36,8 @@ mutations in `.vad` files and in pages' fenced `view` blocks.
     mutations included), its `let` names, its public errors and the tables it reads.
 - **Data views** (`view Name(params) { … }`, §3.12) parse, format and check like UI
   views (keys, fields of the row a record is about, relationships followed with
-  `field { … }`, `key: { … } for … where … orderBy … limit …`, `key: { … } if …`), and their
+  `field { … }`, and `key: { … }` records followed by `for`, `where`, `orderBy`, `limit`
+  or `if` attributes as on an element), and their
   result carries a `DataPlan` in place of the element plan.
 - `viewBlocks(markdown)`, `pageSource(markdown)`: a page's view blocks as one file.
   Unnamed views on a page are named `#1`, `#2`, ….

@@ -169,14 +169,14 @@ interface DataEntryBase {
 export type DataEntry = DataEntryBase & (
   /** `key: expression`. */
   | { kind: "value"; key: string; keySpan: Span; value: Expr }
-  /** `key: { … }`: a record about the same row as the enclosing one. */
-  | { kind: "record"; key: string; keySpan: Span; record: DataRecord }
-  /** `key: { … } for x in source where … orderBy … limit …`. */
-  | { kind: "list"; key: string; keySpan: Span; bindings: Binding[]; where: Expr[]; orderBy: OrderTerm[]; limit?: Expr; record: DataRecord }
+  /**
+   * `key: { … }`, followed by the attributes an element takes (`for`, `where`, `orderBy`,
+   * `limit`, `if`): a record about the same row, a list of one per match, or a record
+   * that holds only when its conditions do.
+   */
+  | { kind: "record"; key: string; keySpan: Span; record: DataRecord; attributes: Attribute[] }
   /** `field`, or `field { … }` to follow a relationship. */
   | { kind: "field"; name: string; nameSpan: Span; record?: DataRecord }
-  /** `key: { … } if condition`. */
-  | { kind: "if"; key: string; keySpan: Span; conditions: Expr[]; record: DataRecord }
   | { kind: "comment"; text: string }
 );
 
