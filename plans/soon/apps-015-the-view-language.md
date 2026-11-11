@@ -58,7 +58,7 @@ exploration check; their plans match what tracing produces today for the same pa
   evaluator in process, since no general-purpose code runs.
 - The views route answers `rows` and `tree`; `value` and `missed` go. Requests carry no
   state: the checker splits each read into the host's plan and the conditions that read
-  state, which the client evaluates (spec §4.1.5).
+  state, which the client evaluates (spec §4.5).
   `GET` of a `.view` file renders HTML.
 
 **Verify:** `tests/integration/host-collections.test.ts` ported to `.view` sources, plus
@@ -69,7 +69,7 @@ the no-gap and retry tests unchanged.
 - A Swift port of the checker's plan and of the evaluator, sharing the conformance fixtures.
 - Story evaluates views over Story Sync's local rows on a placed tree, or over a `rows`
   answer from the host, and applies mutations optimistically with the same evaluator.
-- `state` and `keep` per spec §4.1.5; session models in memory.
+- `state` and `keep` per spec §4.5; session models in memory.
 
 **Verify:** the fixtures pass in both stacks; a state change redraws without a request.
 
@@ -95,7 +95,7 @@ the removed modules.
 - The UI language's vocabulary (element types, controls, `Canvas` drawing) is
   [Apps 011](apps-011-widgets-in-story.md)'s package; the language only fixes how elements
   are written.
-- Where kept page and personal rows are stored (spec §4.1.5 leaves it open), decided in
+- Where kept page and personal rows are stored (spec §4.5 leaves it open), decided in
   Apps 011 step 4.
 - Durable workflows and combined author/user authority
   ([Apps 006](../later/apps-006-durable-authoring.md)) need a design in the language.
