@@ -91,7 +91,7 @@ with no `id` and no `after`. Its events, each `data` one JSON value:
 
 | `event` | `data` | Sent |
 | --- | --- | --- |
-| `presence.ready` | `{ self: PresenceID \| null; stream?: PresenceID; peers: PresencePeer[] }` | First, once. `self` is null when the subscriber is not listed; `peers` excludes it. `stream` is the stream's own entry, listed or not, given to a caller with an account, for messages (§6). |
+| `presence.ready` | `{ self: PresenceID \| null; peers: PresencePeer[] }` | First, once. `self` is the stream's own entry, listed or not, for a caller with an account (for updates and messages, §3 and §6), and null otherwise; `peers` excludes it. |
 | `presence.peer` | `PresencePeer` | A listed entry joined, changed page, or (an agent) changed status. |
 | `presence.cursor` | `{ id: PresenceID; selection: PresenceSelection \| null }` | Per §2. |
 | `presence.leave` | `{ id: PresenceID }` | A listed entry's stream closed. |
