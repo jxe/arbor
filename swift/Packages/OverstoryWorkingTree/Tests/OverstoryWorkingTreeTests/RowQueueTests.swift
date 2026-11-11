@@ -43,15 +43,18 @@ struct RowQueueTests {
         let rows = ProtocolObjectEnvelope(hash: vector["hash"] as! String, bytes: try #require(Data(base64Encoded: vector["bytesBase64"] as! String)))
         let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
         let schema = try ProtocolObjectCodec.object(.file(Data("""
-            main model Game {
+            main table Game:
               name   Text
               status Status
               tags   Text[]
-            }
+
             Game.status <-> Status.games[]
-            enum Status { Draft, Polished }
+
+            enum Status:
+              Draft
+              Polished
             """.utf8)))
-        let games = try ProtocolObjectCodec.object(.directory([.init(name: "schema.usl", file: schema.hash)],
+        let games = try ProtocolObjectCodec.object(.directory([.init(name: "schema.vad", file: schema.hash)],
             collection: ProtocolCollectionReference(modelFingerprint: "sha256:" + String(repeating: "3", count: 64),
                                                     tables: [.init(model: "Game", table: table.hash)])))
         let root = try ProtocolObjectCodec.object(.directory([.init(name: "games", directory: games.hash)]))

@@ -46,6 +46,66 @@ struct USLTests {
         }
     }
 
+    @Test("A schema.vad lays out the tables its schema.usl did")
+    func vadSchemasMatchUSL() throws {
+        let pairs = [
+            ("packages/vad/examples/supplies/data/schema.vad", "examples/supplies/data/schema.usl"),
+        ]
+        for (vad, usl) in pairs {
+            let vadSource = try String(contentsOf: repositoryRoot.appending(path: vad), encoding: .utf8)
+            let uslSource = try String(contentsOf: repositoryRoot.appending(path: usl), encoding: .utf8)
+            let fromVAD = compileCollectionSchema(vadSource)
+            let fromUSL = compileUSL(uslSource)
+            #expect(fromVAD.diagnostics == [], "\(vad)")
+            #expect(fromVAD.models.map(\.name) == fromUSL.models.map(\.name), "\(vad)")
+            for store in [USLStore.files, .database] {
+                #expect(try uslLayout(fromVAD, store: store) == uslLayout(fromUSL, store: store), "\(vad)")
+            }
+        }
+    }
+
+    @Test("A schema.vad's views, rules, mutations and state tables are left out of its tables")
+    func vadSchemaSkipsTheRest() throws {
+        let source = """
+            // Lists.
+            main table List:
+              name  Text
+              first Date = today @index
+              seed:
+                Inbox { name: "Inbox" }
+              @index(name)
+
+            List.owner <-> Person.lists[]
+
+            my table Draft:
+              text Text
+
+            view ByOwner():
+              <Rows for={l in List} group={l.owner}>
+                <Text>{l.name}</Text>
+              </Rows>
+
+            view Names() {
+              lists: { name } for={l in List}
+            }
+
+            rule canEdit(l List):
+              l.owner == me
+
+            mutation rename(l List, name Text):
+              l.name = name
+
+            re List:
+              name ~label("Title")
+            """
+        let usl = uslSourceOfVAD(source)
+        let result = compileUSL(usl)
+        #expect(result.diagnostics == [], "\(usl)")
+        #expect(result.models.map(\.name).contains("List"))
+        #expect(!result.models.map(\.name).contains("Draft"))
+        #expect(usl.components(separatedBy: "\n").count == source.components(separatedBy: "\n").count)
+    }
+
     @Test("Collection schemas lay out the columns and keys the shared vectors give")
     func collectionSchemaVectors() throws {
         let data = try Data(contentsOf: conformance.appending(path: "collection-schemas.json"))

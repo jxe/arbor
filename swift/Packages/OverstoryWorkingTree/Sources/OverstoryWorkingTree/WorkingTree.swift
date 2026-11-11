@@ -912,10 +912,10 @@ public actor WorkingTree {
     /// rows (Schema language 006): read-only, from the tree's own objects.
     func collectionRows(for directory: WorkingTreeNode) async throws -> WorkspaceCollectionRows {
         guard directory.kind == .directory, let reference = directory.collection else { throw WorkspaceCollectionError.notCollection }
-        guard let schemaFile = childNodes(of: directory.path).first(where: { WorkingTreeSemantics.name(of: $0.path) == "schema.usl" }) else {
+        guard let schemaFile = childNodes(of: directory.path).first(where: { WorkingTreeSemantics.name(of: $0.path) == collectionSchemaFileName }) else {
             throw WorkspaceCollectionError.noSchema
         }
-        let schema = compileUSL(String(decoding: try await payload(of: schemaFile), as: UTF8.self))
+        let schema = compileCollectionSchema(String(decoding: try await payload(of: schemaFile), as: UTF8.self))
         if let first = schema.diagnostics.first { throw WorkspaceCollectionError.schema(first.message) }
         var tables: USLLogicalTables = [:]
         do {
