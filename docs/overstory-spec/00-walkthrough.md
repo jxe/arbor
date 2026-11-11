@@ -101,14 +101,14 @@ Joe creates `practices/schema.usl` declaring a `Practice` model, and
 `practices/_store.csv` with a header row. The
 folder is now a collection: each CSV row is a child node of
 `/practices`, its fields are the child's properties, and its stable key is
-the canonical key JSON of its `id` ([collections](1.4-collections.md#2-logical-collections),
-[row identity](1.4-collections.md#1-row-identity-and-order)). The CSV is only
+the canonical key JSON of its `id` ([collections](1.4-collections.md),
+[row identity](1.4-collections.md#3-row-identity-and-order)). The CSV is only
 how Joe's Mac projects the rows: the tree holds the rows themselves, in
 canonical form, beside the exact bytes of `schema.usl`, and his iPhone keeps
 the same rows in SQLite. Story Sync turns each edit to the CSV into row
 operations, and the authority replays them and recomputes the model
 fingerprint and the collection's logical hash
-([what the tree holds](1.4-collections.md#21-what-the-tree-holds)).
+([what the tree holds](1.4-collections.md#1-what-the-tree-holds)).
 Each row has an ordinary public address such as
 `/~joe/atlas/practices/walking;overstory-key=…` ([reading at the canonical URL](1.6-locators.md#6-reading-at-the-canonical-url)).
 

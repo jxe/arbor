@@ -40,7 +40,7 @@ hashes, collection tables and row chunks, and schema fingerprints) uses this enc
 `protocol-update-intent.json` records the currently implemented update digest derived from it.
 
 `collection-schemas.json` binds the collection schemas of
-[collections §2](../1.4-collections.md#2-logical-collections), written in
+[collections](../1.4-collections.md), written in
 the [schema language](../1.5-schema-language.md), in its 2026-10-24
 layered syntax; the logical collection objects (a directory's `collection`
 reference, `table` and `rows`) are vectors in `protocol-objects.json`. It covers accepted schemas with their columns, key, child name and fingerprint; rejected

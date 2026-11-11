@@ -7,7 +7,7 @@ tagged like page dates. The spec says this now
 ([data model §6](../../docs/overstory-spec/1.1-data-model.md#6-entry-times),
 [tree protocol §2.1](../../docs/overstory-spec/1.2-tree-protocol.md#21-the-update-request),
 [data model §7](../../docs/overstory-spec/1.1-data-model.md#7-cbor-and-hashes),
-[collections §2.2](../../docs/overstory-spec/1.4-collections.md#22-rows-and-values)).
+[collections §2](../../docs/overstory-spec/1.4-collections.md#2-rows-and-values)).
 The code lags it until this plan is done. Soon.
 
 This changes the hash of every directory and row object, so it is a flag day rather than a
