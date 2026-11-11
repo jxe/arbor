@@ -34,6 +34,16 @@ export const Duration = valueType({
 `{p.length}` shows "1h 20m", `where={p.length.minutes < 30}` filters, and a text field
 bound to it parses what people type. Dates, money, emails and slugs work the same way.
 
+### 2. Derived fields, for what expressions can't compute
+
+```
+table Practice:
+  readingTime  Duration = derive readingTime(about)
+```
+
+Pure and deterministic, so the host or a client can cache, index and maintain them
+incrementally, and views filter and sort on them like stored fields.
+
 ### Parked: relations usable in any direction
 
 A plugin declares a relation and which arguments it can solve for (its modes). In a view
@@ -45,16 +55,6 @@ or mutation it is a condition that binds whatever is free:
 
 The planner treats a relation like an index with known access paths (Datalog's foreign
 predicates). A mode it lacks is a check error, not a slow scan.
-
-### 2. Derived fields, for what expressions can't compute
-
-```
-table Practice:
-  readingTime  Duration = derive readingTime(about)
-```
-
-Pure and deterministic, so the host or a client can cache, index and maintain them
-incrementally, and views filter and sort on them like stored fields.
 
 ## Completion
 
