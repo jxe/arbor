@@ -98,6 +98,7 @@ struct AcceptedContractTests {
         let resolves=(0..<40).map { ProtocolSemanticValue.object(["state":.string("u1"),"conflict":.string("d\($0)"),"alternatives":.array(alternatives)]) }
         let update: [String: ProtocolSemanticValue] = [
             "change": .string("c1"),
+            "at": .string("2026-11-11T12:00:00.000Z"),
             "candidate": .string("sha256:" + String(repeating: "1", count: 64)),
             "trace": .array([]),
             "resolves": .array(resolves)

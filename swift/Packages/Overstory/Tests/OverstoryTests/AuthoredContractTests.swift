@@ -44,7 +44,7 @@ struct DerivedUpdateTests {
         let value = try JSONDecoder().decode(ProtocolAuthoredRequestIntent.self, from: JSONSerialization.data(withJSONObject: #require(c["value"])))
         let element = try #require(value.fields["updates"]?.items?.first?.fields)
         let operations = try #require(element["trace"]?.items?.first?.fields?["operations"]?.items).map { try ProtocolSourceOperation(#require($0.fields)) }
-        let update = try ProtocolDerivedUpdate(change: #require(element["change"]?.text), frames: [operations])
+        let update = try ProtocolDerivedUpdate(change: #require(element["change"]?.text), at: #require(element["at"]?.text), frames: [operations])
         let expected = try #require(c["identities"] as? [[String: String]])
         let base = try #require(value.fields["base"]?.text)
         #expect(derivedUpdateRequestDigests(tree: tree, base: base, updates: [update]) == expected.map { $0["digest"]! })

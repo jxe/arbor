@@ -593,6 +593,10 @@ public struct ProtocolTraceFrame: Sendable, Equatable {
 
 public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
     public var change: String
+    /// When the edit was made, RFC 3339 UTC with milliseconds
+    /// (`ProtocolEntryTime`): it stamps the entries this update creates or
+    /// changes (data model §6).
+    public var at: String
     /// `nil` is a snapshot: exact bytes with no authored evidence. A trace is
     /// evidence the authority checks, never a hint it may skip.
     public var trace: [ProtocolTraceFrame]?
@@ -602,14 +606,14 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
     public var objects: [ProtocolObjectEnvelope]
     public var deltas: [ProtocolObjectDelta]
 
-    public init(candidate: String, change: String = UUID().uuidString, trace: [ProtocolTraceFrame]? = nil,
+    public init(candidate: String, change: String = UUID().uuidString, at: String, trace: [ProtocolTraceFrame]? = nil,
                 resolves: [ProtocolResolutionDeclaration] = [], ifCurrent: String? = nil,
                 objects: [ProtocolObjectEnvelope], deltas: [ProtocolObjectDelta] = []) {
-        self.candidate = candidate; self.change = change; self.trace = trace
+        self.candidate = candidate; self.change = change; self.at = at; self.trace = trace
         self.resolves = resolves; self.ifCurrent = ifCurrent; self.objects = objects; self.deltas = deltas
     }
     var semantic: [String: ProtocolSemanticValue] {
-        var fields: [String: ProtocolSemanticValue] = ["change": .string(change), "candidate": .string(candidate),
+        var fields: [String: ProtocolSemanticValue] = ["change": .string(change), "at": .string(at), "candidate": .string(candidate),
             "trace": trace.map { .array($0.map(\.semantic)) } ?? .null,
             "resolves": .array(resolves.map(\.semantic))]
         if let ifCurrent { fields["ifCurrent"] = .string(ifCurrent) }
@@ -623,6 +627,7 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
         typealias Value = ProtocolSemanticValue
         guard let trace = fields["trace"] else { throw ProtocolValidationError.invalidValue("Missing trace") }
         self.init(candidate: try Value.text(fields["candidate"]), change: try Value.text(fields["change"]),
+            at: try Value.text(fields["at"]),
             trace: try trace.items.map { try $0.map(ProtocolTraceFrame.init) },
             resolves: try Value.items(fields["resolves"]).map { raw in
                 let r = try Value.fields(raw)
@@ -635,9 +640,10 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
 
     /// The activation element of a tree's first snapshot: snapshot semantics,
     /// no resolutions, every object complete and no deltas. A claim carries
-    /// its configuration in this shape (accounts §1.2).
-    public static func activation(_ snapshot: ProtocolSnapshot, change: String) -> ProtocolCandidateUpdate {
-        ProtocolCandidateUpdate(candidate: snapshot.root, change: change, objects: snapshot.objects)
+    /// its configuration in this shape (accounts §1.2). `at` is no earlier
+    /// than the times the snapshot was stamped with.
+    public static func activation(_ snapshot: ProtocolSnapshot, change: String, at: String) -> ProtocolCandidateUpdate {
+        ProtocolCandidateUpdate(candidate: snapshot.root, change: change, at: at, objects: snapshot.objects)
     }
 }
 
@@ -645,13 +651,13 @@ public struct ProtocolUpdateRequest: Codable, Sendable, Equatable {
     public var base: String?
     public var updates: [ProtocolCandidateUpdate]
     public init(base: String?, updates: [ProtocolCandidateUpdate]) { self.base = base; self.updates = updates }
-    public init(base: String?, candidate: String, ifCurrent: String? = nil,
+    public init(base: String?, candidate: String, at: String, ifCurrent: String? = nil,
                 objects: [ProtocolObjectEnvelope], deltas: [ProtocolObjectDelta] = []) {
-        self.init(base: base, updates: [ProtocolCandidateUpdate(candidate: candidate, ifCurrent: ifCurrent, objects: objects, deltas: deltas)])
+        self.init(base: base, updates: [ProtocolCandidateUpdate(candidate: candidate, at: at, ifCurrent: ifCurrent, objects: objects, deltas: deltas)])
     }
-    public init(base: ProtocolUpdateBase, candidate: String, ifCurrent: String? = nil,
+    public init(base: ProtocolUpdateBase, candidate: String, at: String, ifCurrent: String? = nil,
                 objects: [ProtocolObjectEnvelope], deltas: [ProtocolObjectDelta] = []) {
-        self.init(base: base.update, candidate: candidate, ifCurrent: ifCurrent, objects: objects, deltas: deltas)
+        self.init(base: base.update, candidate: candidate, at: at, ifCurrent: ifCurrent, objects: objects, deltas: deltas)
     }
     public var candidate: String { updates[0].candidate }
     public var ifCurrent: String? { updates[0].ifCurrent }

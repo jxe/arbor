@@ -66,7 +66,7 @@ struct CBORTransportTests {
             #expect(try CanonicalCBOREncoder().encode(fromJSON) == cbor(entry), name)
             // The Swift claim path builds the same element from the journal's snapshot.
             let snapshot = ProtocolSnapshot(root: fromJSON.configuration.candidate, objects: fromJSON.configuration.objects)
-            #expect(ProtocolCandidateUpdate.activation(snapshot, change: fromJSON.configuration.change) == fromJSON.configuration, name)
+            #expect(ProtocolCandidateUpdate.activation(snapshot, change: fromJSON.configuration.change, at: fromJSON.configuration.at) == fromJSON.configuration, name)
         }
     }
 
@@ -89,12 +89,12 @@ struct CBORTransportTests {
     @Test("A prepared update keeps its encoding and reads back its request")
     func preparedEncoding() async throws {
         let file = try ProtocolObjectCodec.object(.file(Data("encoded".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [file, root])
         let base = ProtocolUpdateBase(root: "sha256:" + String(repeating: "0", count: 64), update: "up_base")
         let origin = URL(string: "https://host.test")!
-        let cbor = try await ProtocolClient(origin: origin).prepareUpdate(tree: "tr_encoded", base: base, snapshot: snapshot)
-        let json = try await ProtocolClient(origin: origin, encoding: .json).prepareUpdate(tree: "tr_encoded", base: base, snapshot: snapshot)
+        let cbor = try await ProtocolClient(origin: origin).prepareUpdate(tree: "tr_encoded", base: base, snapshot: snapshot, at: "2026-11-11T12:00:00.000Z")
+        let json = try await ProtocolClient(origin: origin, encoding: .json).prepareUpdate(tree: "tr_encoded", base: base, snapshot: snapshot, at: "2026-11-11T12:00:00.000Z")
         #expect(cbor.contentType == "application/cbor" && cbor.encoding == .cbor)
         #expect(json.contentType == nil && json.encoding == .json)
         #expect(cbor.body != json.body)

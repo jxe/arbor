@@ -53,13 +53,13 @@ public struct ProtocolAuthoredCandidate: Codable, Sendable, Equatable {
         }
     }
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case change, candidate, trace, resolves, ifCurrent, objects, deltas
+        case change, at, candidate, trace, resolves, ifCurrent, objects, deltas
     }
     public init(from decoder: Decoder) throws {
         try validateSemanticFields(decoder, allowed: Set(CodingKeys.allCases.map(\.rawValue)))
         let c = try decoder.container(keyedBy: CodingKeys.self)
         var intent: [String: ProtocolSemanticValue] = [:]
-        for key in [CodingKeys.change, .candidate, .trace, .resolves, .ifCurrent] where c.contains(key) {
+        for key in [CodingKeys.change, .at, .candidate, .trace, .resolves, .ifCurrent] where c.contains(key) {
             intent[key.rawValue] = try c.decode(ProtocolSemanticValue.self, forKey: key)
         }
         // Read bytes by the decoder's encoding: JSON's base64 is validated as

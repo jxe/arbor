@@ -7,19 +7,22 @@ import Foundation
 /// each later one on its predecessor's result.
 public struct ProtocolDerivedUpdate: Sendable, Equatable {
     public var change: String
+    /// When the edit was made, RFC 3339 UTC with milliseconds: the time of
+    /// the rows and entries it changes, unless an operation states its own.
+    public var at: String
     public var frames: [[ProtocolSourceOperation]]
     public var resolves: [ProtocolResolutionDeclaration]
     public var ifCurrent: String?
 
-    public init(change: String = UUID().uuidString, frames: [[ProtocolSourceOperation]],
+    public init(change: String = UUID().uuidString, at: String, frames: [[ProtocolSourceOperation]],
                 resolves: [ProtocolResolutionDeclaration] = [], ifCurrent: String? = nil) throws {
-        self.change = change; self.frames = frames; self.resolves = resolves; self.ifCurrent = ifCurrent
+        self.change = change; self.at = at; self.frames = frames; self.resolves = resolves; self.ifCurrent = ifCurrent
         try ProtocolAuthoredRequestIntent.validateCandidate(semantic)
     }
 
     var semantic: [String: ProtocolSemanticValue] {
         var fields: [String: ProtocolSemanticValue] = [
-            "change": .string(change), "candidate": .null,
+            "change": .string(change), "at": .string(at), "candidate": .null,
             "trace": .array(frames.map { .object(["operations": .array($0.map { .object($0.fields) })]) }),
             "resolves": .array(resolves.map(\.semantic)),
         ]

@@ -65,10 +65,11 @@ public struct ProtocolLogicalRow: Equatable, Sendable {
 
     public var key: [KeyPart]
     public var fields: [String: ProtocolReadValue]
-    public var created: String
-    public var modified: String
+    /// Unix milliseconds in UTC, like a file or page entry's times (collections §2).
+    public var created: Int
+    public var modified: Int
 
-    public init(key: [KeyPart], fields: [String: ProtocolReadValue], created: String, modified: String) {
+    public init(key: [KeyPart], fields: [String: ProtocolReadValue], created: Int, modified: Int) {
         self.key = key
         self.fields = fields
         self.created = created
@@ -376,15 +377,17 @@ public enum ProtocolObjectCodec {
     }
 
     /// A `rows` chunk's rows, decoded strictly: each key a list of
-    /// `[field, value]` pairs, fields a map, and both times text. Values are
-    /// JSON values; anything else (bytes, non-finite numbers) is refused.
+    /// `[field, value]` pairs, fields a map, and both times Unix milliseconds
+    /// with created ≤ modified. Values are JSON values, except that a Date
+    /// field's value is tagged (tag 1004 around a date, tag 0 around a UTC
+    /// date-time) and reads as its text; anything else is refused.
     public static func decodeRows(_ bytes: Data) throws -> [ProtocolLogicalRow] {
         try rowList(bytes).map { fields in
             let row = Dictionary(uniqueKeysWithValues: fields)
             guard case let .array(pairs)? = row["key"], !pairs.isEmpty,
                   case let .map(values)? = row["fields"],
-                  case let .text(created)? = row["created"],
-                  case let .text(modified)? = row["modified"]
+                  let created = entryTime(row["created"]),
+                  let modified = entryTime(row["modified"]), created <= modified
             else { throw ProtocolValidationError.invalidCBOR("Row fields are invalid") }
             let key = try pairs.map { pair -> ProtocolLogicalRow.KeyPart in
                 guard case let .array(part) = pair, part.count == 2, case let .text(field) = part[0] else {
@@ -414,6 +417,12 @@ public enum ProtocolObjectCodec {
             var object: [String: ProtocolReadValue] = [:]
             for (name, item) in entries { object[name] = try readValue(item, depth: depth + 1) }
             return .object(object)
+        case let .tagged(1004, .text(date)):
+            guard ProtocolPage.validCanonicalDate(date) else { throw ProtocolValidationError.invalidCBOR("A tagged row date is invalid") }
+            return .string(date)
+        case let .tagged(0, .text(time)):
+            guard ProtocolPage.validCanonicalDateTime(time) else { throw ProtocolValidationError.invalidCBOR("A tagged row date-time is invalid") }
+            return .string(time)
         case .bytes, .tagged: throw ProtocolValidationError.invalidCBOR("A row value must be a JSON value")
         }
     }
@@ -719,7 +728,8 @@ public extension ProtocolSnapshot {
         return try verifiedBytes(hash)
     }
 
-    func replacingRootFile(named name: String, with bytes: Data) throws -> ProtocolSnapshot {
+    /// This snapshot with its root file `name` holding `bytes`, stamped at `at` (Unix ms).
+    func replacingRootFile(named name: String, with bytes: Data, at: Int) throws -> ProtocolSnapshot {
         let objects = try ProtocolObjectGraph.validate(self)
         guard case let .directory(entries, collection)? = objects[root],
               entries.contains(where: { $0.name == name && $0.hash != nil }) else {
@@ -727,7 +737,7 @@ public extension ProtocolSnapshot {
         }
         let file = try ProtocolObjectCodec.object(.file(bytes))
         let nextEntries = entries.map { entry in
-            entry.name == name ? ProtocolDirectoryEntry(name: name, file: file.hash) : entry
+            entry.name == name ? ProtocolDirectoryEntry.stamped(.file, name: name, object: file.hash, previous: entry, at: at) : entry
         }
         let nextRoot = try ProtocolObjectCodec.object(.directory(nextEntries, collection: collection))
         var bytesByHash = Dictionary(self.objects.map { ($0.hash, $0.bytes) }, uniquingKeysWith: { first, _ in first })

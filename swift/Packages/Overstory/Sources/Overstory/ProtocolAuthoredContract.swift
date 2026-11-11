@@ -177,17 +177,22 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
         if v["base"] != .null { try token(v["base"]) }
         guard let updates = v["updates"]?.items else { throw ProtocolValidationError.invalidValue("Expected updates") }
         try check(!updates.isEmpty); var changes = Set<String>()
+        var previousAt = Int.min
         for raw in updates {
             let u = try object(raw)
             try validateCandidate(u)
             try check(changes.insert(u["change"]!.text!).inserted)
+            // Within one request each `at` is no earlier than the one before it.
+            let at = ProtocolEntryTime.milliseconds(u["at"]!.text!)!
+            try check(at >= previousAt); previousAt = at
         }
         if v["base"] == .null { let first = updates[0].fields!; try check(first["ifCurrent"] == nil && first["resolves"]!.items!.isEmpty) }
     }
     /// Shared by semantic fixtures and complete transport candidates.
     static func validateCandidate(_ u: [String: ProtocolSemanticValue]) throws {
-        try keys(u, ["change", "candidate", "trace", "resolves"], ["ifCurrent"])
+        try keys(u, ["change", "at", "candidate", "trace", "resolves"], ["ifCurrent"])
         try id(u["change"])
+        try check(u["at"]?.text.map(ProtocolEntryTime.isValid) == true)
         // A derived candidate is an operation trace whose last frame leaves
         // its `after` out (source intent §2.2).
         if u["candidate"] == .null { try check(u["trace"]?.items.map { !$0.isEmpty } == true) } else { try hash(u["candidate"]) }

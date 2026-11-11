@@ -38,15 +38,15 @@ struct ProtocolObjectTests {
         let first = try ProtocolObjectCodec.object(.file(Data("before".utf8)))
         let second = try ProtocolObjectCodec.object(.file(Data("untouched".utf8)))
         let inner = try ProtocolObjectCodec.object(.file(Data("nested".utf8)))
-        let nested = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "inner.txt", file: inner.hash)]))
+        let nested = try ProtocolObjectCodec.object(.directory([ProtocolDirectoryEntry(name: "inner.txt", file: inner.hash, created: 0, modified: 0)]))
         let root = try ProtocolObjectCodec.object(.directory([
-            ProtocolDirectoryEntry(name: "first.txt", file: first.hash),
+            ProtocolDirectoryEntry(name: "first.txt", file: first.hash, created: 0, modified: 0),
             ProtocolDirectoryEntry(name: "nested", directory: nested.hash),
-            ProtocolDirectoryEntry(name: "second.txt", file: second.hash),
+            ProtocolDirectoryEntry(name: "second.txt", file: second.hash, created: 0, modified: 0),
         ]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [first, second, inner, nested, root].sorted { $0.hash < $1.hash })
 
-        let changed = try snapshot.replacingRootFile(named: "first.txt", with: Data("after".utf8))
+        let changed = try snapshot.replacingRootFile(named: "first.txt", with: Data("after".utf8), at: 1)
 
         #expect(try String(data: changed.rootFile(named: "first.txt"), encoding: .utf8) == "after")
         #expect(try String(data: changed.rootFile(named: "second.txt"), encoding: .utf8) == "untouched")
@@ -106,7 +106,10 @@ struct ProtocolObjectTests {
                         name: $0["name"] as! String,
                         file: $0["file"] as? String,
                         directory: $0["directory"] as? String,
-                        tree: $0["tree"] as? String
+                        tree: $0["tree"] as? String,
+                        page: $0["page"] as? String,
+                        created: $0["created"] as? Int,
+                        modified: $0["modified"] as? Int
                     )
                 }, collection: collection)
             }
@@ -122,7 +125,7 @@ struct ProtocolObjectTests {
         let data = try Data(contentsOf: fixtures.appending(path: "protocol-objects.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let vectors = try #require(fixture["invalid"] as? [[String: Any]])
-        #expect(vectors.count == 11)
+        #expect(vectors.count == 15)
         for vector in vectors {
             let base64 = try #require(vector["canonicalCborBase64"] as? String)
             let bytes = try #require(Data(base64Encoded: base64))
@@ -133,7 +136,7 @@ struct ProtocolObjectTests {
     @Test("Complete graph validation rejects missing and unreachable objects")
     func graphValidation() throws {
         let file = try ProtocolObjectCodec.object(.file(Data("hello".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let valid = ProtocolSnapshot(root: root.hash, objects: [root, file])
         #expect(try ProtocolObjectGraph.validate(valid).count == 2)
         #expect(throws: ProtocolValidationError.self) {
@@ -157,7 +160,7 @@ struct ProtocolObjectTests {
         let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
         let schema = try ProtocolObjectCodec.object(.file(Data("main model Game (id)\n".utf8)))
         let root = try ProtocolObjectCodec.object(.directory(
-            [.init(name: "schema.usl", file: schema.hash)],
+            [.init(name: "schema.usl", file: schema.hash, created: 0, modified: 0)],
             collection: ProtocolCollectionReference(modelFingerprint: schema.hash, tables: [.init(model: "Game", table: table.hash)])
         ))
         let objects = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, table, rows]))
@@ -178,10 +181,10 @@ struct ProtocolObjectTests {
     func sparseGraphValidation() throws {
         let file = try ProtocolObjectCodec.object(.file(Data("hello".utf8)))
         let image = try ProtocolObjectCodec.object(.file(Data([0xff, 0xd8, 0xff])))
-        let inner = try ProtocolObjectCodec.object(.directory([.init(name: "photo.jpg", file: image.hash)]))
+        let inner = try ProtocolObjectCodec.object(.directory([.init(name: "photo.jpg", file: image.hash, created: 0, modified: 0)]))
         let root = try ProtocolObjectCodec.object(.directory([
             .init(name: "album", directory: inner.hash),
-            .init(name: "note.md", file: file.hash),
+            .init(name: "note.md", file: file.hash, created: 0, modified: 0),
         ]))
         // Spine plus Markdown, file bytes absent.
         let sparse = ProtocolSnapshot(root: root.hash, objects: [root, inner, file])
@@ -238,7 +241,7 @@ struct ProtocolObjectTests {
     func fileKindComesFromEntry() throws {
         let bytes = try ProtocolObjectCodec.encode(.directory([]))
         let file = try ProtocolObjectCodec.object(.file(bytes))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "object.bin", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "object.bin", file: file.hash, created: 0, modified: 0)]))
         let graph = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, file]))
         #expect(graph[file.hash] == .file(bytes))
     }
@@ -289,7 +292,7 @@ struct ProtocolObjectTests {
     @Test("Swift rejects invalid immutable snapshot bundles")
     func invalidSnapshotBundles() throws {
         let file = try ProtocolObjectCodec.object(.file(Data("snapshot\n".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [root, file])
         let valid = try ProtocolSnapshotBundleCodec.encode(snapshot)
         #expect(throws: ProtocolValidationError.self) {
@@ -390,7 +393,7 @@ struct UpdateProtocolTests {
             #expect(updateRequestDigests(tree:tree,base:request.base,updates:request.updates) == expected.map { $0["digest"]! })
             if let base = request.base {
                 let u = request.updates[0]
-                let encoded = canonicalUpdateIntent(tree:tree,base:.init(root:u.candidate,update:base),candidate:u.candidate,change:u.change,trace:u.trace,resolves:u.resolves,ifCurrent:u.ifCurrent)
+                let encoded = canonicalUpdateIntent(tree:tree,base:.init(root:u.candidate,update:base),candidate:u.candidate,change:u.change,at:u.at,trace:u.trace,resolves:u.resolves,ifCurrent:u.ifCurrent)
                 #expect(encoded.base64EncodedString() == expected[0]["canonicalCBORBase64"])
             }
         }
@@ -458,6 +461,7 @@ struct UpdateProtocolTests {
         let request = ProtocolUpdateRequest(
             base: base,
             candidate: "sha256:" + String(repeating: "1", count: 64),
+            at: "2026-11-11T12:00:00.000Z",
             objects: [],
             deltas: [delta]
         )
@@ -466,7 +470,7 @@ struct UpdateProtocolTests {
         #expect(json["base"] as? String == "up_base")
         let updates = try #require(json["updates"] as? [[String: Any]])
         #expect((updates[0]["deltas"] as? [[String: Any]])?.count == 1)
-        let activation = try JSONEncoder().encode(ProtocolUpdateRequest(base: nil, candidate: request.candidate, objects: []))
+        let activation = try JSONEncoder().encode(ProtocolUpdateRequest(base: nil, candidate: request.candidate, at: "2026-11-11T12:00:00.000Z", objects: []))
         let activationJSON = try #require(JSONSerialization.jsonObject(with: activation) as? [String: Any])
         #expect(activationJSON["base"] is NSNull)
         let activationUpdates = try #require(activationJSON["updates"] as? [[String: Any]])
@@ -528,11 +532,11 @@ struct UpdateProtocolTests {
     @Test("Ordered accepted transitions apply object deltas through a merge")
     func acceptedTransitionReplay() throws {
         let baseFile = try ProtocolObjectCodec.object(.file(Data("abcdef".utf8)))
-        let baseRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: baseFile.hash)]))
+        let baseRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: baseFile.hash, created: 0, modified: 0)]))
         let firstFile = try ProtocolObjectCodec.object(.file(Data("abXYef".utf8)))
-        let firstRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: firstFile.hash)]))
+        let firstRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: firstFile.hash, created: 0, modified: 0)]))
         let finalFile = try ProtocolObjectCodec.object(.file(Data("abXYef!".utf8)))
-        let finalRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: finalFile.hash)]))
+        let finalRoot = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: finalFile.hash, created: 0, modified: 0)]))
         let firstUpdate = ProtocolAcceptedUpdate(
             id: "2", tree: "tr_notes", root: firstRoot.hash,
             previous: .init(id: "1", root: baseRoot.hash), acceptedAt: 1
@@ -746,7 +750,7 @@ struct UpdateProtocolTests {
     @Test("Ambiguous transport retries the exact prepared request without a caller key")
     func exactRetry() async throws {
         let file = try ProtocolObjectCodec.object(.file(Data("retry".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [file, root])
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
         let client = ProtocolClient(
@@ -758,7 +762,8 @@ struct UpdateProtocolTests {
         let prepared = try await client.prepareUpdate(
             tree: "tr_retry",
             base: .init(root: baseHash, update: "up_base"),
-            snapshot: snapshot
+            snapshot: snapshot,
+            at: "2026-11-11T12:00:00.000Z"
         )
         let requestDigest = prepared.requestDigest
         let response = Data("""
@@ -780,7 +785,7 @@ struct UpdateProtocolTests {
     @Test("A response that fails validation is not retried")
     func invalidResponseIsNotRetried() async throws {
         let file = try ProtocolObjectCodec.object(.file(Data("mismatch".utf8)))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "note.md", file: file.hash, created: 0, modified: 0)]))
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
         let otherDigest = "sha256:" + String(repeating: "2", count: 64)
         let client = ProtocolClient(
@@ -792,7 +797,8 @@ struct UpdateProtocolTests {
         let prepared = try await client.prepareUpdate(
             tree: "tr_retry",
             base: .init(root: baseHash, update: "up_base"),
-            snapshot: ProtocolSnapshot(root: root.hash, objects: [file, root])
+            snapshot: ProtocolSnapshot(root: root.hash, objects: [file, root]),
+            at: "2026-11-11T12:00:00.000Z"
         )
         let response = Data("""
         {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false,"observedThrough":"up_retry"}}
@@ -838,7 +844,8 @@ struct UpdateProtocolTests {
         let prepared = try await client.prepareUpdate(
             tree: "tr_atlas",
             base: ProtocolUpdateBase(root: base, update: "up_base"),
-            snapshot: local
+            snapshot: local,
+            at: "2026-11-11T12:00:00.000Z"
         )
         do {
             _ = try await client.submitUpdate(prepared)
@@ -861,7 +868,7 @@ struct UpdateProtocolTests {
             "source": .object(["material": .object(["kind": .string("basis"), "path": .string("/page.md"), "object": .string(snapshot.root)]),
                                "range": .array([.integer(0), .integer(0)])]),
             "text": .string("x")])
-        let update = ProtocolCandidateUpdate(candidate: snapshot.root, change: "durable-change",
+        let update = ProtocolCandidateUpdate(candidate: snapshot.root, change: "durable-change", at: "2026-11-11T12:00:00.000Z",
             trace: [ProtocolTraceFrame(before: snapshot.root, after: snapshot.root, operations: [operation])],
             objects: snapshot.objects)
         let prepared = try await client.prepareUpdates(tree: "tr_test", base: .init(root: snapshot.root, update: "up_base"), updates: [update])
@@ -954,7 +961,7 @@ struct LiveProtocolTests {
         guard case .array(let decisions) = page.fields["decisions"] else { Issue.record("Missing decisions"); return }
         #expect(decisions.count == 1)
         let snapshot = try await client.snapshot(tree: tree, root: current.tree.root)
-        let prepared = try await client.prepareUpdate(tree: tree, base: ProtocolUpdateBase(root: current.tree.root, update: current.tree.update), snapshot: snapshot)
+        let prepared = try await client.prepareUpdate(tree: tree, base: ProtocolUpdateBase(root: current.tree.root, update: current.tree.update), snapshot: snapshot, at: "2026-11-11T12:00:00.000Z")
         let acknowledged = try await client.submitUpdate(prepared)
         switch acknowledged { case .accepted(let state), .unchanged(let state): #expect(state.conflicted) }
     }
@@ -1008,7 +1015,7 @@ struct LiveProtocolTests {
 
     private func snapshot(fileBytes: Data) throws -> ProtocolSnapshot {
         let file = try ProtocolObjectCodec.object(.file(fileBytes))
-        let root = try ProtocolObjectCodec.object(.directory([.init(name: "blob.bin", file: file.hash)]))
+        let root = try ProtocolObjectCodec.object(.directory([.init(name: "blob.bin", file: file.hash, created: 0, modified: 0)]))
         return ProtocolSnapshot(root: root.hash, objects: [file, root]).sorted()
     }
 }
@@ -1027,7 +1034,7 @@ private func protocolStubSession() -> URLSession {
 
 private func protocolTestSnapshot(_ value: String) throws -> ProtocolSnapshot {
     let file = try ProtocolObjectCodec.object(.file(Data(value.utf8)))
-    let root = try ProtocolObjectCodec.object(.directory([.init(name: "value.bin", file: file.hash)]))
+    let root = try ProtocolObjectCodec.object(.directory([.init(name: "value.bin", file: file.hash, created: 0, modified: 0)]))
     return ProtocolSnapshot(root: root.hash, objects: [file, root])
 }
 
@@ -1289,8 +1296,8 @@ struct ProtocolValueVectorTests {
 private struct ExpectedLogicalRow: Decodable {
     var key: [[ProtocolReadValue]]
     var fields: [String: ProtocolReadValue]
-    var created: String
-    var modified: String
+    var created: Int
+    var modified: Int
 
     var row: ProtocolLogicalRow {
         ProtocolLogicalRow(

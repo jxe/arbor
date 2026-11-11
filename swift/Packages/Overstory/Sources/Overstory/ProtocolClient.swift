@@ -235,6 +235,8 @@ public actor ProtocolClient {
         tree: String,
         base: ProtocolUpdateBase,
         snapshot: ProtocolSnapshot,
+        /// When the edit was made: no earlier than the times `snapshot` was stamped with.
+        at: String,
         ifCurrent: String? = nil
     ) throws -> PreparedProtocolUpdate {
         guard !tree.isEmpty, !base.update.isEmpty else { throw ProtocolValidationError.invalidValue("Update identity is empty") }
@@ -243,6 +245,7 @@ public actor ProtocolClient {
         let request = ProtocolUpdateRequest(
             base: base,
             candidate: snapshot.root,
+            at: at,
             ifCurrent: ifCurrent,
             objects: snapshot.objects
         )
@@ -798,6 +801,7 @@ public func canonicalUpdateIntent(
     base: ProtocolUpdateBase,
     candidate: String,
     change: String,
+    at: String,
     trace: [ProtocolTraceFrame]? = nil,
     resolves: [ProtocolResolutionDeclaration] = [],
     ifCurrent: String? = nil
@@ -807,6 +811,7 @@ public func canonicalUpdateIntent(
         base: .text(base.update),
         candidate: candidate,
         change: change,
+        at: at,
         trace: trace,
         resolves: resolves,
         ifCurrent: ifCurrent
@@ -818,20 +823,22 @@ private func canonicalUpdateIntent(
     base: CanonicalCBORValue,
     candidate: String,
     change: String,
+    at: String,
     trace: [ProtocolTraceFrame]? = nil,
     resolves: [ProtocolResolutionDeclaration],
     ifCurrent: String?
 ) -> Data {
     canonicalUpdateIntent(tree: tree, base: base, fields: ProtocolCandidateUpdate(
-        candidate: candidate, change: change, trace: trace, resolves: resolves, ifCurrent: ifCurrent, objects: []).semantic)
+        candidate: candidate, change: change, at: at, trace: trace, resolves: resolves, ifCurrent: ifCurrent, objects: []).semantic)
 }
 
 /// The identity bytes of one element from its semantic fields, which may
 /// leave roots for the host to derive (source intent §2).
 func canonicalUpdateIntent(tree: String, base: CanonicalCBORValue, fields: [String: ProtocolSemanticValue]) -> Data {
     CanonicalCBOR.encode(.map([
-        ("domain", .text("arbor-update/2")),
+        ("domain", .text("overstory-update/1")),
         ("change", fields["change"]!.cbor),
+        ("at", fields["at"]!.cbor),
         ("trace", fields["trace"]?.cbor ?? .null),
         ("tree", .text(tree)),
         ("base", base),
