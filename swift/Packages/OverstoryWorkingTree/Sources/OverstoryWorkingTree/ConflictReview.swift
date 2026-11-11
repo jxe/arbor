@@ -72,7 +72,6 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
     public let selected: String
     public let alternatives: [ConflictReviewAlternative]
     public let dependencies: [String]
-    public let actions: [String]
     /// A property choice's property of the page `affected` names.
     public var property: String? = nil
     public var path: String? {
@@ -115,8 +114,9 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
     /// Whether this decision can be resolved without other declarations.
     /// Group compilation separately checks every structural and material obligation.
     public var supportsIndependentResolution: Bool {
-        if sourceRange != nil || kind == "property" { return dependencies.isEmpty && actions.contains("resolveConflict") }
-        return dependencies.isEmpty && actions.contains("resolveConflict") &&
+        // Every decision is resolvable; its dependencies and material decide how.
+        if sourceRange != nil || kind == "property" { return dependencies.isEmpty }
+        return dependencies.isEmpty &&
         affected.allSatisfy { $0.range == nil } &&
         (kind == "entry" && Set(alternatives.compactMap { $0.placement?.path }).count == 1 &&
          alternatives.allSatisfy { $0.value.file != nil || $0.value.page != nil || $0.value.absent == true })
@@ -162,7 +162,6 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
     public var keepCurrent: Bool?
     public var supportsKeepingCurrent: Bool {
         decisions.allSatisfy { decision in
-            decision.actions.contains("resolveConflict") &&
             decision.dependencies.allSatisfy { dependency in decisions.contains(where: { $0.id == dependency }) }
         }
     }
@@ -203,7 +202,7 @@ public struct ConflictReviewDraft: Codable, Equatable, Identifiable, Sendable {
             guard let selection = selection(for: decision.id), decision.alternatives.contains(where: { $0.id == selection.alternative }) else {
                 issues.append("Choose a version for \(decision.title)."); continue
             }
-            if !decision.actions.contains("resolveConflict") || (decision.sourceRange == nil && decision.affected.contains(where: { $0.range != nil })) {
+            if decision.sourceRange == nil && decision.affected.contains(where: { $0.range != nil }) {
                 issues.append("The scope of \(decision.title) is not supported by this reviewer.")
             }
             for dependency in decision.dependencies where !decisions.contains(where: { $0.id == dependency }) {

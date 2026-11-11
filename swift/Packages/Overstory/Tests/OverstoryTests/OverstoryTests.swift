@@ -474,7 +474,8 @@ struct UpdateProtocolTests {
         let activationJSON = try #require(JSONSerialization.jsonObject(with: activation) as? [String: Any])
         #expect(activationJSON["base"] is NSNull)
         let activationUpdates = try #require(activationJSON["updates"] as? [[String: Any]])
-        #expect((activationUpdates[0]["deltas"] as? [Any])?.isEmpty == true)
+        // Empty lists are left out (tree operations §2.1).
+        #expect(activationUpdates[0]["deltas"] == nil && activationUpdates[0]["objects"] == nil)
 
         let missingDeltas = try JSONSerialization.data(withJSONObject: [
             "base": base.update,
@@ -1174,7 +1175,8 @@ struct ProtocolValueVectorTests {
         let update = frames[0], resync = frames[1]
         #expect(update.id == "1")
         let payload = try #require(JSONSerialization.jsonObject(with: Data(update.data.utf8)) as? [String: Any])
-        #expect(Set(payload.keys) == ["transition", "access", "canonical"])
+        // Flat: the transition's members beside access and canonical, no wrapper.
+        #expect(Set(payload.keys).isSuperset(of: ["update", "access", "canonical"]) && payload["transition"] == nil)
         // The frame is one the watch decoder accepts.
         let change = try JSONDecoder().decode(ProtocolTreeUpdateFrame.self, from: Data(update.data.utf8))
         #expect(try change.validated(tree: change.transition.update.tree).transition.update.id == "1")

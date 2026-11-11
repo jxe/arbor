@@ -84,8 +84,10 @@ struct AcceptedContractTests {
                 var expected=try JSONDecoder().decode(ProtocolReadValue.self,from:data)
                 if c["kind"] as? String == "watch", case .array(let frames)=expected {
                     expected = .array(try frames.map { frame in
-                        guard case .object(let fields)=frame else { throw ProtocolValidationError.invalidValue("A watch frame is an object") }
-                        return try #require(fields["transition"])
+                        // A frame is flat: the transition's members beside access and canonical.
+                        guard case .object(var fields)=frame else { throw ProtocolValidationError.invalidValue("A watch frame is an object") }
+                        fields["access"]=nil; fields["canonical"]=nil
+                        return .object(fields)
                     })
                 }
                 #expect(try JSONDecoder().decode(ProtocolReadValue.self,from:decode())==expected,"\(c["name"] ?? "case")")

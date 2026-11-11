@@ -576,3 +576,46 @@ private struct CBORSingleValueDecodingContainer: SingleValueDecodingContainer {
     func decode(_ type: UInt64.Type) throws -> UInt64 { try take(type) }
     func decode<T: Decodable>(_ type: T.Type) throws -> T { try take(type) }
 }
+
+/// One object as it travels (tree operations §2.1): its bytes alone, a CBOR
+/// byte string or standard padded base64 in JSON. The receiver hashes them.
+struct ProtocolWireObject: Codable {
+    var bytes: Data
+    init(_ bytes: Data) { self.bytes = bytes }
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer()
+        if decoder is CBORValueDecoder { bytes = try value.decode(Data.self); return }
+        let text = try value.decode(String.self)
+        guard let bytes = Data(base64Encoded: text), bytes.base64EncodedString() == text else {
+            throw ProtocolValidationError.invalidValue("Noncanonical object base64")
+        }
+        self.bytes = bytes
+    }
+    func encode(to encoder: Encoder) throws {
+        var value = encoder.singleValueContainer()
+        try value.encode(bytes)
+    }
+}
+
+/// A transition's `objects` and `deltas` on the wire: objects as bytes, named
+/// by their hash, none listed twice; either list may be absent, meaning
+/// empty, and a sender leaves an empty one out.
+enum ProtocolWirePayload {
+    static func objects<Key: CodingKey>(_ values: KeyedDecodingContainer<Key>, forKey key: Key) throws -> [ProtocolObjectEnvelope] {
+        guard values.contains(key) else { return [] }
+        var seen = Set<String>()
+        return try values.decode([ProtocolWireObject].self, forKey: key).map { object in
+            let hash = ProtocolObjectCodec.hash(object.bytes)
+            guard seen.insert(hash).inserted else { throw ProtocolValidationError.invalidValue("Transition object supplied more than once") }
+            return ProtocolObjectEnvelope(hash: hash, bytes: object.bytes)
+        }
+    }
+    static func deltas<Key: CodingKey>(_ values: KeyedDecodingContainer<Key>, forKey key: Key) throws -> [ProtocolObjectDelta] {
+        values.contains(key) ? try values.decode([ProtocolObjectDelta].self, forKey: key) : []
+    }
+    static func encode<Key: CodingKey>(objects: [ProtocolObjectEnvelope], deltas: [ProtocolObjectDelta],
+                                       into values: inout KeyedEncodingContainer<Key>, objectsKey: Key, deltasKey: Key) throws {
+        if !objects.isEmpty { try values.encode(objects.map { ProtocolWireObject($0.bytes) }, forKey: objectsKey) }
+        if !deltas.isEmpty { try values.encode(deltas, forKey: deltasKey) }
+    }
+}

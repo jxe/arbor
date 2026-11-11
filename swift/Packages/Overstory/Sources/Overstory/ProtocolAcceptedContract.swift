@@ -84,10 +84,10 @@ enum AcceptedReadValidation {
         if !conflicted { try check(decisions.isEmpty && v["next"] == .null) }
         var seen=Set<String>()
         for raw in decisions {
-            let d=try object(raw); try required(d,["id","kind","affected","selected","alternatives","dependencies","actions"])
+            let d=try object(raw); try required(d,["id","kind","affected","selected","alternatives","dependencies"]); try check(d["actions"] == nil)
             try id(d["id"]); try check(seen.insert(d["id"]!.text!).inserted); try token(d["kind"]); try id(d["selected"])
             let affected=try array(d["affected"]); try check(!affected.isEmpty); for r in affected { try reference(r) }
-            try ids(d["dependencies"]); try check(!(d["dependencies"]!.items!.contains(d["id"]!))); try ids(d["actions"])
+            try ids(d["dependencies"]); try check(!(d["dependencies"]!.items!.contains(d["id"]!)))
             // A field choice, and only one, names its row field (spec 01 §1.2.3).
             let field=d["kind"] == .string("field")
             try check((d["row"] != nil)==field)

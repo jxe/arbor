@@ -390,7 +390,6 @@ public enum ProtocolObjectDeltaInstruction: Sendable, Equatable, Codable {
     static let maxSafeInteger = 9_007_199_254_740_991
 
     private enum CodingKeys: String, CodingKey { case copy, insert }
-    private enum CopyKeys: String, CodingKey { case offset, length }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -398,13 +397,12 @@ public enum ProtocolObjectDeltaInstruction: Sendable, Equatable, Codable {
             throw ProtocolValidationError.invalidValue("Object delta instruction requires exactly one operation")
         }
         if values.contains(.copy) {
-            let copy = try values.nestedContainer(keyedBy: CopyKeys.self, forKey: .copy)
-            let offset = try copy.decode(Int.self, forKey: .offset)
-            let length = try copy.decode(Int.self, forKey: .length)
-            guard Self.validCopy(offset: offset, length: length) else {
+            // A copy is `[offset, length]` of the base (tree operations §2.5).
+            let copy = try values.decode([Int].self, forKey: .copy)
+            guard copy.count == 2, Self.validCopy(offset: copy[0], length: copy[1]) else {
                 throw ProtocolValidationError.invalidValue("Invalid object delta copy")
             }
-            self = .copy(offset: offset, length: length)
+            self = .copy(offset: copy[0], length: copy[1])
         } else {
             let bytes = try decodeProtocolBytes(values, forKey: .insert, from: decoder, invalid: "Invalid object delta insert")
             guard !bytes.isEmpty else { throw ProtocolValidationError.invalidValue("Invalid object delta insert") }
@@ -416,9 +414,7 @@ public enum ProtocolObjectDeltaInstruction: Sendable, Equatable, Codable {
         var values = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case let .copy(offset, length):
-            var copy = values.nestedContainer(keyedBy: CopyKeys.self, forKey: .copy)
-            try copy.encode(offset, forKey: .offset)
-            try copy.encode(length, forKey: .length)
+            try values.encode([offset, length], forKey: .copy)
         case let .insert(bytes):
             // Padded base64 in JSON (JSONEncoder's default for `Data`), a byte string in CBOR.
             try values.encode(bytes, forKey: .insert)
@@ -532,6 +528,15 @@ public struct ProtocolAcceptedTransition: Codable, Sendable, Equatable {
         requestDigest = try values.decodeIfPresent(String.self, forKey: .requestDigest)
         // Decoding `update` already validated it against the accepted-state contract.
         try validateTransition()
+    }
+
+    /// Objects travel as bytes; empty lists are left out (tree operations §2.1).
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encodeIfPresent(from, forKey: .from)
+        try values.encode(update, forKey: .update)
+        try values.encodeIfPresent(requestDigest, forKey: .requestDigest)
+        try ProtocolWirePayload.encode(objects: objects, deltas: deltas, into: &values, objectsKey: .objects, deltasKey: .deltas)
     }
 
     public func validated() throws -> Self {
@@ -721,15 +726,15 @@ public struct ProtocolTransitionPayload: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        objects = try values.decode([ProtocolObjectEnvelope].self, forKey: .objects)
-        deltas = try values.decode([ProtocolObjectDelta].self, forKey: .deltas)
+        objects = try ProtocolWirePayload.objects(values, forKey: .objects)
+        deltas = try ProtocolWirePayload.deltas(values, forKey: .deltas)
         _ = try validated()
     }
 
+    /// Objects as bytes; an empty list is left out (tree operations §2.1).
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(objects, forKey: .objects)
-        try values.encode(deltas, forKey: .deltas)
+        try ProtocolWirePayload.encode(objects: objects, deltas: deltas, into: &values, objectsKey: .objects, deltasKey: .deltas)
     }
 
     public func validated() throws -> Self {

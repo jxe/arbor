@@ -159,7 +159,8 @@ public struct ProtocolWatchEvent: Equatable, Sendable {
     }
 }
 
-/// A `tree.update` frame's data: the change alone.
+/// A `tree.update` frame's data, flat: the transition's members (`update`,
+/// `from`, `requestDigest`, `objects`, `deltas`) beside `access` and `canonical`.
 public struct ProtocolTreeUpdateFrame: Codable, Sendable, Equatable {
     public var transition: ProtocolAcceptedTransition
     public var access: String
@@ -167,17 +168,22 @@ public struct ProtocolTreeUpdateFrame: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey { case transition, access, canonical }
 
+    public init(transition: ProtocolAcceptedTransition, access: String, canonical: ProtocolCanonicalDescriptor?) {
+        self.transition = transition; self.access = access; self.canonical = canonical
+    }
+
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        transition = try values.decode(ProtocolAcceptedTransition.self, forKey: .transition)
+        guard !values.contains(.transition) else { throw ProtocolValidationError.malformedSSE("A tree update frame is flat, with no transition wrapper") }
+        transition = try ProtocolAcceptedTransition(from: decoder)
         access = try values.decode(String.self, forKey: .access)
         guard values.contains(.canonical) else { throw ProtocolValidationError.malformedSSE("Tree update frame has no canonical placement") }
         canonical = try values.decodeIfPresent(ProtocolCanonicalDescriptor.self, forKey: .canonical)
     }
 
     public func encode(to encoder: Encoder) throws {
+        try transition.encode(to: encoder)
         var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(transition, forKey: .transition)
         try values.encode(access, forKey: .access)
         try values.encode(canonical, forKey: .canonical)
     }

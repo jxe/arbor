@@ -83,13 +83,13 @@ struct ConflictReviewCompilerTests {
             }
             return try JSONDecoder().decode(ConflictReviewDecision.self, from: JSONSerialization.data(withJSONObject: [
                 "id": id, "kind": path == "/" ? "directory" : "entry", "selected": "\(id)-0", "alternatives": alternatives,
-                "affected": [["material": ["kind": "basis", "path": path, "object": root]]], "dependencies": dependencies, "actions": ["resolveConflict"]
+                "affected": [["material": ["kind": "basis", "path": path, "object": root]]], "dependencies": dependencies
             ]))
         }
     }
     private func sourceDecision(_ id: String, range: [Int], file: String, alternatives: [String]) throws -> ConflictReviewDecision {
         try JSONDecoder().decode(ConflictReviewDecision.self, from: JSONSerialization.data(withJSONObject: [
-            "id": id, "kind": "content", "selected": "\(id)-0", "dependencies": [], "actions": ["resolveConflict"],
+            "id": id, "kind": "content", "selected": "\(id)-0", "dependencies": [],
             "affected": [["material": ["kind": "basis", "path": "/page.md", "object": file], "range": range]],
             "alternatives": alternatives.enumerated().map { ["id": "\(id)-\($0.offset)", "revision": "revision", "value": ["file": $0.element]] }
         ]))

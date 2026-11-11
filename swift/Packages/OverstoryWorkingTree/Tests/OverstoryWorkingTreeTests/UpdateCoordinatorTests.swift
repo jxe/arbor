@@ -47,9 +47,12 @@ private actor ClosureTransport: UpdateTransport {
         let response = try await submitter(prepared, requests.count)
         if advancesCurrentOnAccept, let final = response.results.last {
             let request = try prepared.decodedRequest()
+            // The host keeps every object it has accepted: a retried request's
+            // deltas may name a base the current root no longer reaches.
+            let retained = snapshots.values.flatMap(\.objects)
             var known = current
             for update in request.updates {
-                known = try completeCandidate(update, retained: known)
+                known = try completeCandidate(update, retained: ProtocolSnapshot(root: known.root, objects: known.objects + retained))
                 snapshots[known.root] = known
             }
             switch final.result {
@@ -1674,7 +1677,7 @@ private func completeCandidate(_ request: ProtocolUpdateRequest, retained: Proto
 /// Rebuild one element's complete candidate from what the host retains plus
 /// the element's objects and deltas.
 private func completeCandidate(_ element: ProtocolCandidateUpdate, retained: ProtocolSnapshot) throws -> ProtocolSnapshot {
-    var envelopes = Dictionary(uniqueKeysWithValues: retained.objects.map { ($0.hash, $0) })
+    var envelopes = Dictionary(retained.objects.map { ($0.hash, $0) }, uniquingKeysWith: { first, _ in first })
     for object in element.objects { envelopes[object.hash] = object }
     for delta in element.deltas {
         let base = try #require(envelopes[delta.base])
