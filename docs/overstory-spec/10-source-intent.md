@@ -222,9 +222,11 @@ A plain n:m connection is one set of pairs, so `connect` and `disconnect` on
 either end's field change the same pair, and two operations naming one pair
 from its two ends are the same fact. `move` names the `ordered` end.
 
-Every property operation but `rowDelete` has `at`, when the edit was made, as
-an RFC 3339 date-time in UTC with millisecond precision. Replay writes it to a
-row's `modified`, and on `rowCreate` to `created` too; nothing else sets them.
+A property operation other than `rowDelete` may carry `at`, when the edit was
+made, as an RFC 3339 date-time in UTC with millisecond precision; omitted, it is
+its update's `at`. A client states it only when one update coalesces edits made
+at different times, and never later than the update's `at`. Replay writes it to
+a row's `modified`, and on `rowCreate` to `created` too; nothing else sets them.
 A page or file has none of its own; its directory entry takes the update's
 `at` ([tree operations §1.1.2a](01-tree-operations.md#112a-entry-times)). An authority rejects an `at` more than five minutes
 ahead of its own clock.
