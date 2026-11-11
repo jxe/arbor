@@ -57,7 +57,13 @@ public struct TreeConfigurationClient: Sendable {
         let described = try? await wire.descriptor(tree: tree).tree.canonical
         let canonical = described?.httpURL
         let declaration = try TreeConfigurationYAML.declaration(canonical: canonical ?? "", source: accessSource)
-        var profileLocators = (try? await wire.access(tree: tree).locators) ?? [:]
+        // Administrators read the rules from access.yaml; the people a rule
+        // names by TreeID are named from the account's directory, and this
+        // person from their own profile.
+        var profileLocators: [String: String] = [:]
+        for person in (try? await wire.directory().people) ?? [] {
+            if let locator = person.locator { profileLocators[person.profile] = locator }
+        }
         if let profileTree = account.profileTree, let profileURL = account.profileURL {
             profileLocators[profileTree] = profileURL
         }

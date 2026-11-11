@@ -423,10 +423,6 @@ public actor ProtocolClient {
         )
     }
 
-    public func access(tree: String) async throws -> ProtocolTreeAccess {
-        try await get(path: "/.overstory/trees/\(component(tree))/access")
-    }
-
     public func directory() async throws -> ProtocolPeopleList {
         try await get(path: "/.overstory/account/directory")
     }

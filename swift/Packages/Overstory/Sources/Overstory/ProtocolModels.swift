@@ -191,6 +191,8 @@ public struct ProtocolAccountDescriptor: Codable, Sendable, Equatable {
     public var configuration: ProtocolTreeDescriptor
     public var writableProfiles: [ProtocolTreeDescriptor]
     public var device: Device? = nil
+    /// The origin of the profile's home host: this host, here (locators §5).
+    public var homeHost: String? = nil
 }
 
 /// `GET /.overstory/account` at a home host. Like the tree and directory lists it
@@ -1149,17 +1151,17 @@ public struct ProtocolPlacementAccountSnapshot: Codable, Sendable, Equatable {
 }
 
 /// `GET /.overstory/account` as a host sends it: a home host's account, with its
-/// configuration, or a placement host's (accounts §1.3), told apart by
-/// `homeHost` as `isPlacementAccountDescriptor` does in TypeScript.
+/// configuration, or a placement host's (accounts §1.3). Both name `homeHost`;
+/// only a placement host's has `placementRoot`, which tells them apart.
 public enum ProtocolAnyAccountDescriptor: Codable, Sendable, Equatable {
     case home(ProtocolAccountDescriptor)
     case placement(ProtocolPlacementAccountDescriptor)
 
-    private enum CodingKeys: String, CodingKey { case homeHost }
+    private enum CodingKeys: String, CodingKey { case placementRoot }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        if (try? values.decodeIfPresent(String.self, forKey: .homeHost)) != nil {
+        if values.contains(.placementRoot) {
             self = .placement(try ProtocolPlacementAccountDescriptor(from: decoder))
         } else {
             self = .home(try ProtocolAccountDescriptor(from: decoder))
