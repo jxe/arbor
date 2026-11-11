@@ -5,6 +5,10 @@
 **Order:** after [Agents 002](../../status.md#agents-002-run-tasks-from-anywhere--2026-11-07), which defines the run
 request, `story agent start --task` and the Runners list.
 
+Runners will also handle data events, not only run requests
+([Apps 017](../later/apps-017-data-runners.md), Joe 2026-11-11), so keep `runners.yaml`
+entries and webhook delivery general enough for other request kinds.
+
 ## Status
 
 - **Effort:** S to M.

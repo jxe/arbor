@@ -174,9 +174,9 @@ views drawing the rows (a built-in `Canvas` for games). After Apps 015.
 **[Apps 018: shaders](later/apps-018-shaders.md).** A sketch: WGSL shaders as values an
 element draws with (`fill`, `distort`, `effect`), fed by Beetle values. With Apps 014.
 
-**[Apps 017: bots](later/apps-017-bots.md).** A sketch: programs someone runs on their own
-machine that talk to overstoryd over the ordinary API, like Telegram bots: feeding data in,
-acting on changes, computing derived fields. After Apps 010.
+**[Apps 017: runners for data work](later/apps-017-data-runners.md).** A sketch: runners
+(devices of your account, present or webhook) also handle data events: feeding data in,
+acting on changes, computing derived fields. Code never runs in the host. After Agents 005.
 
 **[Apps 010: activation and lending](later/apps-010-activation-and-lending.md).**
 After Apps 005: code runs as an activated app under an execution token with lenders, not as

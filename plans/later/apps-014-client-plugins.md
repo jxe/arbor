@@ -6,7 +6,7 @@ that matter most run on clients and make Beetle apps faster and more flexible: g
 simulations, anything that changes every frame. Beetle has no general-purpose code
 ([Beetle](../../docs/overstory-spec/1.5-beetle.md)); real code is never mixed into a
 `.beetle` file. Code with effects on shared data runs outside the host, as
-[bots](apps-017-bots.md).
+[runners](apps-017-data-runners.md).
 
 ## Status
 
