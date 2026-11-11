@@ -11,7 +11,8 @@ import { appendSource, editorView, MemoryWorkingTree, readSource } from "../../s
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
-const TEST_AT = Date.UTC(2026, 10, 11);
+// Hand-built candidates date their entries 0, as edits at 0 stamp them.
+const TEST_AT = 0;
 const TEST_TIME = new Date(TEST_AT).toISOString();
 /** A request's whole authored contribution, in order, across its frames. */
 const authored = (u: CandidateUpdate) => (u.trace ?? []).flatMap(frame => frame.operations);

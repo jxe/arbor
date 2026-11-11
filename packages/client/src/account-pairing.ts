@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { configurationCheckoutPath, overstoryPrivateRoot, deviceKeyFromSeed, generateDeviceKeySeed, HostAccountStore, generateOverstoryID,
   openDeviceSession, ProtocolError, saveCurrentAccountDeviceID, ProtocolClient } from "@ovst/protocol";
-import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
+import { basisDirectories, materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { withLocalStateLock } from "./local-state-lock.ts";
 import { ProfileIdentityStore } from "./profile-identity.ts";
 import type { AccountBootstrapDeps } from "./ports.ts";
@@ -120,7 +120,9 @@ export async function connectDevice(
     if (error.code === "ENOENT") return false; throw error;
   });
   if (exists) {
-    const local = await resolveSnapshot(await snapshotDirectory(checkout));
+    // Against the host's root, so unchanged entries keep its times.
+    const local = await resolveSnapshot(await snapshotDirectory(checkout, undefined, undefined, undefined, undefined, undefined, undefined,
+      { at: Date.now(), basis: basisDirectories(snapshot.root, async (hash) => snapshot.objects.get(hash)!) }));
     if (local.root !== snapshot.root) {
       throw new ProtocolError("conflict", "The existing account checkout has different contents. Preserve and reconcile it before connecting this device.", 409);
     }

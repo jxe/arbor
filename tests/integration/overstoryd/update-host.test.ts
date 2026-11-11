@@ -532,7 +532,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect(unsupported.status).toBe(422);
       expect(running.overstoryd.get(treeID)).toBeNull();
       const activationChange = crypto.randomUUID();
-      const activated = await client.submitUpdate(treeID, null, initial, { change: activationChange });
+      const activated = await client.submitUpdate(treeID, null, initial, { change: activationChange, at: TEST_TIME });
       expect(activated.outcome).toBe("accepted");
       expect(activated.update).toMatchObject({ tree: treeID, root: initial.root, previous: null, conflicted: false });
       expect(running.overstoryd.get(treeID)).toMatchObject({
@@ -541,7 +541,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         canonicalPath: "/~owner/new-shared-tree",
         ref: initial.root,
       });
-      const replayed = await client.submitUpdate(treeID, null, initial, { change: activationChange });
+      const replayed = await client.submitUpdate(treeID, null, initial, { change: activationChange, at: TEST_TIME });
       expect(replayed.outcome).toBe("accepted");
       expect(replayed.update).toEqual(activated.update);
       const access = await client.access(treeID);

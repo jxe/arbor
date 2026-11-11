@@ -7,7 +7,7 @@ import { resolveUserPath, STORY_VERSION } from "@ovst/story-sync";
 import { runStorySyncDaemon } from "@ovst/story-sync/cli";
 import { StorySyncRESTClient, type AgentRunView, type DeclinedChanges } from "./daemon-client.ts";
 import { agentLabel, hasClaudeCode, hookReport, installAgentPresence, textReport, uninstallAgentPresence } from "./agent-presence.ts";
-import { loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
+import { basisDirectories, loadIgnorePolicy, materializeTree, membershipSkip, snapshotDirectory, trackedEntries } from "@ovst/fs";
 import { listLocalAccounts } from "@ovst/story-sync/state";
 import { accountProtocolClient, addLocalPlacement, cancelInvitation, createInvitation, pendingInvitations, renewInvitation, backupIsEncrypted, connectPlacementAccount, loadLocalPlacements, ProfileIdentityStore } from "@ovst/client";
 import type { Document } from "yaml";
@@ -1334,8 +1334,10 @@ async function cloudPlacementsReady(
     const skip = membershipSkip(await loadIgnorePolicy(target.path),
       trackedEntries(remote.root as ObjectHash, (hash) => wire.object(target.treeID, hash)));
     const load = (hash: ObjectHash) => wire.object(target.treeID, hash);
+    // Against the host's root, so unchanged entries keep its times; a bare
+    // scan would date every file by its mtime and lose `created`.
     const localSnapshot = await snapshotDirectory(target.path, new Map(), [], undefined, undefined, skip,
-      await treeHoldsPages(remote.root as ObjectHash, load));
+      await treeHoldsPages(remote.root as ObjectHash, load), { at: Date.now(), basis: basisDirectories(remote.root as ObjectHash, load) });
     if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from the host` };
   }
   return { ready: true };

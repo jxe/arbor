@@ -439,7 +439,7 @@ describe.serial("rows on the host", () => {
         const next = encodeProtocolDirectory({ ...root, entries: [...root.entries.filter((entry) => entry.name !== "note.md"), { name: "note.md", file: noteHash, created: 0, modified: 0 }].sort((x, y) => x.name < y.name ? -1 : 1) });
         const nextHash = hashObject(next);
         // The device's own update, not the sidecar's: outside its execution authority.
-        const other = await host.overstoryd.execution.run(undefined, () => submit(id, { base: head.tree.update, updates: [{ change: `note-${Date.now()}`, candidate: nextHash, trace: null, resolves: [], deltas: [],
+        const other = await host.overstoryd.execution.run(undefined, () => submit(id, { base: head.tree.update, updates: [{ change: `note-${Date.now()}`, at: new Date().toISOString(), candidate: nextHash, trace: null, resolves: [], deltas: [],
           objects: [{ hash: noteHash, bytes: note }, { hash: nextHash, bytes: next }] }] } as any, caller));
         expect(other.status).toBe(201);
       }

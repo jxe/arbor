@@ -11,7 +11,7 @@ import { serveHost } from "@ovst/overstoryd";
 import { HostAccountStore, type CandidateUpdate, compareProtocolNames, decodeUpdateRequestJSON, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, ProtocolClient } from "@ovst/protocol";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { interceptedBody, wireResponseValue } from "../support/wire-body.ts";
-import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
+import { basisDirectories, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 const TEST_AT = Date.UTC(2026, 10, 11);
 const TEST_TIME = new Date(TEST_AT).toISOString();
@@ -379,7 +379,11 @@ describe("private self-sync", () => {
       const chain = decodeUpdateRequestJSON(daemonBodies[0].value, daemonBodies[0].encoding);
 
       // The peer's successor adds one file on top of the chain's final root.
-      const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA));
+      // Scanned as the daemon scans, against the accepted state the chain starts
+      // from, so unchanged entries keep their times (a bare scan has only mtimes).
+      const accepted = await (await deviceClient(host.url, token)).snapshot(tree, host.overstoryd.acceptedUpdates(tree).find((u) => u.id === chain.base)!.root);
+      const chainEnd = await resolveSnapshot(await snapshotDirectory(treeA, new Map(), [], undefined, undefined, undefined, false,
+        { at: Date.parse(chain.updates.at(-1)!.at), basis: basisDirectories(accepted.root, async (hash) => accepted.objects.get(hash)!) }));
       expect(chainEnd.root).toBe(chain.updates.at(-1)!.candidate);
       const chainRoot = decodeProtocolDirectory(chainEnd.objects.get(chainEnd.root)!);
       const extraFile = new TextEncoder().encode("peer successor\n");
@@ -388,7 +392,8 @@ describe("private self-sync", () => {
         entries: [...chainRoot.entries, { name: "peer-successor.txt", file: hashObject(extraFile), created: 0, modified: 0 }]
           .sort((left, right) => compareProtocolNames(left.name, right.name)),
       });
-      const successor: CandidateUpdate = { at: TEST_TIME, change: crypto.randomUUID(), trace: null,
+      // Made after the chain it extends, so dated after it.
+      const successor: CandidateUpdate = { at: new Date().toISOString(), change: crypto.randomUUID(), trace: null,
         candidate: hashObject(successorRoot), resolves: [], deltas: [],
         objects: [{ hash: hashObject(extraFile), bytes: extraFile }, { hash: hashObject(successorRoot), bytes: successorRoot }],
       };

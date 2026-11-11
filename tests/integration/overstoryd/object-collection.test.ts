@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { collectObjects, PackMaintenance, serveHost } from "@ovst/overstoryd";
 import { ObjectStore } from "@ovst/object-store";
 import { ProtocolClient, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
-  type CandidateUpdate, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
+  type CandidateUpdate, type ProtocolDirectory, type ProtocolDirectoryEntry, stampedEntry } from "@ovst/protocol";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
@@ -37,8 +37,14 @@ function directory(value: ProtocolDirectory) {
 function change(basis: string, entries: Record<string, Omit<ProtocolDirectoryEntry, "name"> | null>): string {
   const value = decodeProtocolDirectory(objects.get(basis)!);
   for (const [name, entry] of Object.entries(entries)) {
+    const previous = value.entries.find((e) => e.name === name);
     value.entries = value.entries.filter((e) => e.name !== name);
-    if (entry) value.entries.push({ name, ...entry } as ProtocolDirectoryEntry);
+    if (!entry) continue;
+    // File and page entries are dated as an edit at TEST_AT would date them.
+    const given = entry as { file?: string; page?: string; created?: number }, content = given.file ?? given.page;
+    value.entries.push(content !== undefined && given.created === undefined
+      ? stampedEntry(given.file !== undefined ? "file" : "page", name, content, previous, TEST_AT)
+      : { name, ...entry } as ProtocolDirectoryEntry);
   }
   return directory(value);
 }

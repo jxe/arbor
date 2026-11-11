@@ -69,6 +69,8 @@ test("execution bearer tokens enforce create-only effects, guards, replay and re
     ).rejects.toThrow();
     const options = {
       change: "execution-create",
+      // A replay is the same request, so it carries the same time.
+      at: new Date().toISOString(),
       ifCurrent: current.tree.update,
     };
     const accepted = await code.submitUpdate(

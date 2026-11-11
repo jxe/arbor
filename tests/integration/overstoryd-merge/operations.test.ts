@@ -8,7 +8,6 @@ import { hashObject } from "@ovst/protocol";
 import { MergeTool } from "../../../packages/overstoryd/src/merge-tool.ts";
 import { Fixture } from "../../unit/overstoryd-merge/fixture.ts";
 import type { IntentRequest } from "../../../packages/overstoryd-merge/src/intent-model.ts";
-const TEST_AT = Date.UTC(2026, 10, 11);
 
 /** Store `value` as a log entry of `tree`; returns its hash. */
 async function entry(store: ObjectStore, value: Partial<LogEntry> & Pick<LogEntry, "previous" | "root" | "change">): Promise<string> {
@@ -21,7 +20,7 @@ async function entry(store: ObjectStore, value: Partial<LogEntry> & Pick<LogEntr
 function question(request: IntentRequest, base: string, head: string): MergeQuestion {
   return {
     base, head,
-    candidate: { root: request.incoming.object, at: TEST_AT, change: request.incoming.change, trace: request.incoming.trace, resolves: [] },
+    candidate: { root: request.incoming.object, at: request.incoming.at ?? 0, change: request.incoming.change, trace: request.incoming.trace, resolves: [] },
     rules: request.rules,
   };
 }

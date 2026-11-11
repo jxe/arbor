@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
-import { ProtocolClient, ProtocolHTTPError, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type CandidateUpdate, type ProtocolDirectoryEntry } from "@ovst/protocol";
+import { ProtocolClient, ProtocolHTTPError, decodeProtocolDirectory, encodeProtocolDirectory, hashObject, stampedEntry, type CandidateUpdate, type ProtocolDirectoryEntry } from "@ovst/protocol";
 import { writeFile } from "node:fs/promises";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
 const TEST_AT = Date.UTC(2026, 10, 11);
@@ -39,7 +39,7 @@ function editor(objects: Map<string, Uint8Array>) {
   return (root: string, text: string, name = "note.md"): CandidateUpdate => {
     const bytes = new TextEncoder().encode(text), file = hashObject(bytes); objects.set(file, bytes);
     const value = decodeProtocolDirectory(objects.get(root)!);
-    value.entries = [...value.entries.filter(entry => entry.name !== name), { name, file, created: 0, modified: 0 }].sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+    value.entries = [...value.entries.filter(entry => entry.name !== name), stampedEntry("file", name, file, value.entries.find(entry => entry.name === name), TEST_AT)].sort((a,b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
     const source = encodeProtocolDirectory(value), candidate = hashObject(source); objects.set(candidate, source);
     return { at: TEST_TIME, change: crypto.randomUUID(), candidate, objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })), trace: null, resolves: [], deltas: [] };
   };
@@ -124,7 +124,7 @@ test("an edit after a kept root choice leaves the deletion it declined unapplied
     const traced = (root: string, name: string, find: string, replacement: string) => {
       const object = file(root, name), source = Buffer.from(objects.get(object)!), at = source.indexOf(find);
       const next = put(Buffer.concat([source.subarray(0, at), Buffer.from(replacement), source.subarray(at + Buffer.byteLength(find))]));
-      const candidate = directory([...entries(root).filter(entry => entry.name !== name), { name, file: next, created: 0, modified: 0 }]);
+      const candidate = directory([...entries(root).filter(entry => entry.name !== name), stampedEntry("file", name, next, entries(root).find(entry => entry.name === name), TEST_AT)]);
       return update(candidate, [{ before: root, after: candidate, operations: [{ key: "edit", kind: "editSource",
         source: { material: { kind: "basis", path: `/${name}`, object }, range: [at, at + Buffer.byteLength(find)] }, text: replacement }] }]);
     };
