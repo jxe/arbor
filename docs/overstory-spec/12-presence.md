@@ -19,7 +19,8 @@ type PresenceID = string;   // opaque, unguessable, valid only for its stream
 /** `path` is the page's canonical node path, such as `/Groceries`. */
 type PresencePage = { path: LogicalPath; stableKey: string | null };
 
-/** UTF-8 byte offsets into the file object whose hash is `source`. */
+/** UTF-8 byte offsets into the text whose SHA-256 is `source`: a page's body,
+ *  or a file's bytes. */
 type PresenceSelection = { source: Hash; anchor: number; head: number };
 
 type PresenceAgent = {
@@ -62,8 +63,10 @@ type PresencePeer = {
 
 ## 2. Cursors
 
-A cursor is a byte range in a named source: the file object, by hash, that the
-sender is showing, which may be a local edit not yet accepted. A receiver
+A cursor is a byte range in a named source: the text the sender is showing, by
+the SHA-256 of its bytes (a page's body without its properties, or a file's
+bytes), which may be a local edit not yet accepted. For a file this is its
+object hash; for a page it is not, since a page object also holds properties. A receiver
 showing the same object places it exactly. A receiver showing another version
 may approximate it within its own version, but must not present the
 approximation as exact; if it cannot map it, it does not show it.
