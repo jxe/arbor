@@ -101,7 +101,7 @@ part became the one home for explaining automatic merge outcomes: overstoryd 015
 - **The three outcomes in the spec.** Add the three constraints (lose nothing, keep the
   syntax, keep the meaning as far as possible) and three outcomes (merge, merge with a note,
   review) from [overstoryd 017](../when-needed/merge-017-more-formats-and-open-cases.md#what-a-good-merge-does)
-  to [source intent §7](../../docs/overstory-spec/10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
+  to [source intent §7](../../docs/overstory-spec/1.3-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
   as what any merge tool may do. The spec permits all three and requires only the first two
   constraints for an automatic outcome; how eagerly a tool merges is its own choice.
 

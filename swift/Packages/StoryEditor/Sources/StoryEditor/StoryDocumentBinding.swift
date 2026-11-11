@@ -429,7 +429,7 @@ public final class StoryDocumentBinding {
         captureTransactionEvidence()
         // The patch is captured against the previous generation's ledger,
         // exactly as the editor produced it; the change states it in its own
-        // frame (docs/overstory-spec/09-client-synchronization.md §4).
+        // frame (docs/overstory-spec/2.1-working-trees.md §4).
         let shown = receivedCopies.filter { document.find($0.key) != nil }
         let (captured, nextLedger) = StoryMarkdownCodec.admission(blocks: document.children, ledger: ledger, copies: copySources,
                                                                   moved: document.movedBlocksForCurrentCommit, foreignCopies: shown)

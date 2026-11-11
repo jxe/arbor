@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "description": "Collection schemas: a collection's schema.usl (docs/overstory-spec/06-child-backings.md section 2.4). `accept` gives the row columns in data files, the primary key, and the `path` column. Locations are 1-based lines and columns; a reject without a location binds only its code. Messages are not normative. Generated source parts repeat a template with {i} and {i+1} replaced by the zero-based index and its successor; a {\"$repeat\": v, \"count\": n} value expands to an array of n copies of v.",
+  "description": "Collection schemas: a collection's schema.usl (docs/overstory-spec/2.2-placements-on-disk.md section 4). `accept` gives the row columns in data files, the primary key, and the `path` column. Locations are 1-based lines and columns; a reject without a location binds only its code. Messages are not normative. Generated source parts repeat a template with {i} and {i+1} replaced by the zero-based index and its successor; a {\"$repeat\": v, \"count\": n} value expands to an array of n copies of v.",
   "limits": {
     "source-bytes": 1048576,
     "tokens": 65536,

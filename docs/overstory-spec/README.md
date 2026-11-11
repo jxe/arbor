@@ -1,6 +1,6 @@
 # Overstory: a successor to the web
 
-*This file is the entry point to the specification. The numbered sections live in [`docs/overstory-spec/`](); read them in the order of the table below.*
+*This file is the entry point to the specification. The chapters live in [`docs/overstory-spec/`](), named by layer and chapter; read them in the order of the table below.*
 *Spec overview, v0.8. Overstory names the system, its protocol, and its independently versioned trees; Story names the device tools (the app, the `story` command and Story Sync) and overstoryd the reference host.*
 
 ## Specification stance
@@ -9,16 +9,26 @@ This is the aspirational public contract for Overstory. It describes behavior an
 
 The specification contains only behavior that must remain portable across independently implemented Overstory components. The [reference documentation](../architecture/README.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Overstory requirements.
 
-The normative surface begins with tree reads, updates, watching, and editor
-round trips, introducing the logical model and canonical lossless Overstory values
-inside those operations; then the directory projection, locators and their public HTTP projection,
-accounts and devices, access control, child backings,
-executable documents and agents, and the authoring API. Every route is listed
-in the [route index](#route-index). Local
+The specification is in five layers, each built on the ones below it, and the
+file names carry the layer: `1.2-tree-protocol.md` is layer 1, chapter 2.
+
+1. **Trees.** What a tree is and how it travels: the data model, the tree
+   protocol, source intent, collections and the schema language. Every host
+   and client agrees on this.
+2. **Working trees.** How a client holds and edits a tree it may write: the
+   update machine and change log, and placements on disk. This needs only a
+   tree and a caller allowed to write it.
+3. **Hosts and people.** Who the callers are and how trees are named: locators,
+   accounts and devices, access control, and presence.
+4. **The standard client.** How a client puts the layers together: the client
+   library and its three ways to hold a tree, local placements, and presenting
+   pages.
+5. **Apps.** Executable documents, the authoring API, and external stores.
+
+A host conforms to layers 1 and 3; a Story-compatible client conforms to
+layers 1 to 4. Every route is listed in the [route index](#route-index). Local
 client/daemon transport, UI controls, CLI commands, runtime algorithms, package
 topology, private-state layout, and test machinery are reference choices.
-
-[Source intent and provenance](10-source-intent.md) defines authored change identities, source references, and explicit operations on the ordinary Overstory update route.
 
 ## Thesis
 
@@ -47,29 +57,34 @@ Five concepts organize the system:
 
 1. The **global TreeID space** maps stable tree identities to logical trees without requiring one global store or discovery service.
 2. An **Overstory tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
-3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other [node readings](01-tree-operations.md#nodes-children-and-readings) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable [representations](01-tree-operations.md#representations) where their represented model agrees.
+3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other [node readings](1.1-data-model.md#2-nodes-children-and-readings) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable [representations](1.1-data-model.md#3-representations) where their represented model agrees.
 4. A **canonical URL lookup** first uses DNS to place an Overstory host, then resolves that host's longest readable registered boundary back to TreeID and path.
 5. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
-Ordinary unpromoted files are browsable without gaining a durable Overstory identity. Promotion creates an Overstory tree in place: its local path need not move, its canonical public name is replaceable, and `overstory://<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Overstory trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [locators §5](03-locators.md#5-finding-trees).
+Ordinary unpromoted files are browsable without gaining a durable Overstory identity. Promotion creates an Overstory tree in place: its local path need not move, its canonical public name is replaceable, and `overstory://<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Overstory trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [locators §5](3.1-locators.md#5-finding-trees).
 
 ## Specification map
 
 New readers should start with the non-normative [walkthrough](00-walkthrough.md), which follows one local profile identity through claiming an account, activating trees, editing, watching, adding a collection, and querying it from a page. The numbered files are the normative contract, in reading order.
 
-| File | Public contract |
-|---|---|
-| [tree operations](01-tree-operations.md) | Logical and exact-byte reads; updates and writes; watching and replay; editor round trips; and the model and Overstory types each operation needs |
-| [directory format](02-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, and reserved names |
-| [locators](03-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, discovery routes, and public HTTP projection |
-| [accounts and devices](04-accounts-and-devices.md) | Local-first profile identity, host accounts and community-defined allocation, governed tree configurations, device pairing, local placements, and tree declaration, activation and mounting |
-| [access control](05-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
-| [child backings](06-child-backings.md) | How expanded files, logical collections (and each placement's CSV, JSON, Markdown or SQLite projection of them), Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
-| [executable documents](07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Overstory operations |
-| [authoring API](08-authoring-api.md) | The `overstory/react` and `overstory/data` packages, React Actions, hooks, and styling an executable document is written against |
-| [working-tree updates](09-client-synchronization.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The update machine a working tree runs against Overstory: durable heads with their objects, sparse install entry, one self-contained prepared request in flight, one retained successor, validated apply, accepted conflicts as ordinary acceptance, and exact ambiguous recovery |
-| [schema language](11-schema-language.md) | Ultimate Schema Language (`.usl`): models, enums, connections and keys; the model, storage (`@`) and presentation (`~`) layers; default views; fingerprints; the relational layout; and limits |
-| [presence](12-presence.md) | Who else is in a tree: the roster, the page each person or agent is on, cursors between people on one page, and an agent's status; ephemeral, never part of a tree |
+| Layer | File | Public contract |
+|---|---|---|
+| 1. Trees | [data model](1.1-data-model.md) | Trees and nodes; the directory, page, file, table and rows objects and their hashes; entry times; which files are pages and bodies; reserved names |
+| | [tree protocol](1.2-tree-protocol.md) | Reading a tree, a snapshot, an object or a path; watching; conflicts; updates, merging and results; deltas; encodings |
+| | [source intent](1.3-source-intent.md) | Authored changes: traces, operations, property operations, explicit resolution, and merge rules |
+| | [collections](1.4-collections.md) | A folder whose children are rows: what the tree holds, row identity and order, validation and merge |
+| | [schema language](1.5-schema-language.md) | Ultimate Schema Language (`.usl`): models, enums, connections and keys; the model, storage (`@`) and presentation (`~`) layers; default views; fingerprints; the relational layout; and limits |
+| 2. Working trees | [working trees](2.1-working-trees.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The update machine a working tree runs: the change log, one prepared request in flight, one successor, validated apply, held rejections, exact ambiguous recovery, and editor capture |
+| | [placements on disk](2.2-placements-on-disk.md) | How a placement writes a tree into a folder: page frontmatter, tree membership and ignore files, and collections as CSV, JSON, Markdown rows or SQLite |
+| 3. Hosts and people | [locators](3.1-locators.md) | References by TreeID, path and stable key; canonical names and domains; finding trees; reading at the canonical URL |
+| | [accounts and devices](3.2-accounts-and-devices.md) | Profile identity, host accounts, placement accounts, tree configurations, device pairing and sessions, and declaring, activating and mounting trees |
+| | [access control](3.3-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
+| | [presence](3.4-presence.md) | Who else is in a tree: the roster, the page each person or agent is on, cursors, runners and messages; ephemeral, never part of a tree |
+| 4. The standard client | [client library](4.1-client-library.md) | The seven modules every port has, the three ways to hold a tree, and local placements |
+| | [presenting pages](4.2-presenting-pages.md) | A page with children as one document, and the title and Subpages headings a client presents |
+| 5. Apps | [executable documents](5.1-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and data disclosure |
+| | [authoring API](5.2-authoring-api.md) | The `overstory/react` and `overstory/data` packages, React Actions, hooks, and styling an executable document is written against |
+| | [external stores](5.3-external-stores.md) | A folder whose rows live in an external database such as Postgres |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for
@@ -90,34 +105,34 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 
 | Route | Defined in |
 |---|---|
-| `GET /.overstory/health`, `GET /.overstory/integrity`, `GET /.overstory/account`, `GET /.overstory/account/directory` (optional), `GET /.overstory/trees`, `GET /.well-known/overstory[/{path}]` | [locators §5](03-locators.md#5-finding-trees) |
-| `GET /.overstory/trees/{TreeID}`, `/snapshots/{root}`, `/objects/{hash}` | [tree reads §1.1–1.2](01-tree-operations.md#1-reading-trees) |
-| `GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{path}` | [path reads §1.2.4](01-tree-operations.md#124-reading-a-path) |
-| `GET /.overstory/trees/{TreeID}/conflicts` | [reading conflicts §1.2.3](01-tree-operations.md#123-reading-conflicts) |
-| `GET {canonical URL}{/path}` (Markdown; HTML optional) | [reading at the canonical URL §1.3](01-tree-operations.md#13-reading-at-the-canonical-url) |
-| `POST /.overstory/trees/{TreeID}/updates` | [updates §2.1](01-tree-operations.md#21-the-update-request) |
-| `GET /.overstory/trees/{TreeID}/watch` | [watching §1.1.3](01-tree-operations.md#113-watching) |
-| `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}[/messages]` | [presence §3](12-presence.md#3-routes) |
-| `QUERY /.overstory/trees/{TreeID}/views` | [executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-views) |
-| `POST /.overstory/trees/{TreeID}/mutate` | [executable documents §12.2](07-executable-documents.md#122-execute-named-mutations) |
-| `GET /.overstory/trees/{TreeID}/access` | [access control §4](05-access-control.md#4-reading-access) |
-| `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` (a new home, or with `profile` a member) | [accounts §1.1–1.4](04-accounts-and-devices.md#11-beginning-a-person-identity) |
-| `POST /.overstory/pairings`, `PUT /.overstory/pairings/{PairingID}/claim` | [accounts §5](04-accounts-and-devices.md#5-device-pairing) |
-| `POST /.overstory/device-sessions/challenges`, `POST /.overstory/device-sessions` | [accounts §5.1](04-accounts-and-devices.md#51-device-sessions) |
+| `GET /.overstory/health`, `GET /.overstory/integrity`, `GET /.overstory/account`, `GET /.overstory/account/directory` (optional), `GET /.overstory/trees`, `GET /.well-known/overstory[/{path}]` | [locators §5](3.1-locators.md#5-finding-trees) |
+| `GET /.overstory/trees/{TreeID}`, `/snapshots/{root}`, `/objects/{hash}` | [tree protocol §1.1–1.2](1.2-tree-protocol.md#1-reading-trees) |
+| `GET /.overstory/trees/{TreeID}/snapshots/{root}/path/{path}` | [tree protocol §1.2.4](1.2-tree-protocol.md#124-reading-a-path) |
+| `GET /.overstory/trees/{TreeID}/conflicts` | [tree protocol §1.2.3](1.2-tree-protocol.md#123-reading-conflicts) |
+| `GET {canonical URL}{/path}` (Markdown; HTML optional) | [reading at the canonical URL §6](3.1-locators.md#6-reading-at-the-canonical-url) |
+| `POST /.overstory/trees/{TreeID}/updates` | [tree protocol §2.1](1.2-tree-protocol.md#21-the-update-request) |
+| `GET /.overstory/trees/{TreeID}/watch` | [tree protocol §1.1.3](1.2-tree-protocol.md#113-watching) |
+| `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}[/messages]` | [presence §3](3.4-presence.md#3-routes) |
+| `QUERY /.overstory/trees/{TreeID}/views` | [executable documents §12.1](5.1-executable-documents.md#121-evaluate-and-stream-views) |
+| `POST /.overstory/trees/{TreeID}/mutate` | [executable documents §12.2](5.1-executable-documents.md#122-execute-named-mutations) |
+| `GET /.overstory/trees/{TreeID}/access` | [access control §4](3.3-access-control.md#4-reading-access) |
+| `POST /.overstory/account-challenges`, `PUT /.overstory/accounts` (a new home, or with `profile` a member) | [accounts §1.1–1.4](3.2-accounts-and-devices.md#11-beginning-a-person-identity) |
+| `POST /.overstory/pairings`, `PUT /.overstory/pairings/{PairingID}/claim` | [accounts and devices §4](3.2-accounts-and-devices.md#4-device-pairing) |
+| `POST /.overstory/device-sessions/challenges`, `POST /.overstory/device-sessions` | [accounts and devices §4.1](3.2-accounts-and-devices.md#41-device-sessions) |
 
 Routes one host calls on another live under `/.overstory/peer/`; no client
 needs them:
 
 | Route | Defined in |
 |---|---|
-| `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` | [accounts §5.4](04-accounts-and-devices.md#54-published-device-keys) |
-| `GET https://{domain}/.overstory/peer/domain-check` | [locators §5.1](03-locators.md#51-trees-at-a-persons-domain) |
+| `GET /.overstory/peer/profiles/{ProfileTreeID}/device-keys` | [accounts and devices §4.4](3.2-accounts-and-devices.md#44-published-device-keys) |
+| `GET https://{domain}/.overstory/peer/domain-check` | [locators §5.1](3.1-locators.md#51-trees-at-a-persons-domain) |
 
 A host also reads another host's public trees (a remote group's members) with
 the ordinary tree reads above. A host's own processes, such as its execution
 sidecar, never reach it through a public route.
 
-Authentication headers apply to every route ([access control §2](05-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](01-tree-operations.md#1-reading-trees), while SSE framing and common errors are in [encoding §4.2](01-tree-operations.md#42-stream-framing-and-errors).
+Authentication headers apply to every route ([access control §2](3.3-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1](1.2-tree-protocol.md#1-reading-trees), while SSE framing and common errors are in [encoding §3.1](1.2-tree-protocol.md#31-stream-framing-and-errors).
 
 ## Component roles
 
@@ -126,7 +141,7 @@ Authentication headers apply to every route ([access control §2](05-access-cont
   mutable refs, immutable objects, claims, access enforcement, and watch
   streams. A profile `TreeID` has one home host, which holds its
   configuration, and may hold placement accounts at other hosts
-  ([accounts §1](04-accounts-and-devices.md#1-profiles-and-host-accounts));
+  ([accounts and devices §1](3.2-accounts-and-devices.md#1-profiles-and-host-accounts));
   no host owns that identity merely because it allocated one of its names. A host
   does not need local filesystem materialization.
 - A **Overstory client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
@@ -137,14 +152,14 @@ Authentication headers apply to every route ([access control §2](05-access-cont
 - An **executable-document runtime** renders a reviewed MDX/TSX node at its ordinary Overstory location, injects authenticated Overstory user context, executes its named handles, and streams validated live-query results without exposing the backing data authority.
 - An **agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
 
-The protocol carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [configuration](04-accounts-and-devices.md).
+The protocol carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [accounts and devices](3.2-accounts-and-devices.md).
 
 ## Execution hosts
 
 An execution runtime resolves authored source locators by the ordinary
-[resolution rules](03-locators.md#4-resolution-rules) and obtains each host-backed
-source's accepted state through the ordinary [current-tree read](01-tree-operations.md#111-reading-the-current-tree)
-under its execution token; there is no separate binding route. [Executable documents](07-executable-documents.md#8-host-and-server-boundaries)
+[resolution rules](3.1-locators.md#4-resolution-rules) and obtains each host-backed
+source's accepted state through the ordinary [current-tree read](1.2-tree-protocol.md#111-reading-the-current-tree)
+under its execution token; there is no separate binding route. [Executable documents](5.1-executable-documents.md#8-host-and-server-boundaries)
 defines execution authority use; [reference sidecar documentation](../architecture/overstoryd/execution-sidecar.md)
 owns HTTP forwarding and provider bindings. Implementations
 may extract the runtime without preserving the unused legacy query/mutation APIs.
@@ -156,16 +171,16 @@ inline mention links here; accepted implementation work is indexed under
 [plans](../../plans/README.md), while proposed additions not yet decided are
 [spec extensions](../../plans/spec-extensions/README.md).
 
-1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([configuration](04-accounts-and-devices.md#32-invariants)).
-2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](07-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](07-executable-documents.md#4-queries)).
-3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](07-executable-documents.md#5-mutations)).
-4. **Placement projections of an external store**: a device's private SQLite copy, read-only or two-way (`mode: bidirectional`) ([child backings](06-child-backings.md#4-postgres-and-placement-projections)); the earlier designs are kept in [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md#read-only-placement-projections-moved-from-spec-06-4-2026-11-11).
-5. **External-store change log and checkpoint format** for synchronizing Postgres placements. Logical collections, SQLite projections included, synchronize as row operations with a logical hash ([child backings §2](06-child-backings.md#2-logical-collections)); an external store has no such form yet ([child backings §1.1](06-child-backings.md#11-child-backings)).
-6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](07-executable-documents.md#131-agent-files)).
-7. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](03-locators.md#21-links-written-in-markdown)).
-8. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([executable documents](07-executable-documents.md#4-queries)).
-9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](03-locators.md#1-forms)).
-10. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([updates §2.2](01-tree-operations.md#22-reconciliation-and-exact-state-preconditions), [access control §4](05-access-control.md#4-reading-access)).
+1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([accounts and devices](3.2-accounts-and-devices.md#32-invariants)).
+2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](5.1-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](5.1-executable-documents.md#4-queries)).
+3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](5.1-executable-documents.md#5-mutations)).
+4. **Placement projections of an external store**: a device's private SQLite copy, read-only or two-way (`mode: bidirectional`) ([external stores](5.3-external-stores.md#1-postgres-and-placement-projections)); the earlier designs are kept in [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md#read-only-placement-projections-moved-from-spec-06-4-2026-11-11).
+5. **External-store change log and checkpoint format** for synchronizing Postgres placements. Logical collections, SQLite projections included, synchronize as row operations with a logical hash ([collections §2](1.4-collections.md#2-logical-collections)); an external store has no such form yet ([collections §1.1](1.4-collections.md#11-child-backings)).
+6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](5.1-executable-documents.md#131-agent-files)).
+7. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](3.1-locators.md#21-links-written-in-markdown)).
+8. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([executable documents](5.1-executable-documents.md#4-queries)).
+9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](3.1-locators.md#1-forms)).
+10. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([tree protocol §2.2](1.2-tree-protocol.md#22-reconciliation-and-exact-state-preconditions), [access control §4](3.3-access-control.md#4-reading-access)).
 11. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.
 12. **Placement-specific read-only ceilings** for installations where the same TreeID has several local placements with different effective limits.
 13. **Durable pinned placements of immutable historical revisions.** Revision locators remain read-only even when a client later makes them durable.

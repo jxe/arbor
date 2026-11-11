@@ -3,7 +3,7 @@
 **Why and when:** after widgets in Story ([Apps 011](../soon/apps-011-widgets-in-story.md)): authored agents hosted beside an app, calling its own query and mutation handles. No timing yet.
 
 > **Execution-model revision (2026-09-18):** Resource policy is the deployed
-> [access-control grammar](../../docs/overstory-spec/05-access-control.md), source resolution and runtime extraction
+> [access-control grammar](../../docs/overstory-spec/3.3-access-control.md), source resolution and runtime extraction
 > by [Apps 005](../../status.md#views-on-the-host-and-declared-views--2026-11-08), and replacement authoring /
 > durable workflows by [Apps 006](apps-006-durable-authoring.md). These supersede inherited
 > named-permission, single-domain-only and unchanged-syntax instructions below.

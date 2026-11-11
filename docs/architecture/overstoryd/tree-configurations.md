@@ -1,8 +1,8 @@
 # Tree configurations: decisions and failure cases
 
 Every hosted tree is configured in its own private configuration tree
-([accounts §2–§7](../../overstory-spec/04-accounts-and-devices.md#2-tree-configuration-graph),
-[access control §1](../../overstory-spec/05-access-control.md#1-subjects-and-rules)).
+([accounts §2– §2](../../overstory-spec/3.2-accounts-and-devices.md#2-tree-configuration-graph),
+[access control §1](../../overstory-spec/3.3-access-control.md#1-subjects-and-rules)).
 This page keeps why it has that shape and which tests show each failure is
 refused. It was overstoryd 005, cut over live on 2026-09-26 by
 migration 022 (`packages/overstoryd/migrations/022-tree-configurations/README.md` at `66a76f5`).
@@ -11,7 +11,7 @@ migration 022 (`packages/overstoryd/migrations/022-tree-configurations/README.md
 
 - **A separate tree, not a file inside the tree.** Objects are shared across a
   host, and any reader of any tree may fetch an object whose hash they know
-  ([tree operations](../../overstory-spec/01-tree-operations.md), object reads).
+  ([tree protocol](../../overstory-spec/1.2-tree-protocol.md), object reads).
   A reserved file's hash is in the root directory every reader receives, so
   its content cannot be hidden without serving a directory that does not match
   its hash. It would also need per-path write rules, which Overstory does not
@@ -69,23 +69,23 @@ migration 022 (`packages/overstoryd/migrations/022-tree-configurations/README.md
    help is the answer: `overstoryd recover <handle>` issues a recovery pairing
    whose claim rewrites the person's `devices.yaml` to the claiming device,
    an administrator, and revokes the rest, as an accepted configuration
-   update ([accounts §5.3](../../overstory-spec/04-accounts-and-devices.md#53-recovering-a-profiles-devices)).
+   update ([accounts and devices §4.3](../../overstory-spec/3.2-accounts-and-devices.md#43-recovering-a-profiles-devices)).
    A tree whose administrators are all unreachable is recovered by recovering
    one of them.
 2. **Two meanings of "administrator".** Keep both names: a profile's `admin`
    on a tree, a device's `administrator` flag in `devices.yaml`. The spec
    introduces them together as the two authority bits
-   ([accounts §1](../../overstory-spec/04-accounts-and-devices.md#1-profiles-and-host-accounts)).
+   ([accounts and devices §1](../../overstory-spec/3.2-accounts-and-devices.md#1-profiles-and-host-accounts)).
 3. **The derived TreeID's form.** `tr_` + unpadded lowercase base32 of
    `SHA-256("arbor-tree-config-v1\0" || TreeID)`, the same form as a person
    profile TreeID. The prefix does not show that it is a configuration, so a
    configuration TreeID reveals nothing to someone who does not know the tree
-   ([accounts §2.1](../../overstory-spec/04-accounts-and-devices.md#21-finding-it);
+   ([accounts and devices §2.1](../../overstory-spec/3.2-accounts-and-devices.md#21-finding-it);
    vectors in `tree-configuration.json`).
 4. **How declaring is addressed.** An update with base `null` to
    `/.overstory/trees/{TreeID};overstory-config/updates`: the route names the tree, so
    the request body is an ordinary `UpdateRequest`
-   ([accounts §6](../../overstory-spec/04-accounts-and-devices.md#6-declaring-activating-and-mounting-a-tree)).
+   ([accounts and devices §5](../../overstory-spec/3.2-accounts-and-devices.md#5-declaring-activating-and-mounting-a-tree)).
 
 ## Moved up from Security 006–008
 

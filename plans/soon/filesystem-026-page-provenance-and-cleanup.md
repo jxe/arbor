@@ -5,8 +5,8 @@ page's properties and exact body, and each placement writes its own front matter
 a plan on 2026-10-28 and accepted that formatting stops traveling between devices). That is
 built, released and converted on Joe's todos tree
 ([status](../../status.md#pages-as-logical-nodes-built--2026-10-28)); the rules are in
-[spec 01](../../docs/overstory-spec/01-tree-operations.md#pages) and
-[spec 02 §3](../../docs/overstory-spec/02-directory-format.md#3-properties-markdown-content-and-identity).
+[spec 01](../../docs/overstory-spec/1.1-data-model.md#51-pages) and
+[spec 02 §9](../../docs/overstory-spec/1.1-data-model.md#9-properties-markdown-content-and-identity).
 This is the cleanup it left. Soon, after the other trees are converted (a go-ahead in
 [Joe's to-do](../joe.md#go-aheads)).
 

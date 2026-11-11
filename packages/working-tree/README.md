@@ -26,7 +26,7 @@ The root entry point is browser-safe:
 `FileControlStore` (`sync/update-control.json` and `sync/events.jsonl`).
 
 The machine is specified in
-[working-tree updates](../../docs/overstory-spec/09-client-synchronization.md);
+[working trees](../../docs/overstory-spec/2.1-working-trees.md);
 the runner is described in
 [the update machine](../../docs/implementing-sync-services/update-machine.md).
 `tests/unit/update-runner.test.ts` executes the runner vectors

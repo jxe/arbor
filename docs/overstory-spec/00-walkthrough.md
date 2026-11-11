@@ -30,8 +30,8 @@ laptop, with its key, as the first administrator device. The server derives the 
 Profile TreeID from the supplied public key, verifies the target-bound
 signature locally, and in one transaction creates the account and the
 configuration and declares the profile tree. It receives no profile bytes yet
-([accounts §1.1–1.2](04-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](04-accounts-and-devices.md#1-profiles-and-host-accounts),
-[configuration graph](04-accounts-and-devices.md#2-tree-configuration-graph)).
+([accounts §1.1–1.2](3.2-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](3.2-accounts-and-devices.md#1-profiles-and-host-accounts),
+[configuration graph](3.2-accounts-and-devices.md#2-tree-configuration-graph)).
 
 ## 2. Declare a tree
 
@@ -46,9 +46,9 @@ Joe also has an ordinary folder, `~/projects/atlas`. The laptop generates a fres
 `atlas: tr_…` to his profile's `mounts.yaml`, and records the local folder
 separately in `~/.story/placements.yaml`. The server validates each candidate
 under the `tree-config-v1` policy and reserves the tree; nothing is readable
-yet ([configuration YAML](04-accounts-and-devices.md#3-configuration-yaml),
-[accounts §7](04-accounts-and-devices.md#7-governed-configuration-trees),
-[accounts §6](04-accounts-and-devices.md#6-declaring-activating-and-mounting-a-tree)).
+yet ([configuration YAML](3.2-accounts-and-devices.md#3-configuration-yaml),
+[accounts and devices §6](3.2-accounts-and-devices.md#6-governed-configuration-trees),
+[accounts and devices §5](3.2-accounts-and-devices.md#5-declaring-activating-and-mounting-a-tree)).
 
 ## 3. Activate it
 
@@ -61,23 +61,23 @@ the first accepted update, applies the declared ACL and canonical boundary,
 and makes the tree's descriptor and accepted snapshot readable in the same
 commit.
 `https://garden.example/~joe/atlas` and `overstory://tr_…/` now resolve to the
-same tree ([snapshot](01-tree-operations.md#112-reading-an-accepted-snapshot),
-[locator forms](03-locators.md#1-forms), [canonical lookup](03-locators.md#5-finding-trees)).
+same tree ([snapshot](1.2-tree-protocol.md#112-reading-an-accepted-snapshot),
+[locator forms](3.1-locators.md#1-forms), [canonical lookup](3.1-locators.md#5-finding-trees)).
 
 ## 4. Edit a file
 
 Joe edits `notes.md`. Because `notes.md` supplies the body of the node `/notes`
 and a sibling `notes/` would supply its children, the edit touches one node
-([mapping](02-directory-format.md#2-mapping-files-and-directories-to-nodes)).
+([mapping](1.1-data-model.md#8-mapping-files-and-directories-to-nodes)).
 The laptop builds the new candidate root: a new file object, and new directory
 objects from `notes.md` up to the root. It sends the file as an `ObjectDelta`
 against the previous file object and the small directory objects in full,
 with `base` set to the accepted update id it last observed, a fresh `change`,
 `operations: null` and `resolves: []`. The server finds current equal to base and answers
-`201 accepted` with the new update's id and the request digest ([sparse transfer](01-tree-operations.md#25-sparse-transfer-with-object-deltas),
-[submit](01-tree-operations.md#21-the-update-request)). The root that changed is a bytes hash; the model hash of every node Joe did
+`201 accepted` with the new update's id and the request digest ([sparse transfer](1.2-tree-protocol.md#25-sparse-transfer-with-object-deltas),
+[submit](1.2-tree-protocol.md#21-the-update-request)). The root that changed is a bytes hash; the model hash of every node Joe did
 not touch is unchanged
-([equality](01-tree-operations.md#representation-and-model-equality)).
+([equality](1.1-data-model.md#4-representation-and-model-equality)).
 
 ## 5. Follow from a second device
 
@@ -86,14 +86,14 @@ its accepted `update`, then opens `GET .../watch?after=<update>`. Every
 later accepted update arrives as a `tree.update` frame carrying the transition
 from the previous root to the new one, as objects and deltas. She applies a
 batch in memory and materializes only its final state
-([read](01-tree-operations.md#1-reading-trees), [watch](01-tree-operations.md#113-watching)).
+([read](1.2-tree-protocol.md#1-reading-trees), [watch](1.2-tree-protocol.md#113-watching)).
 If Alice has write access and edits a different file from the same base, her
 independent contribution merges onto Joe's.
 If both edit `notes.md`, applicable format-aware rules combine the edits when
 justified; otherwise the server retains representable alternatives in accepted
 state. That unresolved acceptance continues syncing. Invalid contributions,
 failed guards or exceeded bounds can instead produce an explicit rejection
-([authority decision](01-tree-operations.md#23-accepting-and-merging)).
+([authority decision](1.2-tree-protocol.md#23-accepting-and-merging)).
 
 ## 6. Add a collection
 
@@ -101,16 +101,16 @@ Joe creates `practices/schema.usl` declaring a `Practice` model, and
 `practices/_store.csv` with a header row. The
 folder is now a collection: each CSV row is a child node of
 `/practices`, its fields are the child's properties, and its stable key is
-the canonical key JSON of its `id` ([logical collections](06-child-backings.md#2-logical-collections),
-[row identity](06-child-backings.md#12-member-identity-order-and-pagination)). The CSV is only
+the canonical key JSON of its `id` ([collections](1.4-collections.md#2-logical-collections),
+[row identity](1.4-collections.md#12-member-identity-order-and-pagination)). The CSV is only
 how Joe's Mac projects the rows: the tree holds the rows themselves, in
 canonical form, beside the exact bytes of `schema.usl`, and his iPhone keeps
 the same rows in SQLite. Story Sync turns each edit to the CSV into row
 operations, and the authority replays them and recomputes the model
 fingerprint and the collection's logical hash
-([what the tree holds](06-child-backings.md#21-what-the-tree-holds)).
+([what the tree holds](1.4-collections.md#21-what-the-tree-holds)).
 Each row has an ordinary public address such as
-`/~joe/atlas/practices/walking;overstory-key=…` ([reading at the canonical URL](01-tree-operations.md#13-reading-at-the-canonical-url)).
+`/~joe/atlas/practices/walking;overstory-key=…` ([reading at the canonical URL](3.1-locators.md#6-reading-at-the-canonical-url)).
 
 ## 7. Query it from a page
 
@@ -129,14 +129,14 @@ export const publishedPractices = query.many(practices, practice => ({
 
 The server has enabled hosting for the tree, so compilation produces a
 manifest that binds the handle to `(tr_…, /practices, schema fingerprint)` and
-records its read prefix ([handles](07-executable-documents.md#3-modules-and-named-handles),
-[queries](07-executable-documents.md#4-queries), [compilation](07-executable-documents.md#7-compilation-and-hosting)).
+records its read prefix ([handles](5.1-executable-documents.md#3-modules-and-named-handles),
+[queries](5.1-executable-documents.md#4-queries), [compilation](5.1-executable-documents.md#7-compilation-and-hosting)).
 A visitor's browser receives the server-rendered page with the query's result
 embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the document
 version and the view. The stream sends `result` and `ready`. When Joe edits
 the CSV, the tree advances, the provider reports which rows changed, the host
 re-evaluates, and a new `result` with a new `outputHash` follows
-([executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-views), [authoring API](08-authoring-api.md)).
+([executable documents §12.1](5.1-executable-documents.md#121-evaluate-and-stream-views), [authoring API](5.2-authoring-api.md)).
 
 ## 8. Run a mutation
 
@@ -149,8 +149,8 @@ and records the receipt with the same durability as the data. Because the
 mutation changed an Overstory-canonical tree, the receipt's `affected` names the
 new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
 retry with the same `mutationID` returns the original receipt and does nothing
-twice ([mutations](07-executable-documents.md#5-mutations),
-[executable documents §12.2](07-executable-documents.md#122-execute-named-mutations), [actions](08-authoring-api.md#5-actions-and-forms)).
+twice ([mutations](5.1-executable-documents.md#5-mutations),
+[executable documents §12.2](5.1-executable-documents.md#122-execute-named-mutations), [actions](5.2-authoring-api.md#5-actions-and-forms)).
 
 ## 9. Rename the canonical URL
 
@@ -159,4 +159,4 @@ moving the canonical URL to `https://garden.example/~joe/atlas-2026`. The
 `TreeID`, every stable key, every object, and the accepted history are
 unchanged; only the secondary lookup moved. `overstory://tr_…/practices/walking;overstory-key=…`
 still resolves, and Alice's placement keeps following the same tree
-([canonical lookup](03-locators.md#5-finding-trees), [equality](01-tree-operations.md#representation-and-model-equality)).
+([canonical lookup](3.1-locators.md#5-finding-trees), [equality](1.1-data-model.md#4-representation-and-model-equality)).

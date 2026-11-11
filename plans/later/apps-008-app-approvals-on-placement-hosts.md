@@ -22,7 +22,7 @@
 An `apps.yaml` entry applies only at its profile's home host. On a placement
 host nobody can approve an app for themselves or lend access to one, and code
 there uses only `everyone` rules and the host's own `app` rules
-([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority)).
+([access control §1.1](../../docs/overstory-spec/3.3-access-control.md#11-execution-authority)).
 
 ## The design
 

@@ -2,7 +2,7 @@
 
 This guide describes the reference implementation, not additional portable
 requirements. The portable rules are in
-[working-tree updates §4](../overstory-spec/09-client-synchronization.md#4-local-changes-from-editors).
+[working trees §4](../overstory-spec/2.1-working-trees.md#4-local-changes-from-editors).
 
 There is no state machine between an editor and its working tree. An editor
 is a **source**: it appends each generation it commits to its document

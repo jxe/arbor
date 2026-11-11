@@ -354,7 +354,7 @@ public struct WorkspaceDocumentGeneration: Hashable, Codable, Sendable {
 /// `generations`, when present, is the same change as the editor captured it:
 /// one patch per generation, each against the source the previous one
 /// produced, ending at `source`. A publication queue emits one frame per
-/// generation from it (docs/overstory-spec/09), so no claim is ever re-derived across
+/// generation from it (docs/overstory-spec/2.1-working-trees.md), so no claim is ever re-derived across
 /// generations.
 public struct WorkspaceDocumentIntent: Hashable, Codable, Sendable {
     public let basis: WorkspaceDocumentSnapshot

@@ -3,9 +3,9 @@
 [Architecture overview](../README.md) · [Implementation status](../../../status.md)
 
 `@ovst/collection-schema` implements the collection schemas of
-[child backings §2.4](../../overstory-spec/06-child-backings.md#2-logical-collections):
+[collections §2](../../overstory-spec/1.4-collections.md#2-logical-collections):
 a collection's `schema.usl`, in the
-[schema language](../../overstory-spec/11-schema-language.md), compiled by
+[schema language](../../overstory-spec/1.5-schema-language.md), compiled by
 [`@ovst/usl`](../../../packages/usl/README.md) and interpreted over JSON values.
 Interpreting a collection is parsing and checking data. Nothing in overstoryd,
 the merge worker or Story Sync evaluates JavaScript to read, accept, project or

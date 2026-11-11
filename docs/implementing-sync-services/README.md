@@ -6,16 +6,16 @@ filesystem synchronizer, with a separate loopback API for local clients.
 
 ## Shared contracts
 
-1. Start with the [specification walkthrough](../overstory-spec/00-walkthrough.md) and [tree operations](../overstory-spec/01-tree-operations.md) for objects, accepted updates, exact retries, and observation.
-2. Implement [accounts and devices](../overstory-spec/04-accounts-and-devices.md), [access control](../overstory-spec/05-access-control.md), and [locator resolution](../overstory-spec/03-locators.md).
-3. For synchronizing clients, follow [client synchronization](../overstory-spec/09-client-synchronization.md), the [update machine](update-machine.md), and [source intent](../overstory-spec/10-source-intent.md).
+1. Start with the [specification walkthrough](../overstory-spec/00-walkthrough.md) and [tree protocol](../overstory-spec/1.2-tree-protocol.md) for objects, accepted updates, exact retries, and observation.
+2. Implement [accounts and devices](../overstory-spec/3.2-accounts-and-devices.md), [access control](../overstory-spec/3.3-access-control.md), and [locator resolution](../overstory-spec/3.1-locators.md).
+3. For synchronizing clients, follow [working trees](../overstory-spec/2.1-working-trees.md), the [update machine](update-machine.md), and [source intent](../overstory-spec/1.3-source-intent.md).
 4. Verify against the [portable conformance fixtures](../overstory-spec/conformance/README.md) and [cross-language protocol gate](../../DEVELOPMENT.md#verification).
 
 ## Implementation guides
 
 - [The update machine and its coordinator](update-machine.md): reference reducers, durable requests, watching, recovery, and timing.
 - [Local placements](local-placements.md): reference YAML layout and platform working-tree ownership.
-- [Porting the client library](porting-a-client.md): the seven modules, the three ways to hold a tree, the order to build them, and their conformance files; `bun tools/client-parity.ts` compares TypeScript and Swift.
+- [Porting the client library](../overstory-spec/4.1-client-library.md): the seven modules, the three ways to hold a tree, the order to build them, and their conformance files; `bun tools/client-parity.ts` compares TypeScript and Swift.
 
 ## Reference services
 

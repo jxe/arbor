@@ -6,7 +6,7 @@ The vectors are normative only where their owning specification defines an exact
 
 `url-resolution.json` and `node-targets.json` are the shared TypeScript/Swift
 locator contract, resolved against a source directory
-([locators §2.1](../03-locators.md#21-links-written-in-markdown)). A bare
+([locators §2.1](../3.1-locators.md#21-links-written-in-markdown)). A bare
 fragment is only ever a content fragment. The Markdown link surface has five
 more files, each run by both implementations:
 
@@ -17,7 +17,7 @@ more files, each run by both implementations:
 - `markdown-link-destinations.json`: which hrefs a Markdown source contains.
 
 `invitations.json` binds invitation codes
-([accounts §1.2](../04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)):
+([accounts and devices §1.2](../3.2-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key)):
 each code's `sha256:` digest, the form a community's `members` entry reserves, and its join
 link. TypeScript (`inviteCodeDigest`, `buildInviteLocator`) and Swift (`StoryInvitation`)
 check them.
@@ -40,8 +40,8 @@ hashes, collection tables and row chunks, and schema fingerprints) uses this enc
 `protocol-update-intent.json` records the currently implemented update digest derived from it.
 
 `collection-schemas.json` binds the collection schemas of
-[child backings §2](../06-child-backings.md#2-logical-collections), written in
-the [schema language](../11-schema-language.md), in its 2026-10-24
+[collections §2](../1.4-collections.md#2-logical-collections), written in
+the [schema language](../1.5-schema-language.md), in its 2026-10-24
 layered syntax; the logical collection objects (a directory's `collection`
 reference, `table` and `rows`) are vectors in `protocol-objects.json`. It covers accepted schemas with their columns, key, child name and fingerprint; rejected
 schemas with the first diagnostic's code and location; value and CSV-cell
@@ -56,7 +56,7 @@ pairings.
 `presented-views.json` binds presented views (plan schema-language/002
 milestone 3): a schema, data-file rows and people's names presented by one
 view, and each view intent with the row operations
-([source intent §4.1](../10-source-intent.md#41-property-operations)) and rows it
+([source intent §4.1](../1.3-source-intent.md#41-property-operations)) and rows it
 leads to. `@ovst/usl` (`presentView`, `viewEdits`) and StoryKit
 (`PresentedView`) run it; `tests/support/regenerate-presented-views.ts`
 recomputes its expectations from the TypeScript reference.
@@ -96,7 +96,7 @@ fixed count cap without duplicating fixture text. The previous deployed-format
 `protocol-cbor-transport.json` gives every valid request and response vector
 above (and those in `protocol-endpoints.json`), and a complete account claim,
 in both body encodings of
-[tree operations §4.4](../01-tree-operations.md#44-request-and-response-encodings):
+[tree protocol §3.2](../1.2-tree-protocol.md#32-request-and-response-encodings):
 the JSON body and the canonical CBOR of the same value, with byte strings
 where JSON has padded base64. Requests repeat their digests, which neither
 encoding changes. `rejected` holds CBOR bodies a receiver refuses:
@@ -109,7 +109,7 @@ that a host supports those effects. `protocol-operations.json` and
 `protocol-update-intent.json` are likewise grammar and digest vectors: they do
 not assert that their effects execute today. [status.md](../../../status.md) is the
 authority for the implemented subset; the request grammar itself is in
-[tree operations §2.1](../01-tree-operations.md#21-the-update-request).
+[tree protocol §2.1](../1.2-tree-protocol.md#21-the-update-request).
 
 - `cross-document-copy.json` supplies the same exact UTF-8 source span, destination
   and foreign-document capture to Swift and TypeScript admission tests. Both must
@@ -123,9 +123,9 @@ authority for the implemented subset; the request grammar itself is in
 - `page-conversion-undo.json` checks paired Swift/TypeScript page-creation
   receipts, historical removal and redo target identities through queue restart.
 
-- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, a profile subject named by its locator at another host ([access control §1](../05-access-control.md#1-subjects-and-rules)), the locators' canonical spelling and origin (`locators`, [locators §1](../03-locators.md#1-forms)), whole `access.yaml` and `apps.yaml` rule lists (`validFiles` / `invalidFiles`: merge keys, which compare a locator in its canonical spelling), and the safe projection, which redacts a link and keeps a locator; consumed by `@ovst/protocol` and Swift `Overstory`.
+- `resource-policy.json`: shared valid/invalid `who` / `app` / `allow` / `within` grammar, `admin` and `apps.yaml` rules, a profile subject named by its locator at another host ([access control §1](../3.3-access-control.md#1-subjects-and-rules)), the locators' canonical spelling and origin (`locators`, [locators §1](../3.1-locators.md#1-forms)), whole `access.yaml` and `apps.yaml` rule lists (`validFiles` / `invalidFiles`: merge keys, which compare a locator in its canonical spelling), and the safe projection, which redacts a link and keeps a locator; consumed by `@ovst/protocol` and Swift `Overstory`.
 - `tree-configuration.json`: derived configuration TreeIDs, the graph by tree kind, validation, invariants and merge, consumed by `@ovst/protocol` (derivation also by Swift `Overstory`).
-- `device-keys.json`: device `key` encodings and their DER public keys, and the device-session challenges ([accounts §5](../04-accounts-and-devices.md#5-device-pairing)) with their exact canonical CBOR and signatures. Ed25519 signatures are deterministic and must match; the P-256 signature is one valid signature, to verify rather than reproduce. Consumed by `@ovst/protocol`, overstoryd and Swift `Overstory`.
+- `device-keys.json`: device `key` encodings and their DER public keys, and the device-session challenges ([accounts and devices §4](../3.2-accounts-and-devices.md#4-device-pairing)) with their exact canonical CBOR and signatures. Ed25519 signatures are deterministic and must match; the P-256 signature is one valid signature, to verify rather than reproduce. Consumed by `@ovst/protocol`, overstoryd and Swift `Overstory`.
 
 ## Index
 
@@ -144,8 +144,8 @@ authority for the implemented subset; the request grammar itself is in
 | `node-model.json` | Provider-neutral node model decoding |
 | `node-targets.json` | Node target resolution |
 | `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid: the cursor in the SSE `id`, the kind in `event`, one transition per `tree.update`, and `resync-required` with no `id` |
-| `presence-events.sse`, `presence-events-invalid.json` | Presence stream framing, valid and invalid ([spec 12](../12-presence.md)): a ready roster, peers (one an agent with a status), cursors, a leave, and frames a client must reject |
-| `presence-runners.sse` | Runners and messages ([spec 12 §6](../12-presence.md#6-runners-and-messages)): a runner in the roster, a `run` message, an agent doing the run, `stop` and `done` |
+| `presence-events.sse`, `presence-events-invalid.json` | Presence stream framing, valid and invalid ([spec 12](../3.4-presence.md)): a ready roster, peers (one an agent with a status), cursors, a leave, and frames a client must reject |
+| `presence-runners.sse` | Runners and messages ([spec 12 §6](../3.4-presence.md#6-runners-and-messages)): a runner in the roster, a `run` message, an agent doing the run, `stop` and `done` |
 | `page-presentation.json` | Page presentation (spec 02 §4.1): presented title and Children headings (`cases`), and the source an edited page writes (`edits`) |
 | `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
 | `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar, profile locators, and one file's rules |
@@ -159,8 +159,8 @@ authority for the implemented subset; the request grammar itself is in
 | `protocol-endpoints.json` | Route shapes |
 | `protocol-graphs.json`, `protocol-objects.json`, `protocol-object-deltas.json`, `protocol-snapshot-bundles.json`, `protocol-values.json` | Objects, directory graphs, deltas, snapshot bundles, and canonical values |
 | `protocol-operations.json`, `protocol-update-intent.json` | Source operations and the update digest |
-| `protocol-path-reads.json` | Path reads: which objects a read of a path holds, the bundle's bytes, and bundles a reader must reject ([tree operations §1.2.4](../01-tree-operations.md#124-reading-a-path)) |
+| `protocol-path-reads.json` | Path reads: which objects a read of a path holds, the bundle's bytes, and bundles a reader must reject ([tree protocol §1.2.4](../1.2-tree-protocol.md#124-reading-a-path)) |
 
-`protocol-account-challenges.json` covers community-address, exact-account and invitation-code challenge requests. All return the same complete account-bound challenge; placement accounts have none ([accounts §1.3](../04-accounts-and-devices.md#13-placement-accounts)). Its `signing` section fixes the bytes a profile key signs for a challenge, with the signature. TypeScript and Swift clients consume these cases.
+`protocol-account-challenges.json` covers community-address, exact-account and invitation-code challenge requests. All return the same complete account-bound challenge; placement accounts have none ([accounts and devices §1.3](../3.2-accounts-and-devices.md#13-placement-accounts)). Its `signing` section fixes the bytes a profile key signs for a challenge, with the signature. TypeScript and Swift clients consume these cases.
 
-`errors.json` includes the two errors a placement host names the home host in, as `details.homeHost`: `permission-denied` for a route that belongs to the home host, and a retryable `internal-error` when the home host's device keys cannot be refreshed ([accounts §5.4](../04-accounts-and-devices.md#54-published-device-keys)).
+`errors.json` includes the two errors a placement host names the home host in, as `details.homeHost`: `permission-denied` for a route that belongs to the home host, and a retryable `internal-error` when the home host's device keys cannot be refreshed ([accounts and devices §4.4](../3.2-accounts-and-devices.md#44-published-device-keys)).

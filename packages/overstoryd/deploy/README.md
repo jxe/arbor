@@ -157,7 +157,7 @@ overstoryd reads these variables at start; all are optional.
 | `OVERSTORYD_MERGE_CACHE_MB` | 512 | The merge sidecar's in-memory cache of entry states; dropped whole when exceeded, and started again from provenance indexes. |
 | `OVERSTORYD_MERGE_REPLAY_MS` | 10000 | How long one merge question may replay the entries after its basis before the head starts from its provenance index instead. |
 | `OVERSTORYD_RATE_LIMITS` | off | `1` limits unauthenticated session challenges and pairing claims per caller; see [rate limits and proxies](#rate-limits-and-proxies). |
-| `OVERSTORYD_PAGES` | off | `1` accepts page entries in every tree, and a list of tree IDs separated by commas in just those trees. Such a tree also accepts the one update that converts its Markdown files to pages, and its descriptor says `pages`, which is when a writer's Story Sync converts it; health advertises `pages-v1` ([spec 02 §3](../../../docs/overstory-spec/02-directory-format.md#3-properties-markdown-content-and-identity)). |
+| `OVERSTORYD_PAGES` | off | `1` accepts page entries in every tree, and a list of tree IDs separated by commas in just those trees. Such a tree also accepts the one update that converts its Markdown files to pages, and its descriptor says `pages`, which is when a writer's Story Sync converts it; health advertises `pages-v1` ([spec 02 §9](../../../docs/overstory-spec/1.1-data-model.md#9-properties-markdown-content-and-identity)). |
 | `OVERSTORYD_TRUSTED_PROXY_HOPS` | 0 | How many reverse proxies in front of overstoryd append to `X-Forwarded-For`; see [rate limits and proxies](#rate-limits-and-proxies). |
 | `OVERSTORYD_STORY_MAC_URL` | unset | Where to get Story for Mac. The page at a reserved, unclaimed `/~handle` offers it as "Get Story for Mac" to a person who opened an invitation link; no link when unset. |
 | `OVERSTORYD_STORY_IPHONE_URL` | unset | The same for "Get Story for iPhone". |
@@ -198,7 +198,7 @@ invite list`, `renew` and `cancel` manage pending ones). Either way it is one
 ### People's own domains
 
 A person can have the host serve their trees at a domain they own
-([locators §5.1](../../../docs/overstory-spec/03-locators.md#51-trees-at-a-persons-domain)):
+([locators §5.1](../../../docs/overstory-spec/3.1-locators.md#51-trees-at-a-persons-domain)):
 they list it in their profile's `domains` and point it at the host with a CNAME
 (`story me domain <domain>` prints it). The host serves the domain once
 `https://<domain>/.overstory/domain-check` answers with its own token, checked on the

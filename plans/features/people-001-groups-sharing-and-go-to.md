@@ -187,7 +187,7 @@ descriptor)`). `openRemoteLocator` splits into resolving a path to a descriptor 
   endpoint hint or already-known server record" with the rule (no host named; the fixed order; ask only on
   activation; accept only a matching descriptor; fail naming the hosts asked) and define the
   hint as the host form. §1: one sentence on what each `overstory://` form carries. §5: no
-  route finds a host from a TreeID. 02-directory-format: when to write each link form.
+  route finds a host from a TreeID. data model and placements on disk: when to write each link form.
   `design.md`: following a link to another tree. Code: `locateTree` with its tests against
   stub hosts (each step's hit, a wrong TreeID discarded, a stale row falling through, two
   hosts holding the tree, no activation means no requests), and `OverstoryRemoteLocator`

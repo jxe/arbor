@@ -3,7 +3,7 @@
 
 The current version is Story Sync REST v1.
 
-The protocol request grammar is in [tree operations §2.1](../overstory-spec/01-tree-operations.md#21-the-update-request); these local REST routes and filesystem scheduling
+The protocol request grammar is in [tree protocol §2.1](../overstory-spec/1.2-tree-protocol.md#21-the-update-request); these local REST routes and filesystem scheduling
 do not acquire new capabilities from that specification.
 
 Story Sync makes placed folders content-addressable and keeps each one equal
@@ -58,10 +58,10 @@ ports or client discovery; see [local service ownership](../architecture/story-s
 REST v1 reuses the portable model, read, locator, access, update, and
 observation values defined across the specification. In particular,
 `TreeID`, `LogicalPath`, `JSONValue`, and `NodeRef` come from the
-[Overstory data model](../overstory-spec/01-tree-operations.md#the-overstory-data-model), while
+[Data model](../overstory-spec/1.1-data-model.md), while
 `EventCursor`, `Hash`, `AccessLevel`, `TreeKind`, `TreeDescriptor`, and
 `RemoteTreeDescriptor` come from the
-[current-tree read](../overstory-spec/01-tree-operations.md#111-reading-the-current-tree).
+[current-tree read](../overstory-spec/1.2-tree-protocol.md#111-reading-the-current-tree).
 REST v1 adds the following local values:
 
 ```ts
@@ -116,10 +116,10 @@ access and historical state; resolution does not duplicate a `writable` flag.
 ## 2. Access and errors
 
 Access subjects, levels, and the `none` removal rule are defined once in
-[configuration](../overstory-spec/04-accounts-and-devices.md#3-configuration-yaml). Configuration
+[accounts and devices](../overstory-spec/3.2-accounts-and-devices.md#3-configuration-yaml). Configuration
 and mutation requests use the protocol's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
-digest ([access control §1](../overstory-spec/05-access-control.md#1-subjects-and-rules)).
+digest ([access control §1](../overstory-spec/3.3-access-control.md#1-subjects-and-rules)).
 
 Every non-2xx JSON error uses the protocol's `OverstoryError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
@@ -223,7 +223,7 @@ GET /.overstory/trees/{TreeID}/watch?after={cursor}[&objects=none]
 ```
 
 For the trees placed on this device Story Sync answers the standard Overstory
-read routes ([tree operations §1](../overstory-spec/01-tree-operations.md#1-reading-trees))
+read routes ([tree protocol §1](../overstory-spec/1.2-tree-protocol.md#1-reading-trees))
 on loopback, with the same shapes and status codes as overstoryd, so code
 written for overstoryd reads through Story Sync with the ordinary protocol
 client: its credential is the data home's caller token (§2). Writes, presence
@@ -279,7 +279,7 @@ store), and reuses the `session.json` beside it while it is usable, writing a
 newly opened session back so the others reuse it too. A tree placed on a
 placement host names that host as its descriptor's `canonical.endpoint`; the
 session there is opened with the same key from the placement connection
-([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)).
+([accounts and devices §1.3](../overstory-spec/3.2-accounts-and-devices.md#13-placement-accounts)).
 The former `GET /v1/credential` route went with Clients 003 step 3.
 
 ## 4. Identity, account bootstrap, and declined changes
@@ -342,7 +342,7 @@ Pairing codes and device credentials must never be logged.
 
 `POST /v1/bootstrap/placements` accepts `{ host }` and connects the data
 home's profile to its placement account at `host`
-([accounts §1.3](../overstory-spec/04-accounts-and-devices.md#13-placement-accounts)),
+([accounts and devices §1.3](../overstory-spec/3.2-accounts-and-devices.md#13-placement-accounts)),
 which the host's community created by reserving the profile's URL at its
 home host, exactly as `story place` does on first use
 (`connectPlacementAccount` in `@ovst/client`): the device opens a
@@ -459,7 +459,7 @@ GET  /v1/agents
 
 An agent working in a placed folder reports here (`story agent status`,
 `done` and `hook`), and Story Sync shows it in the tree's
-[presence](../overstory-spec/12-presence.md) as an agent of this device's
+[presence](../overstory-spec/3.4-presence.md) as an agent of this device's
 account: it opens an agent presence stream on the first report and moves the
 entry's page and cursor to the file the agent last read or edited (`hook`
 carries a Claude Code hook payload). `cwd` names the tree; a report outside

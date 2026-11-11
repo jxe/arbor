@@ -2,9 +2,9 @@
   "description": "Language-neutral semantic scenarios for the aspirational contract. Labels are symbolic, not Wire DTOs. These are not yet executable implementation conformance claims. Format outcomes include explicit policy/constraint assumptions.",
   "execution": "planned-contract-scenarios",
   "spec": [
-    "docs/overstory-spec/01-tree-operations.md",
-    "docs/overstory-spec/10-source-intent.md",
-    "docs/overstory-spec/09-client-synchronization.md"
+    "docs/overstory-spec/1.2-tree-protocol.md",
+    "docs/overstory-spec/1.3-source-intent.md",
+    "docs/overstory-spec/2.1-working-trees.md"
   ],
   "cases": [
     {

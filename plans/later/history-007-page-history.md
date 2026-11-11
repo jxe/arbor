@@ -164,7 +164,7 @@ GET /.overstory/trees/{TreeID}/history/{update}?path={logical-path}
 GET /.overstory/trees/{TreeID}/blame?path={logical-path}&at={accepted-update-id}
 ```
 
-Freeze in `docs/overstory-spec/01-tree-operations.md` and `05-access-control.md`:
+Freeze in `docs/overstory-spec/1.2-tree-protocol.md` and `3.3-access-control.md`:
 
 1. The server resolves `path` in the current accepted root to the page's node, then reads
    by node id.
@@ -214,7 +214,7 @@ Changing who may enumerate history is a STOP for an explicit threat-model decisi
    **No accepted history yet**, offline ("History needs a connection to the host"; never a
    local fallback), error, rows labelled by acceptance time with their summary, and the
    **Restore as New Change** confirmation saying later history is kept.
-6. **Updates can say an agent made them.** `01-tree-operations.md`: an update gains an
+6. **Updates can say an agent made them.** `1.2-tree-protocol.md`: an update gains an
    optional `attribution`:
 
    ```ts

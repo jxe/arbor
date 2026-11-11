@@ -378,7 +378,7 @@ public struct LocalChange: Codable, Equatable, Sendable {
     /// first frame's index in `frames`. A run that ends at the root it started
     /// from changed nothing and yields no frame. Frames with lineage, copies or
     /// operation material are kept as they are, so a claim always stays in the
-    /// frame whose basis it was captured against (docs/overstory-spec/09). The same rule runs
+    /// frame whose basis it was captured against (docs/overstory-spec/2.1-working-trees.md). The same rule runs
     /// in `@ovst/working-tree` and in the host's `composeFrames`.
     public static func compactTrace(_ frames: [ProtocolTraceFrame]) -> [ProtocolTraceFrame] {
         var result: [ProtocolTraceFrame] = []

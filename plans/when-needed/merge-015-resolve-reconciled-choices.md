@@ -16,7 +16,7 @@ Formerly "Resolve choices that later work has reconciled".
 The merge engine tracks ordinary edits through retained alternatives, but does not
 have a rule that clears an existing whole-tree choice when later work reconciles
 it. The normal removal paths require guarded `resolves`. The portable
-[source-intent contract](../../docs/overstory-spec/10-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
+[source-intent contract](../../docs/overstory-spec/1.3-source-intent.md#7-format-aware-merge-rules-and-explicit-automatic-resolution)
 already permits automatic authority resolutions with recorded justification;
 ordinary saves and equal bytes cannot implicitly resolve choices.
 

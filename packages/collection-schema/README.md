@@ -1,7 +1,7 @@
 # @ovst/collection-schema
 
 Collection schemas: a collection's `schema.usl`
-([child backings §2.4](../../docs/overstory-spec/06-child-backings.md#2-logical-collections)),
+([collections §2](../../docs/overstory-spec/1.4-collections.md#2-logical-collections)),
 compiled with [`@ovst/usl`](../usl/README.md), and the collection-file codec
 built on it.
 

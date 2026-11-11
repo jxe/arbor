@@ -19,7 +19,7 @@ files that the watcher then observes.
 ## Membership
 
 `IgnorePolicy` (`ignore-policy.ts`) decides which local paths belong to the tree, as
-[directory format §7](../../docs/overstory-spec/02-directory-format.md#7-tree-membership-and-ignore-files)
+[placements on disk §3](../../docs/overstory-spec/2.2-placements-on-disk.md#3-tree-membership-and-ignore-files)
 specifies. Discovery, listing, resolution, watching, snapshots and materialization all
 take their decisions from one policy; a new consumer of the folder's contents receives
 that policy (or a result it already filtered) and never keeps its own list of names.

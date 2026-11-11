@@ -12,7 +12,7 @@ widgets don't.
 ## 1. Decide first: what code gets without asking
 
 Today a grant with no lender lets attested code use the caller's own access
-([access control §1.1](../../docs/overstory-spec/05-access-control.md#11-execution-authority),
+([access control §1.1](../../docs/overstory-spec/3.3-access-control.md#11-execution-authority),
 `executionAllows` in `packages/overstoryd/src/access.ts`). So any app a person runs can do
 anything that person can.
 
@@ -34,7 +34,7 @@ The decision edits access control §1.1.
   - Unactivated handles are refused.
   - Sharing a module's source never enables execution.
 - **Each question runs under its own host-issued execution token**
-  ([access control §2.1](../../docs/overstory-spec/05-access-control.md#21-execution-tokens)).
+  ([access control §2.1](../../docs/overstory-spec/3.3-access-control.md#21-execution-tokens)).
   - The token carries the actual caller, the source tree and path, the pinned code version,
     the lent grants with their lenders, and the activation.
   - The issuer chooses lenders in a fixed order: the caller's own access first, then by

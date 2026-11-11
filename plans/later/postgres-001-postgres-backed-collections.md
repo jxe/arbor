@@ -18,7 +18,7 @@ constraints worth keeping are below.
 - **Risk:** MEDIUM for stage 1 and 2 (read-only, rebuildable). HIGH for stage 3, which must
   converge offline writes without making two data authorities.
 - **State:** a direction, with the contract already in the spec
-  ([child backings §1.3 and §4](../../docs/overstory-spec/06-child-backings.md#4-postgres-and-placement-projections))
+  ([collections §1.3 and external stores §1](../../docs/overstory-spec/5.3-external-stores.md#1-postgres-and-placement-projections))
   and spec deferred items 4 and 5. Not designed in detail.
 - **Related:** [Performance 007](performance-007-sqlite-collection-storage.md) (the host
   keeps a collection in SQLite) is separate and nearer.
@@ -110,7 +110,7 @@ Also moved out by Joe: Story Sync's Postgres provider today connects directly, r
 and pages by offset (which spec 06 §1.2 forbids for live data); none of this projection exists.
 
 A device placement may instead request a private SQLite projection in its
-[configuration](../../docs/overstory-spec/04-accounts-and-devices.md):
+[accounts and devices](../../docs/overstory-spec/3.2-accounts-and-devices.md):
 
 ```yaml
 projection:

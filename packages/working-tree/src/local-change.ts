@@ -313,7 +313,7 @@ function plainEdits(frame: SourceFrame): { path: string; object: string; edits: 
  * `frames`. A run that ends at the root it started from changed nothing and
  * yields no frame. Frames with lineage, copies or operation material are kept
  * as they are, so a claim always stays in the frame whose basis it was
- * captured against (docs/overstory-spec/09). The same rule runs in the Swift queue and in
+ * captured against (docs/overstory-spec/2.1-working-trees.md). The same rule runs in the Swift queue and in
  * overstoryd's `composeFrames`; `docs/overstory-spec/conformance/source-admission-queue.json` holds the
  * shared vectors. */
 export function compactTrace(frames: readonly SourceFrame[]): SourceFrame[] {
