@@ -34,7 +34,7 @@ import {
 import { escapeHTML, publicTreePath, renderNoticePage, renderPublicDataPage, renderPublicMarkdownPage, renderReservedPage, RESERVED_PAGE_SCRIPT, PAGE_ASSETS, type PublicPageChild, type StoryDownloads } from "./public-page.ts";
 import { ProtocolProjection, protocolCollectionRowMarkdown, protocolCollectionRowTitle, type ProtocolCollectionRow } from "./projection.ts";
 import { buildDirectory } from "./directory.ts";
-import { DOMAIN_CHECK_PATH, LEGACY_DOMAIN_CHECK_PATH, domainOrigin, type CustomDomains } from "./custom-domains.ts";
+import { DOMAIN_CHECK_PATH, domainOrigin, type CustomDomains } from "./custom-domains.ts";
 import { clientAddress, hardenResponse, htmlContentSecurityPolicy, storedFileHeaders, type PageScript } from "./response-policy.ts";
 
 
@@ -561,7 +561,7 @@ export async function serveHost(options: {
             headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
           });
         }
-        if (request.method === "GET" && (url.pathname === DOMAIN_CHECK_PATH || url.pathname === LEGACY_DOMAIN_CHECK_PATH)) {
+        if (request.method === "GET" && url.pathname === DOMAIN_CHECK_PATH) {
           return json({ host: overstoryd.customDomains.token });
         }
         if (request.method === "GET" && url.pathname === "/.overstory/health") {
@@ -600,9 +600,8 @@ export async function serveHost(options: {
         if (url.pathname === "/.overstory/pairings" && request.method === "POST") {
           return json(overstoryd.createPairing(requireAccount(authentication)), 201);
         }
-        // Host-to-host routes live under `/.overstory/peer/`; the old path is
-        // answered until plans/soon/protocol-001 removes it.
-        const publishedKeys = /^\/\.overstory\/(?:peer\/)?profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
+        // Host-to-host routes live under `/.overstory/peer/`.
+        const publishedKeys = /^\/\.overstory\/peer\/profiles\/(tr_[a-z2-7]+)\/device-keys$/.exec(url.pathname);
         if (publishedKeys && request.method === "GET") {
           // Public: a placement host reads it without authenticating (accounts §5.4).
           return json(await overstoryd.publishedDeviceKeys(publishedKeys[1]!), 200, { "cache-control": "no-cache" });

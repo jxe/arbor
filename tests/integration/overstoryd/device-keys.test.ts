@@ -210,8 +210,8 @@ describe("published device keys (accounts §5.4)", () => {
     const response = await fetch(`${running.url}/.overstory/peer/profiles/${ownerProfile()}/device-keys`);
     expect(response.headers.get("cache-control")).toBe("no-cache");
     expect(JSON.stringify(await response.json())).not.toContain("label");
-    // The old path answers the same until plans/soon/protocol-001 removes it.
-    expect(await (await fetch(`${running.url}/.overstory/profiles/${ownerProfile()}/device-keys`)).json()).toEqual(published);
+    // The old path is gone.
+    expect((await fetch(`${running.url}/.overstory/profiles/${ownerProfile()}/device-keys`)).status).toBe(404);
     await expect(new ProtocolClient(running.url).publishedDeviceKeys("tr_aaaaaaaaaaaaaaaaaaaaaaaaaa")).rejects.toThrow("not-found");
   });
 });
