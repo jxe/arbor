@@ -140,7 +140,8 @@ describe("table and rows objects", () => {
 });
 
 describe("collections", () => {
-  const source = readFileSync(join(examples, "games.usl"), "utf8");
+  // packages/usl/examples/games.usl, as schema.vad.
+  const source = readFileSync(join(import.meta.dir, "../fixtures/games.vad"), "utf8");
   const logical = compileLogicalSchema(source);
   const tables: LogicalTables = {
     Game: [
@@ -190,13 +191,13 @@ describe("collections", () => {
   });
 
   test("the fingerprint follows the model layer, not storage or presentation", () => {
-    const restyled = source.replace("  lists       List[]    // cross-reference: declared below\n", "  lists       List[]\n  @table(\"games\")\n");
+    const restyled = source.replace("  lists       List[]  // cross-reference: declared below\n", "  lists       List[]\n  @table(\"games\")\n");
     expect(compileLogicalSchema(restyled).fingerprint).toBe(logical.fingerprint);
-    expect(compileLogicalSchema(`${source}\nmodel Extra {\n  name Text\n}\n`).fingerprint).not.toBe(logical.fingerprint);
+    expect(compileLogicalSchema(`${source}\ntable Extra:\n  name Text\n`).fingerprint).not.toBe(logical.fingerprint);
   });
 
   test("unique fields are unique", () => {
-    const schema = compileLogicalSchema("main model Tag {\n  name unique Text\n}\n");
+    const schema = compileLogicalSchema("main table Tag:\n  name unique Text\n");
     const diagnostics = checkLogicalTables(schema, { Tag: [row([["id", "a"]], { name: "x" }), row([["id", "b"]], { name: "x" })] });
     expect(fields(diagnostics)).toEqual([["duplicate-value", "/fields/name"]]);
   });

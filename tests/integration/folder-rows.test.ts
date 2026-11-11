@@ -17,8 +17,8 @@ import { deviceClient, testAccount, testDevice } from "../helpers/devices.ts";
 const token = "folder-rows-owner";
 const SUPPLIES = join(import.meta.dir, "../../examples/supplies/data");
 const LIST = "10000000-0000-4000-8000-000000000001";
-const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n}\n";
-const GAMES = "model Game {\n  name  Text\n  lists List[]\n}\n\nmodel List {\n  name  Text\n  games Game[]\n}\n\nordered List.games[] <-> Game.lists[]\n";
+const SCHEMA = "table Item:\n  title Text\n  done  Bool?\n";
+const GAMES = "table Game:\n  name  Text\n  lists List[]\n\ntable List:\n  name  Text\n  games Game[]\n\nordered List.games[] <-> Game.lists[]\n";
 let sandbox: string, state: string, folder: string, tree: string;
 let host: Awaited<ReturnType<typeof serveHost>>;
 
@@ -27,15 +27,15 @@ beforeAll(async () => {
   state = join(sandbox, "home");
   folder = join(sandbox, "tree");
   await Promise.all([state, join(folder, "items")].map((path) => mkdir(path, { recursive: true })));
-  await writeFile(join(folder, "items", "schema.usl"), SCHEMA);
+  await writeFile(join(folder, "items", "schema.vad"), SCHEMA);
   await writeFile(join(folder, "items", "_store.jsonl"), '{"id":"a","title":"A"}\n{"id":"b","title":"B"}\n');
   await mkdir(join(folder, "games"));
-  await writeFile(join(folder, "games", "schema.usl"), GAMES);
+  await writeFile(join(folder, "games", "schema.vad"), GAMES);
   await writeFile(join(folder, "games", "Game.jsonl"), '{"id":"g1","name":"Chess"}\n');
   await writeFile(join(folder, "games", "List.jsonl"), '{"id":"l1","name":"Favorites"}\n');
   await writeFile(join(folder, "games", "List_games.jsonl"), "");
   await mkdir(join(folder, "supplies"));
-  await writeFile(join(folder, "supplies", "schema.usl"), await readFile(join(SUPPLIES, "schema.usl")));
+  await writeFile(join(folder, "supplies", "schema.vad"), await readFile(join(SUPPLIES, "schema.vad")));
   await copyFile(join(SUPPLIES, "_store.sqlite3"), join(folder, "supplies", "_store.sqlite3"));
   host = await serveHost({ dataRoot: join(sandbox, "host"), accounts: [testAccount("owner", token, { communityWriter: true })],
     publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });

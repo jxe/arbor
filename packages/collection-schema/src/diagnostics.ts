@@ -1,6 +1,6 @@
 import { USL_LIMITS } from "@ovst/usl";
 
-/** A collection's schema file; `schema.usl` is still read in trees not yet converted. */
+/** A collection's schema file. */
 export const COLLECTION_SCHEMA_SOURCE = "schema.vad";
 
 /** Limits on a collection schema and on validating its rows (spec 06 §2.4). */

@@ -15,28 +15,21 @@ export type ProtocolContentEntry = Extract<ProtocolDirectoryEntry, { created: nu
 export interface ProtocolDirectory {
   type: "directory";
   entries: ProtocolDirectoryEntry[];
-  /** The rows of the folder's logical collection (spec 06 §2.1); its `schema.usl` is an entry. */
+  /** The rows of the folder's logical collection (spec 06 §2.1); its `schema.vad` is an entry. */
   collection?: CollectionReference;
 }
 
-/**
- * A collection folder's schema file entry (spec 1.4): `schema.vad`, or `schema.usl` in a
- * tree not yet converted from USL. When a folder has both, `schema.vad` is its schema.
- */
-export const COLLECTION_SCHEMA_NAMES = ["schema.vad", "schema.usl"] as const;
+/** A collection folder's schema file entry (spec 1.5 §5). */
+export const COLLECTION_SCHEMA_NAME = "schema.vad";
 
 export function isCollectionSchemaName(name: string): boolean {
-  return name === "schema.vad" || name === "schema.usl";
+  return name === COLLECTION_SCHEMA_NAME;
 }
 
 /** The name of a folder's schema entry among `names`, if it has one. */
-export function collectionSchemaName(names: Iterable<string>): "schema.vad" | "schema.usl" | undefined {
-  let found: "schema.vad" | "schema.usl" | undefined;
-  for (const name of names) {
-    if (name === "schema.vad") return name;
-    if (name === "schema.usl") found = name;
-  }
-  return found;
+export function collectionSchemaName(names: Iterable<string>): typeof COLLECTION_SCHEMA_NAME | undefined {
+  for (const name of names) if (name === COLLECTION_SCHEMA_NAME) return name;
+  return undefined;
 }
 
 export function protocolEntryObject(entry: ProtocolDirectoryEntry): { kind: ProtocolEntryKind; hash: ObjectHash } | undefined {

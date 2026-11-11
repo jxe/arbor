@@ -2,44 +2,50 @@
 // two devices adding it make one row; one Visit per page you open (at most
 // one an hour per page and device); and one Placement per tree placed on a
 // device. Each is a fact, so no two devices ever change the same field.
-main model Tree {
+main table Tree:
   title  Text?
   path   Text?
   host   Text?
   owner  Person?
   parent Tree?
   kind   TreeKind
-}
 
-model Visit {
+table Visit:
   tree   Tree
   path   Text
   title  Text?
   how    Arrival
   device Text?
   at     Date
-}
 
-model Placement {
+table Placement:
   tree   Tree
   device Text
-}
 
-enum TreeKind { Profile, Group, Community, Settings, Tree }
+enum TreeKind:
+  Profile
+  Group
+  Community
+  Settings
+  Tree
 
-enum Arrival { Opened, Placed, SharedWithYou, Followed }
+enum Arrival:
+  Opened
+  Placed
+  SharedWithYou
+  Followed
 
 Tree.owner? <-> Person.trees[]
+
 Tree.parent? <-> Tree.children[]
+
 Tree.kind <-> TreeKind.trees[]
+
 Visit.tree <-> Tree.visits[]
+
 Visit.how <-> Arrival.visits[]
+
 Placement.tree <-> Tree.placements[]
 
-re Tree {
-  ~views([
-    { label: "Recent", line: [title, owner, visits.at ~latest ~ago], sort: visits.at ~latest },
-    { label: "By kind", group: kind, line: [title, owner, parent] },
-    { label: "By owner", group: owner, line: [title, visits.at ~latest ~ago] },
-  ])
-}
+re Tree:
+  ~views([{ label: "Recent", line: [title, owner, visits.at ~latest ~ago], sort: visits.at ~latest }, { label: "By kind", group: kind, line: [title, owner, parent] }, { label: "By owner", group: owner, line: [title, visits.at ~latest ~ago] }])

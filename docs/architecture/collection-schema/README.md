@@ -4,7 +4,7 @@
 
 `@ovst/collection-schema` implements the collection schemas of
 [collections](../../overstory-spec/1.4-collections.md):
-a collection's `schema.usl`, in the
+a collection's `schema.vad`, in the
 [VAD](../../overstory-spec/1.5-vad.md), compiled by
 [`@ovst/usl`](../../../packages/usl/README.md) and interpreted over JSON values.
 Interpreting a collection is parsing and checking data. Nothing in overstoryd,
@@ -54,14 +54,14 @@ their file name without one (Story Sync's file provider).
 | overstoryd acceptance (`Overstoryd.validateGraph`) | `decodeProtocolCollectionFile` with the host's `CollectionSchemaCache` |
 | overstoryd projection and public pages (`ProtocolProjection`) | `decodeProtocolCollectionFile` |
 | `tree-merge` (`collection-file-rows-v1`) | decode and encode |
-| Story Sync providers and snapshots | `schema.usl` discovery, CSV conversion, row validation and writes, collection descriptors |
+| Story Sync providers and snapshots | `schema.vad` discovery, CSV conversion, row validation and writes, collection descriptors |
 | Story Sync generated types | `collectionTypeDeclarations` |
 
-A `schema.usl` beside `_store.sqlite3` is read by `apps-runtime`
+A `schema.vad` beside `_store.sqlite3` is read by `apps-runtime`
 (`introspectStoreSchema`), not here: the database must implement the schema's
 database layout, and connections become query relationships.
 
-There is one collection descriptor version: version 1 names `schema.usl`.
+There is one collection descriptor version: version 1 names `schema.vad`.
 CDDL was removed on 2026-10-14 before any collection used it, so nothing
 converts or reads `schema.cddl`; a file of that name, like `schema.ts`, is
 ordinary.

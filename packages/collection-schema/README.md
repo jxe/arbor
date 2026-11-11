@@ -1,11 +1,11 @@
 # @ovst/collection-schema
 
-Collection schemas: a collection's `schema.usl`
+Collection schemas: a collection's `schema.vad`
 ([collections](../../docs/overstory-spec/1.4-collections.md)),
 compiled with [`@ovst/usl`](../usl/README.md), and the collection-file codec
 built on it.
 
-- `compileCollectionSchema(bytes)`: compile one `schema.usl` whose data-file
+- `compileCollectionSchema(bytes)`: compile one `schema.vad` whose data-file
   layout is one table, or throw a `CollectionSchemaError` whose first
   diagnostic has a code and location.
 - `validateRow(schema, value)`: a pure decision with deterministic JSON Pointer

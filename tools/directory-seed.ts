@@ -28,12 +28,12 @@ export function directorySeed(): { root: string; objects: Map<string, Uint8Array
   };
   const directory = (entries: ProtocolDirectoryEntry[], collection?: ProtocolDirectory["collection"]) =>
     put(encodeProtocolDirectory({ type: "directory", entries, ...(collection ? { collection } : {}) }));
-  /** An empty collection folder holding `schema.usl`. */
+  /** An empty collection folder holding `schema.vad`. */
   const collection = (name: string): ProtocolDirectoryEntry => {
-    const schema = readFileSync(join(source, name, "schema.usl"));
+    const schema = readFileSync(join(source, name, "schema.vad"));
     const encoded = encodeCollection(compileLogicalSchema(schema), {});
     for (const [hash, bytes] of encoded.objects) objects.set(hash, bytes);
-    return { name, directory: directory([{ name: "schema.usl", file: put(schema), created: 0, modified: 0 }], encoded.reference) };
+    return { name, directory: directory([{ name: "schema.vad", file: put(schema), created: 0, modified: 0 }], encoded.reference) };
   };
   const root = directory([
     { name: "_index.md", file: put(readFileSync(join(source, "_index.md"))), created: 0, modified: 0 },

@@ -50,7 +50,7 @@ CSV columns; exact CSV encodings; malformed-UTF-8 sources; and
 generated sources and values at each limit. Generated parts repeat a template,
 replacing `{i}` and `{i+1}`; a `{"$repeat": v, "count": n}` value is an
 array of n copies. `node-model.json` and `protocol-objects.json` carry
-version-1 descriptors naming `schema.usl` and invalid version and schema-file
+version-1 descriptors naming `schema.vad` and invalid version and schema-file
 pairings.
 
 `presented-views.json` binds presented views (plan schema-language/002
@@ -135,7 +135,7 @@ authority for the implemented subset; the request grammar itself is in
 | `canonical-cbor-values.json` | The canonical CBOR subset and its hashes |
 | `client-state-machines.json` | Document admission and working-tree update machines |
 | `coalesced-publication.json` | The client publication compiler (sync module): which local edit and move records compose into how many frames and which operation kinds; each case's merge outcome must match its uncomposed frames |
-| `collection-schemas.json` | Collection schemas: accepted and rejected schemas, values, CSV cells, limits. Still written in the older `schema.usl` syntax; to be regenerated in [VAD](../1.5-vad.md) |
+| `collection-schemas.json` | Collection schemas: accepted and rejected `schema.vad` files, values, CSV cells, limits |
 | `cross-document-copy.json` | Cross-document copy capture in both admission queues |
 | `device-keys.json` | Device key encodings, session challenges, and their signatures |
 | `directory-documents.json` | Directory document projection (spec 02) |

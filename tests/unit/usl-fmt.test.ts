@@ -5,7 +5,7 @@ import { compileUsl, formatUsl } from "@ovst/usl";
 
 const examples = join(import.meta.dir, "../../packages/usl/examples");
 const usl = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".usl")).map((f) => join(dir, f));
-const sources = [...usl(examples), ...usl(join(examples, "invalid")), join(import.meta.dir, "../../examples/supplies/data/schema.usl")];
+const sources = [...usl(examples), ...usl(join(examples, "invalid"))];
 
 const format = (source: string) => {
   const result = formatUsl(source);

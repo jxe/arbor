@@ -15,7 +15,7 @@ const TEST_AT = Date.UTC(2026, 10, 11);
 /** Decode an in-memory intent as it would travel. */
 const decodeAuthoredCandidateIntent = (intent: any) => decodeWireIntent(encodeAuthoredCandidateIntent(intent));
 
-const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n  tags  Text[]\n  notes Markdown?\n}\n";
+const SCHEMA = "table Item:\n  title Text\n  done  Bool?\n  tags  Text[]\n  notes Markdown?\n";
 const HASH = `sha256:${"a".repeat(64)}`;
 const key = (id: string) => JSON.stringify([["id", id]]);
 const AT = "2026-10-24T10:00:00.000Z";
@@ -104,7 +104,7 @@ describe("row operation replay", () => {
   });
 
   test("an ordered field moves its members", async () => {
-    const schema = "model Item {\n  title Text\n  steps ordered Text[]\n}\n";
+    const schema = "table Item:\n  title Text\n  steps ordered Text[]\n";
     const tree = collectionTree(schema, { Item: [idRow("a", { title: "A", steps: ["x", "y", "z"] })] });
     const op = rowOps(tree);
     const result = await replay(tree, [op.move("a", "steps", "z", null), op.connect("a", "steps", "w")]);

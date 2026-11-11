@@ -11,7 +11,8 @@ mutations in `.vad` files and in pages' fenced `view` blocks.
   checked by [`@ovst/usl`](../usl/README.md)'s checker, so its result (models,
   connections, plus `defaults`) feeds `modelLayer`, `layoutOf`, `setupSql` and the rest of
   USL unchanged. Supplies' `schema.vad` gives the same fingerprint and layout as its
-  `schema.usl`. `uslFileOf(file)` is the translation alone.
+  old `schema.usl`. `uslFileOf(file)` is the translation alone. Overstory reads only
+  `schema.vad`; `tools/convert-usl-to-vad.ts` converts a `schema.usl`.
 - `formatView(source)`: the conventional form (`vad fmt`): two-space indentation, field
   names and connections lined up, long facts wrapped under their first argument, an
   element's own attributes before `for`, `where`, `if`, `group`, `orderBy`, `limit`,

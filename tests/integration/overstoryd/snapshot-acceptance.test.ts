@@ -134,12 +134,12 @@ test("snapshot suffixes retain hidden attribution and unrelated accepted additio
 
 /** `basis` with its entries but `_index.md` replaced by an empty collection whose one field is `name`. */
 function collection(basis: string, name: string) {
-  const source = `model Item {\n  ${name} Text\n}\n`;
+  const source = `table Item:\n  ${name} Text\n`;
   const encoded = encodeCollection(compileLogicalSchema(new TextEncoder().encode(source)), {});
   for (const [hash, bytes] of encoded.objects) objects.set(hash, bytes);
   const value = decodeProtocolDirectory(objects.get(basis)!);
   value.entries = value.entries.filter(e => e.name === "_index.md");
-  value.entries.push({ name: "schema.usl", file: file(source), created: 0, modified: 0 });
+  value.entries.push({ name: "schema.vad", file: file(source), created: 0, modified: 0 });
   value.collection = encoded.reference;
   return directory(value);
 }
@@ -423,13 +423,13 @@ test("health checks only the database while integrity audits history in one shar
 });
 
 test("the host validates logical collections itself", async () => {
-  const schema = "main model Item {\n  count Int\n}\n";
+  const schema = "main table Item:\n  count Int\n";
   const fingerprint = compileLogicalSchema(new TextEncoder().encode(schema)).fingerprint;
   // Tables written directly, so the host sees rows no encoder checked.
   const people = (rows: ReturnType<typeof idRow>[], modelFingerprint = fingerprint) => {
     const table = encodeLogicalTable(rows);
     for (const [hash, bytes] of table.objects) objects.set(hash, bytes);
-    return directory({ type: "directory", entries: [{ name: "schema.usl", file: file(schema), created: 0, modified: 0 }],
+    return directory({ type: "directory", entries: [{ name: "schema.vad", file: file(schema), created: 0, modified: 0 }],
       collection: { version: 1, modelFingerprint, tables: [{ model: "Item", table: table.hash }] } });
   };
   // A row the schema rejects, and a reference naming another schema, are both refused.
@@ -447,7 +447,7 @@ test("the host validates logical collections itself", async () => {
   };
   const before = await readPage();
   expect(before).toContain("people/a");
-  expect(before).not.toContain("schema.usl");
+  expect(before).not.toContain("schema.vad");
   // A restarted host reads the same rows from the stored objects.
   await stop(); await start();
   expect(await readPage()).toBe(before);

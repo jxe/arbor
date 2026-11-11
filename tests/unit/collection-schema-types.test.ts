@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { collectionTypeDeclarations, compileCollectionSchema } from "@ovst/collection-schema";
 
-const source = `model Entry {
+const source = `table Entry:
   status  Status
   note    Markdown?
   count   Int
@@ -12,12 +12,14 @@ const source = `model Entry {
   due     Date?
   tags    Text[]
   authors Person[]
-}
 
 Entry.status <-> Status.entries[]
+
 Entry.authors[] @fold <-> Person.entries[]
 
-enum Status { draft, done }
+enum Status:
+  draft
+  done
 `;
 
 const expected = 'type Row = { "id": string; "note"?: string | null; "count": number; "flag": boolean; "due"?: string | null; "tags"?: string[]; "status": "draft" | "done"; "authors"?: string[]; "created"?: string | null; "modified"?: string | null; [member: string]: unknown; };';

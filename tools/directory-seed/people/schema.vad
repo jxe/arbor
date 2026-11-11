@@ -3,23 +3,21 @@
 // profile), keyed by the fact, so the same fact seen on two devices is one
 // row. Contacts are yours to write: notes, and placeholders for people with
 // no profile yet.
-main model Tie {
+main table Tie:
   person Person
   group  Person?
   kind   TieKind
   name   Text?
   handle Text?
   host   Text?
-}
 
-model Contact {
+table Contact:
   name    Text
   profile Person?
   reach   Text?
   notes   Markdown?
-}
 
-enum TieKind {
+enum TieKind:
   Community
   Group
   Shared
@@ -27,18 +25,15 @@ enum TieKind {
   Invited
   InvitedYou
   Opened
-}
 
 Tie.person <-> Person.ties[]
+
 Tie.group? <-> Person.members[]
+
 Tie.kind <-> TieKind.ties[]
+
 Contact.profile? <-> Person.contacts[]
 
 // One line per person, whatever the ties behind it.
-re Tie {
-  ~views([
-    { label: "By group", group: group, rows: person, line: [person] },
-    { label: "Everyone", rows: person, line: [person, group, kind], sort: person },
-    { label: "Recent", rows: person, line: [person, kind], sort: modified ~latest },
-  ])
-}
+re Tie:
+  ~views([{ label: "By group", group: group, rows: person, line: [person] }, { label: "Everyone", rows: person, line: [person, group, kind], sort: person }, { label: "Recent", rows: person, line: [person, kind], sort: modified ~latest }])

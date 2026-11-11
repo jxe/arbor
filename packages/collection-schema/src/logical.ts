@@ -18,7 +18,7 @@ import {
   type LogicalRow,
 } from "@ovst/protocol";
 import { isPersonValue, logicalModels, modelLayer, type CheckResult, type LogicalField, type LogicalModel, type LogicalTables } from "@ovst/usl";
-import { compileSchemaSource } from "@ovst/vad";
+import { compileSchema } from "@ovst/vad";
 import { COLLECTION_SCHEMA_LIMITS, CollectionSchemaError, pointer, type ValueDiagnostic } from "./diagnostics.ts";
 import { decodeSchemaSource } from "./compile.ts";
 
@@ -51,11 +51,11 @@ export class LogicalCollectionError extends Error {
   }
 }
 
-/** Compile a collection's `schema.vad` (or `schema.usl`) to its logical models. Throws {@link CollectionSchemaError}. */
+/** Compile a collection's `schema.vad` to its logical models. Throws {@link CollectionSchemaError}. */
 export function compileLogicalSchema(input: Uint8Array | string): LogicalSchema {
   const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
   const source = decodeSchemaSource(bytes);
-  const result: CheckResult = compileSchemaSource(source);
+  const result: CheckResult = compileSchema(source);
   if (result.diagnostics.length > 0) {
     throw new CollectionSchemaError(result.diagnostics.map((d) => ({ code: d.code, message: d.message, location: { line: d.line, column: d.column } })));
   }

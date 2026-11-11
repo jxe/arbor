@@ -1,8 +1,9 @@
-model Book {
+table Book:
   title  Text
   status Status
-}
 
 Book.status <-> Status.books[]
 
-enum Status { reading, done }
+enum Status:
+  reading
+  done

@@ -1464,7 +1464,29 @@ function declaration(src: Source, first: number, last: number, diagnostics: Diag
   return c.fail(`Expected use, view, rule, mutation, table, enum, re or a connection, found '${word}'`, start, c.pos);
 }
 
+/** Bounds on what a file may ask of a parser (spec 1.5 §7), so an untrusted one can't exhaust a host. */
+export const VAD_LIMITS = { sourceBytes: 1_048_576, tokens: 65_536, depth: 32 } as const;
+
+/** Names, numbers, strings, operators and punctuation, not counting comments or space. */
+const TOKEN = /\/\/[^\n]*|"(?:[^"\\\n]|\\.)*"?|[A-Za-z_][A-Za-z0-9_]*|[0-9][0-9.]*[a-z]*|[^\s]/g;
+
+/** The diagnostic for a file over a limit, if it is. */
+function overLimit(text: string): Diagnostic | null {
+  const at = { line: 1, column: 1 };
+  if (new TextEncoder().encode(text).length > VAD_LIMITS.sourceBytes) {
+    return { code: "limit", message: `A file is at most ${VAD_LIMITS.sourceBytes} bytes`, ...at };
+  }
+  let tokens = 0;
+  for (const m of text.matchAll(TOKEN)) {
+    if (m[0].startsWith("//")) continue;
+    if (++tokens > VAD_LIMITS.tokens) return { code: "limit", message: `A file has at most ${VAD_LIMITS.tokens} tokens`, ...at };
+  }
+  return null;
+}
+
 export function parseView(text: string): ParseResult {
+  const limit = overLimit(text);
+  if (limit) return { file: { declarations: [] }, diagnostics: [limit], comments: [] };
   const src = new Source(text);
   const diagnostics: Diagnostic[] = [];
   const declarations: DeclarationEntry[] = [];

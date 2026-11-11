@@ -19,7 +19,7 @@ export async function requireListEditor(tx, listId: string, user) {
   return value
 }
 
-// A contribution's first and last are dates (schema.usl `Date`).
+// A contribution's first and last are dates (schema.vad `Date`).
 export async function recordContributor(tx, list, person: string, now: string) {
   if (list.owner === person) return
   const today = now.slice(0, 10)

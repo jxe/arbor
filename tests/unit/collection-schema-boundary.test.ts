@@ -93,7 +93,7 @@ describe("collection schema package boundary", () => {
         "",
       ].join("\n"));
       const collection = join(directory, "people");
-      await Bun.write(join(collection, "schema.usl"), 'main model Item {\n  count Int\n}\n');
+      await Bun.write(join(collection, "schema.vad"), 'main table Item:\n  count Int\n');
       await Bun.write(join(collection, "_store.csv"), "id,count\n001,1\n002,2\n");
       await writeFile(join(directory, "exercise.ts"), `
         import { CollectionProjections } from ${module("story-sync/src/state/index.ts")};

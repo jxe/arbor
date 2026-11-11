@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareText, compileUsl, layoutOf, logicalFromRows, presentView, rowsFromLogical, setupSql, viewsOf, type Person, type Presentation, type RowsByTable } from "@ovst/usl";
+import { convertVerified } from "../../tools/convert-usl-to-vad.ts";
 import { declaredView, reachedModels, reachedTables, runView, SQLiteQueryEngine, type NodeHandle, type ProfileResolver } from "overstory/data";
 
 interface Vectors {
@@ -32,7 +33,8 @@ async function storeOf(name: string): Promise<SQLiteQueryEngine> {
   const schema = compileUsl(fixture.schema);
   const directory = mkdtempSync(join(tmpdir(), "declared-views-"));
   directories.push(directory);
-  writeFileSync(join(directory, "schema.usl"), fixture.schema);
+  // The vectors are written in USL; a collection's schema is VAD.
+  writeFileSync(join(directory, "schema.vad"), convertVerified(fixture.schema));
   const tables = layoutOf(schema, { store: "database" });
   const rows = rowsFromLogical(schema, tables, logicalFromRows(schema, layoutOf(schema, { store: "files" }), fixture.rows, { now: NOW }));
   const database = new Database(join(directory, "_store.sqlite3"), { create: true });
@@ -55,7 +57,7 @@ async function storeOf(name: string): Promise<SQLiteQueryEngine> {
       };
     },
   };
-  const engine = await SQLiteQueryEngine.open({ directory, databasePath: join(directory, "_store.sqlite3"), schemaPath: join(directory, "schema.usl"), tree: "tr_rows", path: "/c" }, people);
+  const engine = await SQLiteQueryEngine.open({ directory, databasePath: join(directory, "_store.sqlite3"), schemaPath: join(directory, "schema.vad"), tree: "tr_rows", path: "/c" }, people);
   engines.push(engine);
   return engine;
 }

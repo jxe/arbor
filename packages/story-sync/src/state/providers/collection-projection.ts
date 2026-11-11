@@ -5,7 +5,7 @@
 
 import { Database } from "bun:sqlite";
 import { existsSync, statSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   compareUTF8,
@@ -39,6 +39,13 @@ import {
 } from "@ovst/collection-schema";
 import { layoutOf, logicalFromRows, rowsFromLogical, setupSql, type LogicalTables, type RowsByTable, type Table } from "@ovst/usl";
 import type { SnapshotCollection } from "@ovst/fs";
+
+/**
+ * A collection's schema file from before schema.vad. Trees were converted on the
+ * Protocol 003 flag day, so one left in a folder beside the converted schema.vad
+ * is never published, and writing the collection removes it.
+ */
+const LEFTOVER_SCHEMA = "schema.usl";
 
 /** The folder's database, and the files SQLite keeps beside it. */
 export const DATABASE_FILE = "_store.sqlite3";
@@ -305,7 +312,10 @@ export class CollectionProjections {
     this.last.set(directory, tables);
     const result = {
       collection: encoded.reference,
-      replaces: form ? formFiles(form, form.kind === "sqlite" ? database : files).filter((name) => fileNames.includes(name)) : [],
+      replaces: [
+        ...(form ? formFiles(form, form.kind === "sqlite" ? database : files).filter((name) => fileNames.includes(name)) : []),
+        ...(fileNames.includes(LEFTOVER_SCHEMA) ? [LEFTOVER_SCHEMA] : []),
+      ],
     };
     const objects = [...encoded.objects.values()];
     if (stamp) this.reads.set(directory, { stamp, tables, result, objects });
@@ -331,6 +341,7 @@ export class CollectionProjections {
     if (form.kind === "sqlite") await this.writeSQLite(directory, database, schemaBytes, rowsFromLogical(collection.schema.result, database, collection.tables));
     else await this.writeFiles(directory, form.format, files, schemaBytes, rowsFromLogical(collection.schema.result, files, collection.tables));
     this.last.set(directory, collection.tables);
+    await rm(join(directory, LEFTOVER_SCHEMA), { force: true });
     return formFiles(form, form.kind === "sqlite" ? database : files);
   }
 

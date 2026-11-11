@@ -57,7 +57,7 @@ for (const vector of objectVectors.objects) {
 const invalidHash = "sha256:" + "0".repeat(64);
 const reference = { version: 1, modelFingerprint: invalidHash, tables: [{ model: "Game", table: invalidHash }] };
 const CREATED = Date.parse("2026-10-24T09:00:00.000Z"), MODIFIED = Date.parse("2026-10-24T09:30:00.000Z");
-const schemaEntry = { name: "schema.usl", file: invalidHash, created: CREATED, modified: MODIFIED };
+const schemaEntry = { name: "schema.vad", file: invalidHash, created: CREATED, modified: MODIFIED };
 // File and page entries carry their times, so each case is invalid only for its own reason.
 const timed = (e: any) => (e.file !== undefined || e.page !== undefined) && e.created === undefined ? { ...e, created: CREATED, modified: MODIFIED } : e;
 objectVectors.invalid = [
@@ -67,7 +67,7 @@ objectVectors.invalid = [
   { name: "entry-with-hash-key", entries: [{ name: "a", hash: invalidHash }] },
   { name: "file-and-directory", entries: [{ name: "a", file: invalidHash, directory: invalidHash }] },
   { name: "collection-without-schema", entries: [{ name: "schema.ts", file: invalidHash }], collection: reference },
-  { name: "collection-schema-directory", entries: [{ name: "schema.usl", directory: invalidHash }], collection: reference },
+  { name: "collection-schema-directory", entries: [{ name: "schema.vad", directory: invalidHash }], collection: reference },
   { name: "collection-unknown-version", entries: [schemaEntry], collection: { ...reference, version: 2 } },
   { name: "collection-extra-member", entries: [schemaEntry], collection: { ...reference, store: "sqlite" } },
   { name: "collection-tables-unsorted", entries: [schemaEntry], collection: { ...reference, tables: [{ model: "List", table: invalidHash }, { model: "Game", table: invalidHash }] } },

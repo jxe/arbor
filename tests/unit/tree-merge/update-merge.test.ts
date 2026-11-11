@@ -78,7 +78,7 @@ function namedMarkdownSnapshot(name: string, source: string, objects: Map<string
   return { root: root([{ name, file: file, created: 0, modified: 0 }], objects), objects };
 }
 
-const SCHEMA = "model Item {\n  title Text\n}\n";
+const SCHEMA = "table Item:\n  title Text\n";
 
 function itemsSnapshot(schema: string, rows: LogicalRow[]): TreeSnapshot {
   return collectionTree(schema, { Item: rows });
@@ -195,7 +195,7 @@ describe("reference host merge fixtures", () => {
   });
 
   test("one row merges field by field and member by member", async () => {
-    const schema = "model Item {\n  title Text\n  done Bool?\n  tags Text[]\n  steps ordered Text[]\n  notes Markdown?\n}\n";
+    const schema = "table Item:\n  title Text\n  done  Bool?\n  tags  Text[]\n  steps ordered Text[]\n  notes Markdown?\n";
     const a = (fields: LogicalRow["fields"], modified: number | string = T1) => idRow("a", { title: "A", ...fields }, T0, modified);
     const b = idRow("b", { title: "B" });
     const { result, rows } = await mergeItems(
@@ -220,7 +220,7 @@ describe("reference host merge fixtures", () => {
   });
 
   test("reordering an ordered field on both sides, or deleting a row the other side changed, conflicts", async () => {
-    const schema = "model Item {\n  title Text\n  steps ordered Text[]\n}\n";
+    const schema = "table Item:\n  title Text\n  steps ordered Text[]\n";
     const { result, rows } = await mergeItems(
       itemsSnapshot(schema, [idRow("a", { title: "A", steps: ["1", "2", "3"] }), idRow("b", { title: "B" })]),
       itemsSnapshot(schema, [idRow("a", { title: "A", steps: ["2", "1", "3"] }, T0, T1)]),
@@ -236,7 +236,7 @@ describe("reference host merge fixtures", () => {
   test("a schema change on one side and row edits on the other keep candidate's collection with a conflict", async () => {
     const { result } = await mergeItems(
       itemsSnapshot(SCHEMA, [idRow("a", { title: "A" })]),
-      itemsSnapshot("model Item {\n  title Text\n  done Bool?\n}\n", [idRow("a", { title: "A" })]),
+      itemsSnapshot("table Item:\n  title Text\n  done  Bool?\n", [idRow("a", { title: "A" })]),
       itemsSnapshot(SCHEMA, [idRow("a", { title: "Remote" }, T0, T1)]),
     );
     expect(result.conflicts).toEqual([{ path: "/items", reason: "collection-schema-conflict" }]);

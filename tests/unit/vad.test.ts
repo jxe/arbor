@@ -43,7 +43,7 @@ describe("vad broken examples", () => {
 describe("vad schemas", () => {
   test("Supplies' schema.vad has the same data layer and layout as its schema.usl", () => {
     const vad = compileSchema(files["/supplies/data/schema.vad"]!);
-    const usl = compileUsl(readFileSync(join(import.meta.dir, "../../examples/supplies/data/schema.usl"), "utf8"));
+    const usl = compileUsl(readFileSync(join(import.meta.dir, "../../packages/usl/examples/supplies.usl"), "utf8"));
     expect(vad.diagnostics).toEqual([]);
     expect(modelLayer(vad)).toEqual(modelLayer(usl));
     expect(layoutOf(vad)).toEqual(layoutOf(usl));
@@ -296,10 +296,6 @@ describe("vad conformance vectors", () => {
 describe("converting schema.usl to schema.vad", () => {
   const root = join(import.meta.dir, "../..");
   const schemas = [
-    "examples/supplies/data/schema.usl",
-    "tests/fixtures/workspace/books/schema.usl",
-    "tools/directory-seed/people/schema.usl",
-    "tools/directory-seed/trees/schema.usl",
     ...["books", "excellences", "games", "stress", "supplies"].map((name) => `packages/usl/examples/${name}.usl`),
   ];
   for (const path of schemas) {
@@ -309,6 +305,11 @@ describe("converting schema.usl to schema.vad", () => {
       expect(formatView(vad)).toBe(vad);
     });
   }
+
+  test("a file over the token limit is rejected", () => {
+    const source = "table Wide:\n" + Array.from({ length: 33_000 }, (_, i) => `  f${i} Text\n`).join("");
+    expect(parseView(source).diagnostics.map((d) => d.code)).toEqual(["limit"]);
+  });
 
   test("~views keeps names with attributes, paths and quoted mentions", () => {
     const source = [

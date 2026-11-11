@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import {
   compareProtocolNames,
   decodeProtocolDirectory,
@@ -236,8 +237,8 @@ describe("canonical tree objects", () => {
     // A collection's rows are never files the tree describes.
     expect(() => decodeProtocolDirectory(encodeCanonicalCBOR({
       type: "directory",
-      entries: [{ name: "_store.json", file: hash, created: 0, modified: 0 }, { name: "schema.usl", file: hash, created: 0, modified: 0 }],
-      childrenSource: { version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.usl", schemaFingerprint: hash, childSetHash: hash },
+      entries: [{ name: "_store.json", file: hash, created: 0, modified: 0 }, { name: "schema.vad", file: hash, created: 0, modified: 0 }],
+      childrenSource: { version: 1, type: "collection-file", format: "json", source: "_store.json", schemaSource: "schema.vad", schemaFingerprint: hash, childSetHash: hash },
     }))).toThrow("Unknown wire object");
   });
 
@@ -275,14 +276,14 @@ describe("canonical tree objects", () => {
       const destination = await mkdtemp(join(tmpdir(), `story-wire-${codec}-materialized-`));
       const collections = new CollectionProjections({ now: () => "2026-10-24T09:00:00.000Z" });
       try {
-        await writeFile(join(root, "schema.usl"), "model Item {\n  title Text\n}\n");
+        await writeFile(join(root, "schema.vad"), "table Item:\n  title Text\n");
         await writeFile(join(root, `_store.${codec}`), source);
         // The schema file dates its entry; the same date in each format.
-        await utimes(join(root, "schema.usl"), new Date(), new Date("2026-10-24T09:00:00.000Z"));
+        await utimes(join(root, "schema.vad"), new Date(), new Date("2026-10-24T09:00:00.000Z"));
         const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) => collections.read(directory, names)));
         roots.add(snapshot.root);
         const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
-        expect(object.entries.map((entry) => entry.name)).toEqual(["schema.usl"]);
+        expect(object.entries.map((entry) => entry.name)).toEqual(["schema.vad"]);
         const loaded = await loadDirectoryCollection(object, async (hash) => snapshot.objects.get(hash)!);
         expect(loaded!.tables.Item!.map((row) => [row.key, row.fields]), codec).toEqual([
           [[["id", "one"]], { title: "One" }],
@@ -303,28 +304,38 @@ describe("canonical tree objects", () => {
     expect(roots.size).toBe(1);
   });
 
-  test("a schema.vad makes a collection as a schema.usl does, and wins over one", async () => {
+  test("a schema.vad makes a collection; a schema.usl left beside it is dropped, not published", async () => {
     const root = await mkdtemp(join(tmpdir(), "story-wire-vad-"));
     const destination = await mkdtemp(join(tmpdir(), "story-wire-vad-materialized-"));
     const collections = new CollectionProjections({ now: () => "2026-10-24T09:00:00.000Z" });
     try {
       await writeFile(join(root, "schema.vad"), "table Item:\n  title Text\n");
+      await writeFile(join(root, "schema.usl"), "model Item {\n  title Text\n}\n");
       await writeFile(join(root, "_store.jsonl"), '{"id":"one","title":"One"}\n');
       const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) => collections.read(directory, names)));
       const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
       expect(object.entries.map((entry) => entry.name)).toEqual(["schema.vad"]);
       const loaded = await loadDirectoryCollection(object, async (hash) => snapshot.objects.get(hash)!);
       expect(loaded!.tables.Item!.map((row) => [row.key, row.fields])).toEqual([[[["id", "one"]], { title: "One" }]]);
+      await writeFile(join(destination, "schema.usl"), "model Item {\n  title Text\n}\n");
       await materializeTree(destination, snapshot.root, async (hash) => snapshot.objects.get(hash)!, undefined, [], undefined,
         (directory, value, load) => new CollectionProjections().write(directory, value, load));
       expect(await readFile(join(destination, "schema.vad"), "utf8")).toBe("table Item:\n  title Text\n");
       expect(await readFile(join(destination, "_store.jsonl"), "utf8")).toContain('"title":"One"');
-      expect(collectionSchemaName(["_store.jsonl", "schema.usl", "schema.vad"])).toBe("schema.vad");
-      expect(collectionSchemaName(["schema.usl"])).toBe("schema.usl");
+      expect(existsSync(join(destination, "schema.usl"))).toBe(false);
+      expect(collectionSchemaName(["_store.jsonl", "schema.usl"])).toBeUndefined();
+      expect(collectionSchemaName(["schema.usl", "schema.vad"])).toBe("schema.vad");
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(destination, { recursive: true, force: true });
     }
+  });
+
+  test("a collection whose schema entry is schema.usl is not a valid directory", () => {
+    const hash = hashObject(new TextEncoder().encode("model Item {}\n"));
+    const reference = { version: 1 as const, modelFingerprint: hash as `sha256:${string}`, tables: [] };
+    expect(() => encodeProtocolDirectory({ type: "directory", entries: [{ name: "schema.usl", file: hash, created: 0, modified: 0 }], collection: reference }))
+      .toThrow("schema.vad must be a file entry");
   });
 
   test("treats a schema.ts as an ordinary file, never as a collection schema", async () => {
@@ -332,7 +343,7 @@ describe("canonical tree objects", () => {
     const collections = new CollectionProjections();
     const describe = (directory: string, names: readonly string[]) => collections.read(directory, names);
     try {
-      // Without schema.usl, _store.json and schema.ts are ordinary files.
+      // Without schema.vad, _store.json and schema.ts are ordinary files.
       await writeFile(join(root, "schema.ts"), "export const schema = {};\n");
       await writeFile(join(root, "_store.json"), '[{"id":"one"}]\n');
       const plain = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], describe));
@@ -341,11 +352,11 @@ describe("canonical tree objects", () => {
       expect(object.entries.map((entry) => entry.name)).toEqual(["_store.json", "schema.ts"]);
 
       // Beside a collection it stays an ordinary entry.
-      await writeFile(join(root, "schema.usl"), "model Item {}\n");
+      await writeFile(join(root, "schema.vad"), "table Item:\n");
       const collection = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], describe));
       const folder = decodeProtocolDirectory(collection.objects.get(collection.root)!);
       expect(folder.collection).toBeDefined();
-      expect(folder.entries.map((entry) => entry.name)).toEqual(["schema.ts", "schema.usl"]);
+      expect(folder.entries.map((entry) => entry.name)).toEqual(["schema.ts", "schema.vad"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

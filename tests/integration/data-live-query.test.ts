@@ -56,11 +56,11 @@ async function resolve(source: NodeHandle) {
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "story-live-query-"));
-  await Promise.all(["_store.sqlite3", "schema.usl"].map((name) => cp(join(fixture, name), join(directory, name))));
+  await Promise.all(["_store.sqlite3", "schema.vad"].map((name) => cp(join(fixture, name), join(directory, name))));
   const location = {
     directory,
     databasePath: join(directory, "_store.sqlite3"),
-    schemaPath: join(directory, "schema.usl"),
+    schemaPath: join(directory, "schema.vad"),
     tree: "tr_supplies_data",
     path: "/",
   };

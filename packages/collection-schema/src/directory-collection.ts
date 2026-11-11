@@ -107,7 +107,7 @@ function schemaFailure(error: unknown): never {
   throw error;
 }
 
-/** The compiled schema entry of a collection directory: `schema.vad`, or an unconverted `schema.usl`. */
+/** The compiled schema entry of a collection directory, its `schema.vad`. */
 export async function directoryCollectionSchema(directory: ProtocolDirectory, load: Load, schemas: CollectionSchemaCache = sharedCollectionSchemaCache): Promise<LogicalSchema> {
   const name = collectionSchemaName(directory.entries.map((e) => e.name));
   const entry = directory.entries.find((e) => e.name === name)?.file;

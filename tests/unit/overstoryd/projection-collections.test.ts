@@ -13,7 +13,7 @@ function store() {
 
 test("projects a collection's rows as children: the main model's under the folder, others under their model, and a schema.ts is an ordinary file", async () => {
   const f = store();
-  const schema = "main model Item {\n  slug path Text\n  note Text?\n}\n\nmodel Tag {\n  label Text\n}\n";
+  const schema = "main table Item:\n  slug path Text\n  note Text?\n\ntable Tag:\n  label Text\n";
   const current = collectionDirectory(schema, {
     Item: [idRow("1", { slug: "first", note: "kept" })],
     Tag: [idRow("t1", { label: "Red" })],

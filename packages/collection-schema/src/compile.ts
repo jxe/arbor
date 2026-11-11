@@ -1,6 +1,6 @@
 import { revisionOf, type Hash } from "@ovst/protocol";
 import { layoutOf, type Column } from "@ovst/usl";
-import { compileSchemaSource } from "@ovst/vad";
+import { compileSchema } from "@ovst/vad";
 import { COLLECTION_SCHEMA_LIMITS, CollectionSchemaError, schemaFailure } from "./diagnostics.ts";
 
 /** Runtime check graph, built from the schema's files layout. */
@@ -113,7 +113,7 @@ export interface CollectionSchemaSet {
 }
 
 /**
- * Compile a collection's `schema.vad` (or, until converted, `schema.usl`) into one schema per
+ * Compile a collection's `schema.vad` into one schema per
  * table it stores in data files: each model with data rows (fixed models and
  * Person aside), and each connection without `@fold`. Throws
  * {@link CollectionSchemaError}.
@@ -121,7 +121,7 @@ export interface CollectionSchemaSet {
 export function compileCollectionSchemas(input: Uint8Array | string, layout: CollectionLayout = "files"): CollectionSchemaSet {
   const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
   const source = decodeSchemaSource(bytes);
-  const result = compileSchemaSource(source);
+  const result = compileSchema(source);
   if (result.diagnostics.length > 0) {
     throw new CollectionSchemaError(result.diagnostics.map((d) => ({
       code: d.code, message: d.message, location: { line: d.line, column: d.column },

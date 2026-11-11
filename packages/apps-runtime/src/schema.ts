@@ -1,7 +1,7 @@
-import { access, readFile, realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { canonicalCBORHash } from "@ovst/protocol";
 import { columnType, formatDiagnostic, layoutOf, PERSON_RELATION, relationshipsOf } from "@ovst/usl";
-import { compileSchemaSource } from "@ovst/vad";
+import { compileSchema } from "@ovst/vad";
 import { compareShapes, inspectSqlite, sqliteAffinity } from "@ovst/usl/verify";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
@@ -109,13 +109,6 @@ function logicalPath(root: string, candidate: string): string {
   return child === "" ? "/" : `/${child.split(sep).join("/")}`;
 }
 
-/** A collection directory's schema file: `schema.vad`, or `schema.usl` until the tree is converted. */
-async function schemaFileIn(directory: string): Promise<string> {
-  const vad = join(directory, "schema.vad");
-  const usl = join(directory, "schema.usl");
-  return access(vad).then(() => vad, () => access(usl).then(() => usl, () => vad));
-}
-
 /** Resolve an authored database path from its importing module, honoring the longest nested tree boundary. */
 export async function resolveDatabaseLocation(
   importingModulePath: string,
@@ -132,7 +125,7 @@ export async function resolveDatabaseLocation(
   return {
     directory,
     databasePath: join(directory, "_store.sqlite3"),
-    schemaPath: await schemaFileIn(directory),
+    schemaPath: join(directory, "schema.vad"),
     ...(boundary ? { tree: boundary.tree, path: logicalPath(boundary.root, directory) } : {}),
   };
 }
@@ -310,7 +303,7 @@ function validateRelationship(relation: RelationshipMetadata, relations: Record<
 }
 
 /** Each stored column's schema type: its field's declared type, or what the column holds. */
-function fieldTypesOf(schema: ReturnType<typeof compileSchemaSource>, tables: ReturnType<typeof layoutOf>): Record<string, Record<string, string>> {
+function fieldTypesOf(schema: ReturnType<typeof compileSchema>, tables: ReturnType<typeof layoutOf>): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {};
   for (const table of tables) {
     const model = schema.models.find((candidate) => (candidate.table ?? candidate.name) === table.name);
@@ -329,7 +322,7 @@ function fieldTypesOf(schema: ReturnType<typeof compileSchemaSource>, tables: Re
 }
 
 /**
- * Check a database against the schema.vad (or schema.usl) beside it and describe it: its
+ * Check a database against the schema.vad beside it and describe it: its
  * tables, the virtual `Person` relation when the schema refers to people, and
  * a relationship for each connection end.
  */
@@ -338,7 +331,7 @@ export async function introspectStoreSchema(
   fixtureDatabase?: Database,
 ): Promise<StoreSchema> {
   const source = await readFile(location.schemaPath, "utf8");
-  const schema = compileSchemaSource(source);
+  const schema = compileSchema(source);
   if (schema.diagnostics.length > 0) throw new Error(`Invalid ${formatDiagnostic(basename(location.schemaPath), schema.diagnostics[0]!)}`);
   const tables = layoutOf(schema, { store: "database" });
 

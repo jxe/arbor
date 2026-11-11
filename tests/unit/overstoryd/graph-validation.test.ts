@@ -135,7 +135,7 @@ test("new missing objects and corrupt overlays are rejected despite an accepted 
 });
 test("changed collections are revalidated while unchanged siblings inherit their checks", async () => {
   const f = fixture();
-  const schema = "main model Item {\n  title Text\n}\n";
+  const schema = "main table Item:\n  title Text\n";
   const make = (title: string) => collectionDirectory(schema, { Item: [idRow("a", { title })] }, f.objects);
   let checks = 0;
   const check = async (

@@ -49,7 +49,8 @@ struct USLTests {
     @Test("A schema.vad lays out the tables its schema.usl did")
     func vadSchemasMatchUSL() throws {
         let pairs = [
-            ("packages/vad/examples/supplies/data/schema.vad", "examples/supplies/data/schema.usl"),
+            ("packages/vad/examples/supplies/data/schema.vad", "packages/usl/examples/supplies.usl"),
+            ("tests/fixtures/games.vad", "packages/usl/examples/games.usl"),
         ]
         for (vad, usl) in pairs {
             let vadSource = try String(contentsOf: repositoryRoot.appending(path: vad), encoding: .utf8)

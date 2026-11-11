@@ -13,20 +13,19 @@ import {
 import { decodeProtocolDirectory, executeRowOperations, type ObjectHash, type RowOperation } from "@ovst/protocol";
 import { mergeProtocolTrees } from "@ovst/tree-merge";
 import { CollectionProjections } from "@ovst/story-sync/state";
-import { compileUsl, type LogicalTables } from "@ovst/usl";
+import { type LogicalTables } from "@ovst/usl";
+import { compileSchema } from "@ovst/vad";
 import { verifyStore } from "@ovst/usl/verify";
 const TEST_AT = Date.UTC(2026, 10, 11);
 
-const SCHEMA = `model Game {
+const SCHEMA = `table Game:
   name  Text
   tags  Text[]
   lists List[]
-}
 
-model List {
+table List:
   name  Text
   games Game[]
-}
 
 ordered List.games[] <-> Game.lists[]
 `;
@@ -43,12 +42,12 @@ let sandbox: string;
 beforeAll(async () => { sandbox = await realpath(await mkdtemp(join(tmpdir(), "story-collection-tables-"))); });
 afterAll(async () => { await rm(sandbox, { recursive: true, force: true }); });
 
-/** Snapshot a tree whose `games` folder holds `schema.usl` and `files`, as Story Sync reads it. */
+/** Snapshot a tree whose `games` folder holds `schema.vad` and `files`, as Story Sync reads it. */
 async function folder(name: string, files: Record<string, string>, schema = SCHEMA, projections = new CollectionProjections({ now: () => NOW })) {
   const root = join(sandbox, name);
   const directory = join(root, "games");
   await rm(root, { recursive: true, force: true });
-  await Bun.write(join(directory, "schema.usl"), schema);
+  await Bun.write(join(directory, "schema.vad"), schema);
   for (const [file, text] of Object.entries(files)) await writeFile(join(directory, file), text);
   const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (dir, names) => projections.read(dir, names)));
   return { root: snapshot.root, objects: snapshot.objects, directory, projections };
@@ -72,7 +71,7 @@ describe("a schema with several tables", () => {
 
   test("Story Sync reads a <Table>.jsonl folder as one collection, the join table becoming the held connection", async () => {
     const snapshot = await folder("described", FILES);
-    expect(games(snapshot.objects, snapshot.root).entries.map((e) => e.name)).toEqual(["schema.usl"]);
+    expect(games(snapshot.objects, snapshot.root).entries.map((e) => e.name)).toEqual(["schema.vad"]);
     expect(names((await tables(snapshot.objects, snapshot.root))!)).toEqual({
       Game: [{ id: "g1", name: "Chess", tags: ["board"] }, { id: "g2", name: "Go" }],
       List: [{ id: "l1", name: "Favorites", games: ["g1"] }],
@@ -89,19 +88,19 @@ describe("a schema with several tables", () => {
 
   test("passes usl verify", async () => {
     const snapshot = await folder("verified", FILES);
-    const diagnostics = await verifyStore(compileUsl(SCHEMA), snapshot.directory);
+    const diagnostics = await verifyStore(compileSchema(SCHEMA), snapshot.directory);
     expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   });
 
-  test("the plan's games.usl with Game.jsonl, List.jsonl and List_games.jsonl passes usl verify", async () => {
-    const games = (await readFile(join(import.meta.dir, "../../packages/usl/examples/games.usl"), "utf8"))
+  test("the plan's games schema with Game.jsonl, List.jsonl and List_games.jsonl passes usl verify", async () => {
+    const games = (await readFile(join(import.meta.dir, "../fixtures/games.vad"), "utf8"))
       .replace("ordered List.games[] @fold", "ordered List.games[]");
     const directory = join(sandbox, "games");
-    await Bun.write(join(directory, "schema.usl"), games);
+    await Bun.write(join(directory, "schema.vad"), games);
     await writeFile(join(directory, "Game.jsonl"), '{"id":"g1","name":"Chess","status":"Draft","tags":["board"],"authors":["tr_joe"]}\n');
     await writeFile(join(directory, "List.jsonl"), '{"id":"l1","name":"Favorites"}\n');
     await writeFile(join(directory, "List_games.jsonl"), '{"list":"l1","game":"g1","games_position":1}\n');
-    const diagnostics = await verifyStore(compileUsl(games), directory);
+    const diagnostics = await verifyStore(compileSchema(games), directory);
     expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   });
 });

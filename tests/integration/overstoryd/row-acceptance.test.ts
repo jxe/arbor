@@ -14,7 +14,7 @@ const TEST_TIME = new Date(TEST_AT).toISOString();
 let dir: string, running: Awaited<ReturnType<typeof serveHost>>, client: ProtocolClient;
 let tree: string, base: string, root: string, objects: Map<string, Uint8Array>;
 const token = "row-owner";
-const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n  tags  Text[]\n}\n";
+const SCHEMA = "table Item:\n  title Text\n  done  Bool?\n  tags  Text[]\n";
 const key = (id: string) => JSON.stringify([["id", id]]);
 
 async function start() {

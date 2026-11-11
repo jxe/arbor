@@ -9,7 +9,7 @@ const fixedStores = [
   ["_store.sqlite3", "sqlite"],
   ["_store.postgres", "postgres"],
 ] as const satisfies readonly (readonly [string, ProjectionProviderKind])[];
-/** The collection's schema is `schema.vad` (or, unconverted, `schema.usl`); any other file, including a `schema.ts`, is ordinary. */
+/** The collection's schema is `schema.vad`; any other file, including a `schema.ts`, is ordinary. */
 
 /** Inventory a directory once and select the single built-in provider that claims it. */
 export async function detectProjection(directory: string): Promise<ProjectionDefinition | null> {

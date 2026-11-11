@@ -10,27 +10,26 @@ import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { deriveRowOperations } from "@ovst/collection-schema";
 import type { ObjectHash } from "@ovst/protocol";
 import { CollectionProjections, type CollectionProjectionForm } from "@ovst/story-sync/state";
-import { compileUsl, layoutOf } from "@ovst/usl";
+import { layoutOf } from "@ovst/usl";
+import { compileSchema } from "@ovst/vad";
 import { verifyStore } from "@ovst/usl/verify";
 import { collectionRows, collectionTree, idRow, T0 } from "../support/collection-trees.ts";
 const TEST_AT = Date.UTC(2026, 10, 11);
 
-const GAMES = `main model Game {
+const GAMES = `main table Game:
   name  Text
   year  Int?
   done  Bool?
   tags  Text[]
   lists List[]
-}
 
-model List {
+table List:
   name  Text
   games Game[]
-}
 
 ordered List.games[] <-> Game.lists[]
 `;
-const ITEMS = "main model Item {\n  title Text\n  count Int\n  done  Bool?\n  note  Text?\n}\n";
+const ITEMS = "main table Item:\n  title Text\n  count Int\n  done  Bool?\n  note  Text?\n";
 
 let sandbox: string;
 beforeAll(async () => { sandbox = await mkdtemp(join(tmpdir(), "story-collection-placements-")); });
@@ -55,8 +54,8 @@ describe("one tree, placed with different projections", () => {
   test("SQLite and JSONL placements hold the same root as the tree", async () => {
     const sqlite = await place("sqlite", tree, { kind: "sqlite" });
     const jsonl = await place("jsonl", tree, { kind: "files", format: "jsonl" });
-    expect((await readdir(sqlite.items)).sort()).toEqual(["_store.sqlite3", "schema.usl"]);
-    expect((await readdir(jsonl.items)).sort()).toEqual(["Game.jsonl", "List.jsonl", "List_games.jsonl", "schema.usl"]);
+    expect((await readdir(sqlite.items)).sort()).toEqual(["_store.sqlite3", "schema.vad"]);
+    expect((await readdir(jsonl.items)).sort()).toEqual(["Game.jsonl", "List.jsonl", "List_games.jsonl", "schema.vad"]);
     expect((await sqlite.scan()).root).toBe(tree.root);
     expect((await jsonl.scan()).root).toBe(tree.root);
   });
@@ -103,7 +102,7 @@ describe("a SQLite placement's change log", () => {
     const placed = await place("sqlite-log", tree, { kind: "sqlite" });
     const path = join(placed.items, "_store.sqlite3");
     expect(changes(path)).toEqual([]);
-    expect(await verifyStore(compileUsl(GAMES), path)).toEqual([]);
+    expect(await verifyStore(compileSchema(GAMES), path)).toEqual([]);
     expect((await placed.scan()).root).toBe(tree.root);
   });
 
@@ -205,12 +204,12 @@ describe("a CSV placement", () => {
   });
 });
 
-// Schema language 005 milestone 4, done when: a games.usl collection projected
+// Schema language 005 milestone 4, done when: a games collection projected
 // as files holds one <Table>.jsonl per table of its file layout and passes
 // `usl verify`.
 describe("the games example placed as files", () => {
   test("holds one <Table>.jsonl per table of its file layout, which usl verify accepts", async () => {
-    const source = await readFile(join(import.meta.dir, "../../packages/usl/examples/games.usl"), "utf8");
+    const source = await readFile(join(import.meta.dir, "../fixtures/games.vad"), "utf8");
     const tree = collectionTree(source, {
       Game: [
         idRow("g1", { name: "Chess", status: "Polished", tags: ["board", "classic"], authors: ["tr_ada"] }),
@@ -219,9 +218,9 @@ describe("the games example placed as files", () => {
       List: [idRow("l1", { name: "Favorites", games: ["g1"] })],
     });
     const placed = await place("games-files", tree, { kind: "files", format: "jsonl" });
-    const schema = compileUsl(source);
+    const schema = compileSchema(source);
     const files = layoutOf(schema, { store: "files" }).map((table) => `${table.name}.jsonl`);
-    expect((await readdir(placed.items)).sort()).toEqual([...files, "schema.usl"].sort());
+    expect((await readdir(placed.items)).sort()).toEqual([...files, "schema.vad"].sort());
     expect(await verifyStore(schema, placed.items)).toEqual([]);
     expect((await placed.scan()).root).toBe(tree.root);
   });

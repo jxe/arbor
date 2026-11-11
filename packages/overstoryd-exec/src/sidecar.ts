@@ -228,18 +228,18 @@ export class ExecSidecar implements AsyncDisposable {
   private async open(collection: ExecCollection): Promise<Opened> {
     const file = join(this.options.materialized, collection.file);
     const directory = dirname(file);
-    const [database, schema] = await Promise.all([stat(file), stat(join(directory, "schema.usl"))]);
+    const [database, schema] = await Promise.all([stat(file), stat(join(directory, "schema.vad"))]);
     // A rebuilt file is a new file: its engine and schema are opened again.
     const identity = `${database.ino}\0${schema.ino}\0${schema.mtimeMs}`;
     const existing = this.opened.get(file);
     if (existing?.identity === identity) return existing;
     if (existing) await existing.engine[Symbol.asyncDispose]();
-    const schemaBytes = await Bun.file(join(directory, "schema.usl")).bytes();
+    const schemaBytes = await Bun.file(join(directory, "schema.vad")).bytes();
     const logical = sharedCollectionSchemaCache.compileLogical(schemaBytes);
     const opened: Opened = {
       file,
       identity,
-      engine: await SQLiteQueryEngine.open({ directory, databasePath: file, schemaPath: join(directory, "schema.usl"), tree: collection.tree, path: collection.path }, this.profiles),
+      engine: await SQLiteQueryEngine.open({ directory, databasePath: file, schemaPath: join(directory, "schema.vad"), tree: collection.tree, path: collection.path }, this.profiles),
       logical,
       layout: layoutOf(logical.result, { store: "database" }),
       schemas: sharedCollectionSchemaCache.compileTables(schemaBytes, "database").tables,
@@ -280,7 +280,7 @@ export class ExecSidecar implements AsyncDisposable {
   private async view(question: ExecViewQuestion): Promise<ExecViewAnswer> {
     const { id } = question;
     const inactive = { id, refusal: { code: "not-found", message: "A mounted view handle or version is not active", retryable: false } };
-    const isDeclared = question.view.path.split("/").at(-1) === "schema.usl";
+    const isDeclared = question.view.path.split("/").at(-1) === "schema.vad";
     const entry = isDeclared
       ? { ref: question.view, handle: undefined, sources: [dirname(question.view.path)] }
       : this.views.get(refKey(question.view));
