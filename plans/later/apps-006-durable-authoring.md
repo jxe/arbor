@@ -12,7 +12,7 @@ and TypeScript authoring is gone ([Apps 015](../soon/apps-015-the-view-language.
 TypeScript signatures below (`authority`, `step`, transaction callbacks) are a record of the
 earlier design; durable workflows and combined author/user authority must be redesigned as
 language statements before any of this is built. Code with general effects is
-[USL plugins](apps-014-usl-plugins.md)' sources and sinks.
+[host plugins](apps-017-host-plugins.md)' sources and sinks.
 
 ## First deliverable: freeze concrete authoring
 

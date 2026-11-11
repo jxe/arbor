@@ -167,9 +167,15 @@ Rows only their authors edit, as access policy (`who: {property: authors}`, one
 `unless`/`when` predicate), with device updates authorized by effect. Formerly 002's
 milestone 5.
 
-**[Apps 014: USL plugins](later/apps-014-usl-plugins.md).** A sketch: real code extends
-the data (value types, two-way relations, derived fields and models, live sources) instead
-of UVL. After Apps 015.
+**[Apps 014: client plugins](later/apps-014-client-plugins.md).** A sketch: code that runs
+only on the viewer's device and writes only state tables. Sources (physics, clocks,
+sensors) feed session tables; plugin elements add new element types. After Apps 015.
+
+**[Apps 016: pure plugins](later/apps-016-pure-plugins.md).** A sketch: value types,
+two-way relations and derived fields that run the same on host and device.
+
+**[Apps 017: host plugins](later/apps-017-host-plugins.md).** A sketch: sources over shared
+tables and sinks run after a mutation. After Apps 010.
 
 **[Apps 010: activation and lending](later/apps-010-activation-and-lending.md).**
 After Apps 005: code runs as an activated app under an execution token with lenders, not as
