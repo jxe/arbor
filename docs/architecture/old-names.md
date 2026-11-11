@@ -36,7 +36,7 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 | Old chapter | Now |
 |---|---|
 | 01 tree operations | [data model](../overstory-spec/1.1-data-model.md) (the model, objects, entry times, CBOR) and [tree protocol](../overstory-spec/1.2-tree-protocol.md) (reads, watch, updates, encodings); §1.3 canonical-URL reads moved to [locators §6](../overstory-spec/1.6-locators.md#6-reading-at-the-canonical-url), §3 editor round trip to [working trees](../overstory-spec/2.1-working-trees.md) |
-| 02 directory format | [data model §8–11](../overstory-spec/1.1-data-model.md) (bodies, pages, recognized and reserved names), [placements on disk](../overstory-spec/2.2-placements-on-disk.md) (frontmatter on disk, membership), [presenting pages](../overstory-spec/1.7-presenting-pages.md) (§4) |
+| 02 directory format | [data model §8–12](../overstory-spec/1.1-data-model.md) (bodies, pages, pages with children, recognized and reserved names), [placements on disk](../overstory-spec/2.2-placements-on-disk.md) (frontmatter on disk, membership), old §4 is data model §10 |
 | 03 locators | [locators](../overstory-spec/1.6-locators.md) |
 | 04 accounts and devices | [accounts and devices](../overstory-spec/3.1-accounts-and-devices.md); §4 local placements moved to [client library §4](../overstory-spec/4.1-client-library.md#4-local-placements) |
 | 05 access control | [access control](../overstory-spec/3.2-access-control.md) |

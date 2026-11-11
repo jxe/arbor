@@ -55,7 +55,7 @@ function presented(kind: PresentedHeading, text: string): OverstoryBlock {
 }
 
 /**
- * Present a node's operational document as a page (presenting pages §1.1).
+ * Present a node's operational document as a page (data model §10.1).
  *
  * Every client shows a page through this function rather than through
  * directory placement. It adds what the page shows and its source lacks: a

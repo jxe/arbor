@@ -1017,7 +1017,7 @@ Checks: `swift/scripts/test-story-editor-local.sh` (120 tests), Quagmire
 ## Presented headings — 2026-10-12
 
 Implemented, not installed or deployed. Every client shows a page through one
-presentation layer ([presenting pages §1.1](docs/overstory-spec/1.7-presenting-pages.md#11-presented-headings))
+presentation layer ([data model §10.1](docs/overstory-spec/1.1-data-model.md#101-presented-headings))
 instead of calling directory placement: `presentPage` and its inverse
 `authorPage` in `packages/protocol/src/documents/page-presentation.ts`, and
 `StoryPagePresentation.present` and `authored` beside the Story editor's codec.

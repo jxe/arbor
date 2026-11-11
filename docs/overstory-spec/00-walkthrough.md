@@ -102,7 +102,7 @@ Joe creates `practices/schema.usl` declaring a `Practice` model, and
 folder is now a collection: each CSV row is a child node of
 `/practices`, its fields are the child's properties, and its stable key is
 the canonical key JSON of its `id` ([collections](1.4-collections.md#2-logical-collections),
-[row identity](1.4-collections.md#12-member-identity-order-and-pagination)). The CSV is only
+[row identity](1.4-collections.md#1-row-identity-and-order)). The CSV is only
 how Joe's Mac projects the rows: the tree holds the rows themselves, in
 canonical form, beside the exact bytes of `schema.usl`, and his iPhone keeps
 the same rows in SQLite. Story Sync turns each edit to the CSV into row

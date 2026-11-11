@@ -14,7 +14,7 @@ file names carry the layer: `1.2-tree-protocol.md` is layer 1, chapter 2.
 
 1. **Trees.** What a tree is and how it travels: the data model, the tree
    protocol, source intent, collections, the schema language, locators,
-   presenting pages and presence. Every host and client agrees on this.
+   and presence. Every host and client agrees on this.
 2. **Working trees.** How a client holds and edits a tree it may write: the
    update machine and change log, and placements on disk. This needs only a
    tree and a caller allowed to write it.
@@ -68,13 +68,12 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 
 | Layer | File | Public contract |
 |---|---|---|
-| 1. Trees | [data model](1.1-data-model.md) | Trees and nodes; the directory, page, file, table and rows objects and their hashes; entry times; which files are pages and bodies; reserved names |
+| 1. Trees | [data model](1.1-data-model.md) | Trees and nodes; the directory, page, file, table and rows objects and their hashes; entry times; which files are pages and bodies; a page with children and its presented headings; reserved names |
 | | [tree protocol](1.2-tree-protocol.md) | Reading a tree, a snapshot, an object or a path; watching; conflicts; updates, merging and results; deltas; encodings |
 | | [source intent](1.3-source-intent.md) | Authored changes: traces, operations, property operations, explicit resolution, and merge rules |
 | | [collections](1.4-collections.md) | A folder whose children are rows: what the tree holds, row identity and order, validation and merge |
 | | [schema language](1.5-schema-language.md) | Ultimate Schema Language (`.usl`): models, enums, connections and keys; the model, storage (`@`) and presentation (`~`) layers; default views; fingerprints; the relational layout; and limits |
 | | [locators](1.6-locators.md) | References by TreeID, path and stable key; canonical names and domains; finding trees; reading at the canonical URL |
-| | [presenting pages](1.7-presenting-pages.md) | A page with children as one document, and the title and Subpages headings a client presents |
 | | [presence](1.8-presence.md) | Who else is in a tree: the roster, the page each person or agent is on, cursors, runners and messages; ephemeral, never part of a tree |
 | 2. Working trees | [working trees](2.1-working-trees.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The update machine a working tree runs: the change log, one prepared request in flight, one successor, validated apply, held rejections, exact ambiguous recovery, and editor capture |
 | | [placements on disk](2.2-placements-on-disk.md) | How a placement writes a tree into a folder: page frontmatter, tree membership and ignore files, and collections as CSV, JSON, Markdown rows or SQLite |
@@ -174,7 +173,7 @@ inline mention links here; accepted implementation work is indexed under
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](5.1-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](5.1-executable-documents.md#4-queries)).
 3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](5.1-executable-documents.md#5-mutations)).
 4. **Placement projections of an external store**: a device's private SQLite copy, read-only or two-way (`mode: bidirectional`) ([external stores](5.3-external-stores.md#1-postgres-and-placement-projections)); the earlier designs are kept in [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md#read-only-placement-projections-moved-from-spec-06-4-2026-11-11).
-5. **External-store change log and checkpoint format** for synchronizing Postgres placements. Logical collections, SQLite projections included, synchronize as row operations with a logical hash ([collections §2](1.4-collections.md#2-logical-collections)); an external store has no such form yet ([collections §1.1](1.4-collections.md#11-child-backings)).
+5. **External-store change log and checkpoint format** for synchronizing Postgres placements. Logical collections, SQLite projections included, synchronize as row operations with a logical hash ([collections §2](1.4-collections.md#2-logical-collections)); an external store has no such form yet ([data model §3](1.1-data-model.md#3-representations)).
 6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](5.1-executable-documents.md#131-agent-files)).
 7. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
 8. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([executable documents](5.1-executable-documents.md#4-queries)).
