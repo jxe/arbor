@@ -28,7 +28,7 @@ the same time.
    row `Date` values as tags 1004/0; `CandidateUpdate.at` and request digest domain
    `overstory-update/1` (was `arbor-update/2`; the TreeID derivation domains
    `arbor-person-profile-v1` and `arbor-tree-config-v1` stay, since TreeIDs outlive history). Regenerate the conformance vectors.
-2. **Stamping:** every writer sets `at` and stamps the entries it creates or changes: Story
+2. **Stamping:** every writer sets `at` and stamps the entries it creates or changes (a folder scan may use each file's earlier mtime, never later than `at`; the host checks `created <= modified <= at`): Story
    (Swift), Story Sync, the CLI and working-tree. Renames, moves and file-page conversions keep
    both times. Derived candidates derive with `at`.
 3. **Merging:** overstoryd and the merge helper apply the §1.1.2a rule (later `modified` when

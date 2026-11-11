@@ -377,8 +377,14 @@ Section 4.1 defines the common encoding and hash rules.
 A file or page entry carries two times, as Unix milliseconds in UTC:
 
 - `modified` is the `at` (§2.1) of the update that last gave the entry a
-  different object at its path, or created it there.
-- `created` is the `at` of the update that created the entry. A rename or move
+  different object at its path, or created it there. A snapshot update
+  (`trace: null`), such as a folder scan, may instead give an entry it creates
+  or changes an earlier time taken from the source, such as the file's own
+  modification time on disk, so imported files keep their dates; never a time
+  later than its `at`.
+- `created` is the `at` of the update that created the entry, or, for a
+  snapshot update, an earlier time from the source as for `modified`, and no
+  later than the entry's `modified`. A rename or move
   keeps both times, since it does not change the object; so does converting a
   file entry to a page entry, or back
   ([directory format §3](02-directory-format.md#3-properties-markdown-content-and-identity)),
