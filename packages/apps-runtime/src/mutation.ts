@@ -373,7 +373,6 @@ export class SQLiteMutationBroker {
             receipt: {
               mutationID: call.mutationID,
               requestDigest: stored.request_digest,
-              observedThrough: stored.observed_through,
               result: JSON.parse(stored.result_json) as Result,
             },
             replayed: true,
@@ -383,7 +382,8 @@ export class SQLiteMutationBroker {
         const observedThrough = control.reserveCursor();
         database.query("insert into __arbor_mutation_receipts(scope, subject, mutation_id, request_digest, handle_json, input_json, mutation_now, observed_through, result_json) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
           .run(call.scope, subject, call.mutationID, requestDigest, prepared.handleJSON, prepared.inputJSON, mutationNow, observedThrough, resultJSON);
-        return { receipt: { mutationID: call.mutationID, requestDigest, observedThrough, result }, replayed: false };
+        // The local cursor orders the store's own events; the receipt names no update, since nothing was accepted into a tree.
+        return { receipt: { mutationID: call.mutationID, requestDigest, result }, replayed: false };
       });
       return committed.result.receipt;
     } catch (error) {
@@ -424,7 +424,7 @@ export class RegisteredMutationRuntime implements MutationCallRuntime {
   }>();
 
   constructor(
-    readonly document: MutationCallRequest["document"],
+    readonly tree: string,
     readonly broker: SQLiteMutationBroker,
     entries: readonly {
       ref: MutationHandleRef;
@@ -436,13 +436,13 @@ export class RegisteredMutationRuntime implements MutationCallRuntime {
   }
 
   call(request: MutationCallRequest, context: { user: OverstoryUser | null }): Promise<MutationResultReceipt> {
-    if (stableJSONString(request.document) !== stableJSONString(this.document)) {
-      throw new MutationCallError({ code: "conflict", message: "The mounted document version is not active", retryable: false });
+    if (request.handle?.tree !== this.tree) {
+      throw new MutationCallError({ code: "not-found", message: "The mutation handle or version is not active", retryable: false });
     }
     const entry = this.handles.get(refKey(request.handle));
     if (!entry) throw new MutationCallError({ code: "not-found", message: "The mutation handle or version is not active", retryable: false });
     return this.broker.execute(entry.handle, {
-      scope: request.document.tree,
+      scope: request.handle.tree,
       handle: request.handle,
       mutationID: request.mutationID,
       input: request.input,

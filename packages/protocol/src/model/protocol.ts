@@ -35,12 +35,6 @@ export interface HandleRef {
 
 export type MutationHandleRef = HandleRef;
 
-export interface ViewsDocumentRef {
-  tree: TreeID;
-  path: LogicalPath;
-  version: string;
-}
-
 /** What a view request answers (07 §4.1): a data view's JSON, a JSX view's plan rows, or its view tree. */
 export type ViewAnswerForm = "value" | "rows" | "tree";
 
@@ -68,15 +62,15 @@ export interface ViewMount {
   knownOutputHash?: Hash;
 }
 
+/** A `views` request names no document: each handle carries its tree, path and version (07 §12.1). */
 export interface ViewsRequest {
-  document: ViewsDocumentRef;
   views: ViewMount[];
 }
 
 export type ViewEvent =
-  | { type: "result"; id: string; observedThrough: EventCursor; outputHash: Hash; value: unknown; shape?: ResultShape }
-  | { type: "result"; id: string; observedThrough: EventCursor; error: { code: string; message: string; retryable: boolean } }
-  | { type: "ready"; views: Array<{ id: string; observedThrough: EventCursor; outputHash?: Hash }> }
+  | { type: "result"; id: string; outputHash: Hash; value: unknown; shape?: ResultShape }
+  | { type: "result"; id: string; error: { code: string; message: string; retryable: boolean } }
+  | { type: "ready"; views: Array<{ id: string; outputHash?: Hash }> }
   | { type: "reload"; reason: "source-changed" | "access-changed" };
 
 /** Server-side adapter shared by Local REST and tree-scoped Overstory protocol views. */
@@ -88,7 +82,6 @@ export interface ViewsRuntime {
 }
 
 export interface MutationCallRequest {
-  document: ViewsDocumentRef;
   handle: MutationHandleRef;
   mutationID: string;
   input: unknown;
@@ -97,7 +90,8 @@ export interface MutationCallRequest {
 export interface MutationResultReceipt<Result = unknown> {
   mutationID: string;
   requestDigest: Hash;
-  observedThrough: EventCursor;
+  /** The accepted update the mutation's writes made, when it wrote (07 §12.2). */
+  affected?: { tree: TreeID; update: string };
   result: Result;
 }
 

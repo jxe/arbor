@@ -25,8 +25,10 @@ export async function treeViewsResponse(
 ): Promise<Response> {
   try {
     const input = await request.json() as ViewsRequest;
-    if (!input?.document || input.document.tree !== tree || !Array.isArray(input.views) || input.views.some((view) => view?.handle?.tree !== tree)) {
-      throw new Error("The route tree must own the document and every view handle");
+    // No document: each handle carries its tree, path and version (07 §12.1).
+    if (!input || typeof input !== "object" || Object.hasOwn(input, "document") || !Array.isArray(input.views) || input.views.length === 0
+      || input.views.some((view) => view?.handle?.tree !== tree)) {
+      throw new Error("The route tree must own every view handle");
     }
     const encoder = new TextEncoder();
     const events: ReadableStream<ViewEvent> = await runtime.stream(input, { ...context, signal: request.signal, user });
@@ -36,7 +38,8 @@ export async function treeViewsResponse(
         controller.enqueue(encoder.encode(encodeSSEFrame({ event: type, data })));
       },
     })), {
-      headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
+      // User- and access-dependent and long-lived (07 §12.1).
+      headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive" },
     });
   } catch (error) {
     return failed(error, "Invalid views request", tree);
@@ -53,8 +56,8 @@ export async function treeMutationResponse(
 ): Promise<Response> {
   try {
     const input = await request.json() as MutationCallRequest;
-    if (input.document.tree !== tree || input.handle.tree !== tree) {
-      throw new Error("The route tree must own the document and mutation handle");
+    if (!input || typeof input !== "object" || Object.hasOwn(input, "document") || input.handle?.tree !== tree) {
+      throw new Error("The route tree must own the mutation handle");
     }
     return Response.json(await runtime.call(input, { ...context, user }), { headers: { "cache-control": "no-store" } });
   } catch (error) {

@@ -1,6 +1,5 @@
 import {
   liveViewStream,
-  stableJSONString,
   type Hash,
   type HandleRef,
   type LiveViewAdapter,
@@ -256,7 +255,6 @@ export class LiveViewBroker implements AsyncDisposable {
   stream(mounts: readonly MountedView[], context: LiveViewContext): ReadableStream<ViewEvent> {
     const broker = this;
     const adapter: LiveViewAdapter<ViewRun<unknown>, ViewSensitivity, Invalidation, MountedView> = {
-      currentCursor: () => broker.currentCursor(),
       subscribe(listener) {
         broker.listeners.add(listener);
         return () => broker.listeners.delete(listener);
@@ -286,12 +284,12 @@ export class LiveViewBroker implements AsyncDisposable {
   }
 }
 
-/** The views of one document, by handle: what a `views` request may mount. */
+/** The views of one source tree, by handle: what a `views` request may mount. */
 export class RegisteredViewRuntime implements ViewsRuntime {
   private readonly views = new Map<string, { handle: View<any, unknown>; resolve: MountedView["resolve"] }>();
 
   constructor(
-    readonly document: ViewsRequest["document"],
+    readonly tree: string,
     readonly broker: Pick<LiveViewBroker, "stream">,
     entries: readonly { ref: HandleRef; handle: View<any, unknown>; resolve: MountedView["resolve"] }[],
   ) {
@@ -299,7 +297,8 @@ export class RegisteredViewRuntime implements ViewsRuntime {
   }
 
   stream(request: ViewsRequest, context: { signal: AbortSignal; user: OverstoryUser | null }): ReadableStream<ViewEvent> {
-    if (stableJSONString(request.document) !== stableJSONString(this.document)) throw new Error("The mounted document version is not active");
+    // Each handle carries its tree, path and version; there is no document (07 §12.1).
+    if (request.views?.some((view) => view?.handle?.tree !== this.tree)) throw new Error("Every view handle must name this source tree");
     return this.broker.stream(viewMounts(request, (ref) => this.views.get(handleRefKey(ref))), context);
   }
 }

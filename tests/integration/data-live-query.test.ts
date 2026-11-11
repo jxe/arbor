@@ -256,18 +256,17 @@ describe("live view state machine", () => {
   });
 
   test("replaces the complete mounted graph without retaining an execution resource", async () => {
-    const document = { tree: "tr_supplies_source", path: "/index", version: "doc-v1" };
     const topRef: HandleRef = { tree: "tr_supplies_source", path: "/components/PopularLists.tsx", name: "popularLists", version: "sha256:code" };
     const ownerRef: HandleRef = { tree: "tr_supplies_source", path: "/List.tsx", name: "listOwner", version: "sha256:code" };
-    const runtime = new RegisteredViewRuntime(document, broker, [
+    const runtime = new RegisteredViewRuntime("tr_supplies_source", broker, [
       { ref: topRef, handle: topPublicList, resolve },
       { ref: ownerRef, handle: listOwner, resolve },
     ]);
-    const first = runtime.stream({ document, views: [{ id: "top", handle: topRef }] }, { signal: new AbortController().signal, user: null }).getReader();
+    const first = runtime.stream({ views: [{ id: "top", handle: topRef }] }, { signal: new AbortController().signal, user: null }).getReader();
     await ready(first);
     await first.cancel();
 
-    const replacement = runtime.stream({ document, views: [
+    const replacement = runtime.stream({ views: [
       { id: "top", handle: topRef },
       { id: "owner", handle: ownerRef },
     ] }, { signal: new AbortController().signal, user: null }).getReader();

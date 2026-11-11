@@ -24,7 +24,6 @@ export interface LiveViewContext {
  * stream owns the race-free snapshot-then-follow state machine.
  */
 export interface LiveViewAdapter<Execution, Sensitivity, Event, Mount extends LiveMount = LiveMount> {
-  currentCursor(): string;
   subscribe(listener: (event: Event) => void): () => void;
   /** Sensitivity derivable before the first evaluation (for example from the plan). */
   initialSensitivity?(mount: Mount): Sensitivity;
@@ -73,12 +72,11 @@ export function liveViewStream<Execution, Sensitivity, Event, Mount extends Live
         pending: [] as Event[],
         running: undefined as Promise<void> | undefined,
         hash: undefined as Hash | undefined,
-        cursor: adapter.currentCursor(),
       }));
       type State = typeof states[number];
-      const resultEvent = (id: string, cursor: string, hash: Hash, execution: Execution): ViewEvent => {
+      const resultEvent = (id: string, hash: Hash, execution: Execution): ViewEvent => {
         const shape = adapter.shape?.(execution);
-        return { type: "result", id, observedThrough: cursor, outputHash: hash, value: adapter.result(execution), ...(shape ? { shape } : {}) };
+        return { type: "result", id, outputHash: hash, value: adapter.result(execution), ...(shape ? { shape } : {}) };
       };
       const closeStream = () => { try { controller.close(); } catch {} };
       const emit = (event: ViewEvent) => {
@@ -103,8 +101,7 @@ export function liveViewStream<Execution, Sensitivity, Event, Mount extends Live
               execution = await adapter.execute(state.mount);
               sensitivity = adapter.sensitivity(state.mount, execution);
             } catch (error) {
-              state.cursor = adapter.currentCursor();
-              emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, error: adapter.safeError(error) });
+              emit({ type: "result", id: state.mount.id, error: adapter.safeError(error) });
               return;
             }
             const invalidated = state.pending.some((event) =>
@@ -113,10 +110,9 @@ export function liveViewStream<Execution, Sensitivity, Event, Mount extends Live
             if (invalidated) continue;
             state.execution = execution;
             state.sensitivity = sensitivity;
-            state.cursor = adapter.currentCursor();
             const hash = adapter.outputHash?.(execution) ?? viewOutputHash(adapter.result(execution), adapter.shape?.(execution));
             if (publish && hash !== state.hash) {
-              emit(resultEvent(state.mount.id, state.cursor, hash, execution));
+              emit(resultEvent(state.mount.id, hash, execution));
             }
             state.hash = hash;
             return;
@@ -162,13 +158,12 @@ export function liveViewStream<Execution, Sensitivity, Event, Mount extends Live
         for (const state of states) {
           if (!state.execution || !state.hash) continue;
           if (state.hash !== state.mount.knownOutputHash) {
-            emit(resultEvent(state.mount.id, state.cursor, state.hash, state.execution));
+            emit(resultEvent(state.mount.id, state.hash, state.execution));
           }
         }
         ready = true;
         emit({ type: "ready", views: states.map((state) => ({
           id: state.mount.id,
-          observedThrough: state.cursor,
           ...(state.hash ? { outputHash: state.hash } : {}),
         })) });
         for (const state of states) if (state.pending.length && !state.running) void evaluate(state, true);

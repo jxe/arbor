@@ -314,7 +314,6 @@ export class HostCollections implements AsyncDisposable {
   private readonly sweeper: ReturnType<typeof setInterval>;
   /** The streams open on each materialization, as listeners for its changes. */
   private readonly listeners = new Map<string, Set<(change: Change) => void>>();
-  private sequence = 0;
   private origin?: string;
   readonly sidecar: ExecProcess;
   /** How many times a file was found written by another connection after a mutation; each one was rebuilt. */
@@ -397,13 +396,11 @@ export class HostCollections implements AsyncDisposable {
   }
 
   private publish(key: string, change: Change): void {
-    this.sequence++;
     for (const listener of [...this.listeners.get(key) ?? []]) listener(change);
   }
 
   private publishAll(change: Change): void {
     if (![...this.listeners.values()].some((set) => set.size)) return;
-    this.sequence++;
     for (const set of this.listeners.values()) for (const listener of [...set]) listener(change);
   }
 
@@ -611,8 +608,9 @@ export class HostCollections implements AsyncDisposable {
   viewsRuntime(): ViewsRuntime {
     return {
       stream: async (request: ViewsRequest, context): Promise<ReadableStream<ViewEvent>> => {
-        const tree = request.document.tree;
         if (!Array.isArray(request.views) || request.views.length === 0) throw new Error("views must be a nonempty array");
+        // The route checked that every handle names its source tree.
+        const tree = request.views[0]!.handle.tree;
         const ids = new Set<string>();
         const mounts: Mount[] = [];
         for (const mount of request.views) {
@@ -664,7 +662,6 @@ export class HostCollections implements AsyncDisposable {
           if (token) this.daemon.execution.revoke(token);
         }, { once: true });
         return liveViewStream<Evaluation, ExecReads, Change, Mount>(mounts, context, {
-          currentCursor: () => `view:${this.sequence}`,
           subscribe: (listener) => {
             const stops = keys.map((key) => {
               const set = this.listeners.get(key) ?? new Set();

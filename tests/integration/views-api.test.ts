@@ -7,7 +7,6 @@ import type { MutationCallRequest, MutationCallRuntime, MutationResultReceipt, V
 import { deviceSession, testAccount } from "../helpers/devices.ts";
 
 const request: ViewsRequest = {
-  document: { tree: "tr_source", path: "/index", version: "doc-v1" },
   views: [{
     id: "primary",
     handle: { tree: "tr_source", path: "/views.ts", name: "primary", version: "sha256:code" },
@@ -16,7 +15,6 @@ const request: ViewsRequest = {
 
 function requestFor(tree: string): ViewsRequest {
   return {
-    document: { ...request.document, tree },
     views: request.views.map((view) => ({ ...view, handle: { ...view.handle, tree } })),
   };
 }
@@ -28,7 +26,7 @@ class FixtureMutationRuntime implements MutationCallRuntime {
     return {
       mutationID: input.mutationID,
       requestDigest: "sha256:mutation-fixture",
-      observedThrough: "mutation:0",
+      affected: { tree: input.handle.tree, update: "up_fixture" },
       result: { accepted: true },
     };
   }
@@ -40,8 +38,8 @@ class FixtureRuntime implements ViewsRuntime {
   stream(_request: ViewsRequest, context: { signal: AbortSignal; user: { profile: string } | null }) {
     this.users.push(context.user);
     const events: ViewEvent[] = [
-      { type: "result", id: "primary", observedThrough: "view:0", outputHash: "sha256:fixture", value: { current: true }, shape: { fields: { current: { type: "Bool" } } } },
-      { type: "ready", views: [{ id: "primary", observedThrough: "view:0", outputHash: "sha256:fixture" }] },
+      { type: "result", id: "primary", outputHash: "sha256:fixture", value: { current: true }, shape: { fields: { current: { type: "Bool" } } } },
+      { type: "ready", views: [{ id: "primary", outputHash: "sha256:fixture" }] },
     ];
     return new ReadableStream<ViewEvent>({
       start(controller) {
@@ -53,8 +51,8 @@ class FixtureRuntime implements ViewsRuntime {
 }
 
 function expectFrames(body: string) {
-  expect(body).toContain('event: result\ndata: {"id":"primary","observedThrough":"view:0","outputHash":"sha256:fixture","value":{"current":true},"shape":{"fields":{"current":{"type":"Bool"}}}}');
-  expect(body).toContain('event: ready\ndata: {"views":[{"id":"primary","observedThrough":"view:0","outputHash":"sha256:fixture"}]}');
+  expect(body).toContain('event: result\ndata: {"id":"primary","outputHash":"sha256:fixture","value":{"current":true},"shape":{"fields":{"current":{"type":"Bool"}}}}');
+  expect(body).toContain('event: ready\ndata: {"views":[{"id":"primary","outputHash":"sha256:fixture"}]}');
   expect(body).not.toContain("id:");
 }
 
@@ -84,10 +82,17 @@ describe("stateless view stream HTTP contract", () => {
         body: JSON.stringify(wireRequest),
       });
       expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
       expectFrames(await response.text());
+      // A request naming a document is the old form, and refused.
+      const withDocument = await fetch(`${running.url}/.overstory/trees/${tree}/views`, {
+        method: "QUERY",
+        headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...wireRequest, document: { tree, path: "/index", version: "doc-v1" } }),
+      });
+      expect(withDocument.status).toBe(400);
       expect(runtime.users).toEqual([{ profile: account.account.profileTree }]);
       const mutation: MutationCallRequest = {
-        document: wireRequest.document,
         handle: wireRequest.views[0]!.handle,
         mutationID: "mut_wire",
         input: { value: 2 },
@@ -98,7 +103,7 @@ describe("stateless view stream HTTP contract", () => {
         body: JSON.stringify(mutation),
       });
       expect(mutationResponse.status).toBe(200);
-      expect(await mutationResponse.json()).toMatchObject({ mutationID: "mut_wire", result: { accepted: true } });
+      expect(await mutationResponse.json()).toMatchObject({ mutationID: "mut_wire", affected: { tree, update: "up_fixture" }, result: { accepted: true } });
     } finally {
       running.server.stop(true);
       await running.overstoryd[Symbol.asyncDispose]();

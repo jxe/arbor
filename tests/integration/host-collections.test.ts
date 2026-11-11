@@ -26,7 +26,6 @@ const LIST = "10000000-0000-4000-8000-000000000001";
 let sandbox: string, state: string, folder: string, dataRoot: string, tree: string;
 let host: Awaited<ReturnType<typeof serveHost>>;
 let apps: HostCollectionsOptions;
-const document = (id: string) => ({ tree: id, path: "/supplies/List.tsx", version: "doc-v1" });
 /** Views the test adds beside Supplies' own code; its helpers keep their own places. */
 const TEST_VIEWS = `import { view } from "overstory/data"
 import { z } from "zod"
@@ -169,7 +168,7 @@ async function nextResult(stream: AsyncGenerator<{ event: string; data: any }>):
 
 async function requestViews(origin: string, controller: AbortController, views: ViewsRequest["views"]) {
   const session = await deviceSession(origin, token);
-  const request: ViewsRequest = { document: document(tree), views };
+  const request: ViewsRequest = { views };
   return fetch(`${origin}/.overstory/trees/${tree}/views`, {
     method: "QUERY",
     headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
@@ -186,7 +185,7 @@ async function openView(origin: string, controller: AbortController, name = "lis
 
 async function mutate(input: unknown, mutationID: string) {
   const session = await deviceSession(host.url, token);
-  const request: MutationCallRequest = { document: document(tree), handle: handles.createList!, mutationID, input };
+  const request: MutationCallRequest = { handle: handles.createList!, mutationID, input };
   const response = await fetch(`${host.url}/.overstory/trees/${tree}/mutate`, {
     method: "POST",
     headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
@@ -323,6 +322,9 @@ describe.serial("rows on the host", () => {
     expect(submitted).toHaveLength(1);
     expect(submitted[0].updates[0].ifCurrent).toBe(submitted[0].base);
     expect(submitted[0].updates[0].trace[0].operations).toEqual([expect.objectContaining({ kind: "rowCreate", model: "List", at: "2026-10-24T12:00:00.000Z" })]);
+    // The receipt names the update its writes made: the tree's newest.
+    const accepted = host.overstoryd.acceptedUpdates(tree);
+    expect(first.body.affected).toEqual({ tree, update: accepted[accepted.length - 1]!.id });
     const retry = await mutate({ name: "Made on the host", visibility: "Private" }, "host-create");
     expect(retry.body).toEqual(first.body);
     expect(host.overstoryd.acceptedUpdates(tree).length).toBe(before + 1);
