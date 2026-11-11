@@ -229,7 +229,7 @@ This specification does not prescribe isolation technology, worker language, or 
 
 #### 13.4 Consent and effects
 
-Before an effectful run, the client presents the [consent statement](../../docs/overstory-spec/4.1-apps-and-views.md#6-components-imports-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
+Before an effectful run, the client presents the [consent statement](../../docs/overstory-spec/4.1-apps-and-views.md#6-drawing-other-views-imports-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
 
 All tree effects pass through ordinary Overstory or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Overstory mutation. Ambiguous mutation retries reuse the original mutation identity.
 

@@ -119,7 +119,7 @@ the way a `.md` file is a page, and embeds it in his page with a link to
 ```
 use "../practices/schema.usl"
 
-view() =
+view():
   <Column>
     <Link to="practices/{p.id}" for={p in Practice} where={p.published}>{p.title}</Link>
   </Column>
@@ -141,7 +141,7 @@ read changed, and a new `result` with a new `outputHash` follows
 The same file declares a mutation:
 
 ```
-mutation addPractice(title: Text) =
+mutation addPractice(title: Text):
   require me != null else user-required
   require title != "" else invalid-input "A practice needs a title"
   insert Practice { title: title, published: false }

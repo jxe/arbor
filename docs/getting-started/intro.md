@@ -209,11 +209,11 @@ language. A `.view` file holds a view, and the mutations it uses:
 // views/reading-room.view
 use "../essays/schema.usl"
 
-mutation recommend(e: Essay) =
+mutation recommend(e: Essay):
   require me != null else user-required
   insert Recommendation { essay: e, person: me } where me not in e.recommendations.person
 
-view ReadingRoom(status) =
+view(status):
   <Column>
     <Row for={e in Essay} where={e.status == (status ?? "published")} orderBy={e.date desc}>
       <Link to="../essays/{e.id}">{e.title}</Link>
