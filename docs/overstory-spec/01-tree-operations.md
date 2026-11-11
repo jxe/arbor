@@ -714,7 +714,6 @@ type Decision = {
     contributions: Array<{ change: string; operation: string | null }>;
   }>;
   dependencies: string[];
-  actions: string[];
 };
 ```
 
@@ -762,8 +761,8 @@ Selected identity must name an alternative. The host retains and verifies its
 correspondence to the ordinary projection; clients validate exact source and placement
 before attaching actionable controls. A text value must match the selected projected
 UTF-8 range. A directory/file kind is never guessed from bytes. Unknown decision
-kinds or actions may be displayed as unavailable, but cannot authorize invented
-mutation behavior. Core read fields may be extended without changing their meaning.
+kinds may be displayed as unavailable, but cannot authorize invented mutation
+behavior. Core read fields may be extended without changing their meaning.
 
 A `field` decision is a choice about one field of one row of a logical
 collection ([source intent §7.1](10-source-intent.md#71-properties)).
@@ -784,12 +783,12 @@ Entry-valued alternatives are read through the ordinary
 discloses; the host retains them for as long as the state is retained.
 Inline text requires no extra read.
 
-Known review actions remain `editAlternative` and `resolveConflict`: capability
-labels rather than mutation opcodes. They produce ordinary operations and resolution
-declarations. Requests remain subject to current authorization and guarded evidence.
+Every decision can be resolved, and an alternative edited, with ordinary operations
+and resolution declarations (§2.1); a decision lists no actions. Requests remain
+subject to current authorization and guarded evidence.
 Optional offline inspection caching does not grant current-state authority.
 
-IDs and references use [§1.2.2](#122-references-and-selectors) syntax. Decisions, alternatives, dependencies, actions and
+IDs and references use [§1.2.2](#122-references-and-selectors) syntax. Decisions, alternatives, dependencies and
 contributions must be unique within their stated scopes; dependencies cannot refer to
 self but cycles between decisions are permitted. Empty alternative sets, invalid
 selected IDs, malformed references and invalid values fail decoding. Open decisions
