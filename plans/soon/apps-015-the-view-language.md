@@ -49,6 +49,19 @@ onward, which now draw `.view` widgets instead of running TSX.
 **Verify:** the Profile, List and Home views and all 13 Supplies mutations from the
 exploration check; their plans match what tracing produces today for the same pages.
 
+**Done (2026-11-11):** `packages/uvl` parses, formats (`uvl fmt`, comments kept) and
+checks `.view` files and pages' view blocks, with pick-list `use`. Supplies' Home,
+Profile, List, Practices, cards and all 13 mutations are in `packages/uvl/examples/supplies`
+and check clean; `examples/invalid` holds one file per kind of error. Plans are UVL's own
+nested `ElementPlan`s (rules expanded, state-reading conditions split off as
+`clientWhere`/`clientOrderBy`, `expandsBy`), and mutations report write sets. Vectors:
+`docs/overstory-spec/conformance/view-language.json`.
+
+**Left in this step:** lowering an `ElementPlan` to the SQLite engine's `QueryPlan`, and
+comparing those plans with what tracing produces for the TSX pages. Also: personal
+session models (USL doesn't parse `page`/`personal` models yet), so only `state` and
+`keep` count as state.
+
 ## 2. Evaluator, on the host
 
 - Evaluate a view over a plan's rows into a view tree, with expansion, fallbacks, state

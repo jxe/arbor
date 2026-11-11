@@ -1,0 +1,31 @@
+// Views drawn as elements by the pages above.
+use "../data/schema.usl"
+
+view ListCard(list: List):
+  <Card>
+    <Row>
+      <Link style="heading" to="List?id={list.id}">{list.name}</Link>
+      <Text style="secondary">{count(list.items)} practices</Text>
+    </Row>
+    <Markdown source={list.about} />
+    <Row>
+      <Avatar person={list.owner} />
+      <Text>👍 {count(list.reactions)}</Text>
+    </Row>
+  </Card>
+
+view PracticeCard(p: Practice):
+  <Card>
+    <Link style="heading" to="Practice?id={p.id}">{p.name}</Link>
+    <Row>
+      <Text style="secondary">by</Text>
+      <Avatar person={a} for={a in p.authors} orderBy={a.name} />
+    </Row>
+    <Markdown source={p.about} lines={6} />
+  </Card>
+
+view Avatar(person: Person):
+  <Link to="Profile?id={person.id}">
+    <Portrait src={person.portrait} name={person.name} />
+    {person.name}
+  </Link>

@@ -1,0 +1,24 @@
+{
+  "name": "@ovst/uvl",
+  "version": "0.1.0",
+  "description": "UVL, the Ultimate View Language (.view): parser, formatter and checker for Overstory views, rules and mutations.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jxe/arbor.git",
+    "directory": "packages/uvl"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "uvl": "./src/cli.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "@ovst/usl": "workspace:*"
+  }
+}

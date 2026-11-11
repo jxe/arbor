@@ -1,0 +1,2181 @@
+{
+  "description": "UVL, the view language (spec 4.1): each source's diagnostics (line, column, code), its views' plans and its mutations' writes, as packages/uvl checks them. `files` is the tree, by logical path; a case checks one source in it. Regenerate with `bun tests/support/regenerate-view-language.ts`.",
+  "files": {
+    "/invalid/cycle.view": "// expect: use-cycle\nuse \"uses.view\"\n",
+    "/invalid/elements.view": "// Drawing views, limits and state.\nuse \"../supplies/data/schema.usl\"\nuse \"../supplies/parts/cards.view\"\n\nview():\n  state q = \"\"\n\n  <Column>\n    // expect: missing-attribute\n    <PracticeCard />\n    // expect: unknown-attribute\n    <Avatar person={me} size={3} />\n    // expect: type-mismatch\n    <PracticeCard p={l} for={l in List} />\n    // expect: limit-reads-state\n    <PracticeCard p={p}\n      for={p in Practice} where={q in p.name}\n      limit={10} />\n    // expect: not-a-condition\n    <Text for={p in Practice} where={p.name}>{p.name}</Text>\n    // expect: not-a-collection\n    <Text for={l in List} where={me in l.owner}>{l.name}</Text>\n    // expect: set-target\n    <Button action={set(p, 1)}>Go</Button>\n    // expect: fallback-element\n    <Text fallback=\"none\">x</Text>\n  </Column>\n",
+    "/invalid/more-cards.view": "// Used by uses.view, to make Avatar ambiguous there.\nuse \"../supplies/data/schema.usl\"\n\nview Avatar(person: Person):\n  <Text>{person.name}</Text>\n",
+    "/invalid/mutations.view": "// Mutations that write what they can't.\nuse \"../supplies/data/schema.usl\"\n\nmutation bad(l: List, p: Practice):\n  // expect: implicit-field\n  update l { modified: now }\n  // expect: missing-field\n  insert Tag { name: \"x\" }\n  // expect: upsert-key\n  upsert Contribution { list: l }\n    create { first: today, last: today, person: me }\n    update { last: today }\n  // expect: not-ordered\n  reorder p.authors to [me]\n  // expect: type-mismatch\n  append me to l.items\n  // expect: conflicting-writes\n  update l { name: \"b\" }\n  update l { name: \"c\" }\n  return { a: 1 }\n  // expect: return-twice\n  return { b: 2 }\n\n// expect: row-action\nmutation edit(name: Text) for List.edit:\n  require me != null else user-required\n",
+    "/invalid/names.view": "// Names that don't resolve, or clash.\nuse \"../supplies/data/schema.usl\"\n// expect: unknown-pick\nuse \"../supplies/parts/cards.view\" (PracticeCard, Missing)\n\n// expect: builtin-name\ncount(x): x.name == \"\"\n\nview(id):\n  <Column for={l in List} where={l.id == id}>\n    // expect: unknown-name\n    <Text>{nobody.name}</Text>\n    // expect: unknown-field\n    <Text>{l.colour}</Text>\n    // expect: enum-value\n    <Text where={l.visibility == \"Hidden\"}>hidden</Text>\n    // expect: duplicate-name\n    <Text for={l in List}>{l.name}</Text>\n    // expect: no-clock\n    <Text>{today}</Text>\n    // expect: unknown-element\n    <card />\n  </Column>\n\n// expect: two-unnamed-views\nview():\n  <Text>again</Text>\n",
+    "/invalid/rules.view": "// Rules may not refer to themselves.\nuse \"../supplies/data/schema.usl\"\n\n// expect: rule-recursion\nabove(a, b): a == b or above(a, b)\n",
+    "/invalid/syntax.view": "// expect: syntax\nview(:\n  <Text>broken</Text>\n\nmutation m():\n  // expect: syntax\n  insert List name: \"x\"\n\nview ok():\n  // expect: syntax\n  <Column><Text>unclosed</Column>\n",
+    "/invalid/uses.view": "// Uses that don't resolve.\n// expect: use-not-found\nuse \"nowhere.view\"\n// expect: use-cycle\nuse \"cycle.view\"\n// expect: ambiguous-use\nuse \"../supplies/parts/cards.view\"\nuse \"more-cards.view\"\n\nview():\n  <Text>hi</Text>\n",
+    "/supplies/Home.view": "// Supplies' home page: the most liked public lists.\nuse \"data/schema.usl\"\nuse \"parts/cards.view\"\n\nview():\n  <Shell title=\"Meaning Supplies\" subtitle=\"a directory of social practices\">\n    <Section title=\"Popular lists\">\n      <Grid columns={2}>\n        <ListCard list={l}\n          for={l in List} where={l.visibility == \"Public\"}\n          orderBy={count(l.reactions) desc} limit={12} />\n      </Grid>\n    </Section>\n  </Shell>\n",
+    "/supplies/List.view": "// One list: its curators, a like button, and its practices with this list's tags.\nuse \"data/schema.usl\"\nuse \"parts/cards.view\"\nuse \"actions.view\"\n\nview(id):\n  <Shell title={l.name}\n    for={l in List} where={l.id == id}\n    fallback={<Shell title=\"List unavailable\" />}>\n\n    <Row slot=\"subtitle\">\n      <Text style=\"secondary\">a list by</Text>\n      <Avatar person={l.owner} />\n      <Avatar person={c}\n        for={c in l.contributors.person} where={c != l.owner}\n        orderBy={c.name} />\n    </Row>\n\n    <Button slot=\"actions\" action={toggleListReaction(l: l)}\n      where={l.visibility == \"Public\", me != null}>\n      👍 {count(l.reactions)}\n    </Button>\n\n    <Markdown source={l.about} />\n\n    <Grid columns={3}>\n      <Column for={i in l.items}>\n        <PracticeCard p={i.practice} />\n        <Row>\n          <Badge color={t.color} for={t in i.practice.tags} where={t.list == l}>{t.name}</Badge>\n        </Row>\n      </Column>\n    </Grid>\n  </Shell>\n",
+    "/supplies/Practices.view": "// Search and sort practices. The search text is state, so it never leaves the device:\n// the host returns every practice and the client filters them.\nuse \"data/schema.usl\"\nuse \"parts/cards.view\"\n\nview():\n  state q = \"\"\n  keep sortBy = \"name\"\n\n  <Shell title=\"Practices\">\n    <Row slot=\"actions\">\n      <TextField value={q} placeholder=\"Search\" />\n      <Button action={set(sortBy, \"name\")} selected={sortBy == \"name\"}>A–Z</Button>\n      <Button action={set(sortBy, \"authors\")} selected={sortBy == \"authors\"}>Most authors</Button>\n    </Row>\n    <Grid columns={3}>\n      <PracticeCard p={p}\n        for={p in Practice} where={q == \"\" or q in p.name}\n        orderBy={sortBy == \"name\" ? p.name : count(p.authors) desc}\n        fallback={<Text style=\"secondary\">No practices match “{q}”.</Text>} />\n    </Grid>\n  </Shell>\n",
+    "/supplies/Profile.view": "// A person's page. Who may see a list is the List model's read rule, which the host\n// applies to every read, so views don't repeat it.\nuse \"data/schema.usl\"\nuse \"parts/cards.view\"\n\ncuratedBy(l, person): l.owner == person or person in l.contributors.person\n\nview(id):\n  <Shell title={person.name} subtitle=\"@{person.handle}\"\n    for={person in Person} where={person.id == id}\n    fallback={<Shell title=\"Profile not found\" />}>\n\n    <Section title=\"Practices\">\n      <Grid columns={3}>\n        <PracticeCard p={p}\n          for={p in Practice} where={person in p.authors}\n          orderBy={p.name} />\n      </Grid>\n    </Section>\n\n    <Section title=\"Lists featuring their practices\">\n      <Grid columns={2}>\n        <ListCard list={l} for={l in List} where={person in l.items.practice.authors} />\n      </Grid>\n    </Section>\n\n    <Section title=\"Lists they curate\">\n      <Grid columns={2}>\n        <ListCard list={l}\n          for={l in List} where={curatedBy(l, person)}\n          orderBy={l.name} />\n      </Grid>\n    </Section>\n\n    <Section title=\"Collaborators\">\n      <Row>\n        <Avatar person={other}\n          for={p in Practice, other in p.authors} where={person in p.authors, other != person}\n          orderBy={other.name} />\n      </Row>\n    </Section>\n\n    <Section title=\"Who wrote what with them\">\n      <Text for={p in Practice, other in p.authors} where={person in p.authors, other != person}>\n        {other.name} on {p.name}\n      </Text>\n    </Section>\n  </Shell>\n",
+    "/supplies/Today.md": "---\ndate: 2026-11-11\n---\n\n# Today\n\nA page with view blocks. Each block's element draws where the block sits.\n\n```view\n<Text>{count(c in page.children where c.done)} of {count(page.children)} done</Text>\n```\n\n```view\nview Late():\n  <Column>\n    <Text for={c in page.children} where={not c.done, c.due < page.date}>{c.name}</Text>\n  </Column>\n```\n\n```view\nuse \"List.view\"\n<List id=\"42\" />\n```\n",
+    "/supplies/actions.view": "// Supplies' 13 mutations (the TypeScript in examples/supplies/scripts/mutations.ts).\n// A mutation's statements all read the state from before it, and together make one set\n// of row operations, so their order doesn't matter. A parameter typed with a model\n// arrives as a key and is resolved to its row, or the mutation fails with not-found.\n// Rows' created and modified times are set by accepted changes, not here.\nuse \"data/schema.usl\"\n\neditor(l): l.owner == me or l.openToEdits\n\n// ------------------------------------------------------------- shared steps\n\nmutation recordContributor(l: List):\n  when l.owner != me\n    upsert Contribution { list: l, person: me }\n      create { first: today, last: today }\n      update { last: today }\n\n// ------------------------------------------------------------- lists\n\nmutation createList(name: Text, visibility: Visibility):\n  require me != null else user-required \"This operation requires a Story user\"\n  let l = insert List { owner: me, name: name, visibility: visibility, kind: \"Standard\",\n                        openToEdits: false }\n  return { id: l.id }\n\nmutation renameList(l: List, name: Text):\n  require editor(l)     else permission-denied \"You cannot edit this list\"\n  require l.owner == me else permission-denied \"Only the owner can rename this list\"\n  update l { name: name }\n\nmutation setListSharing(l: List, visibility: Visibility, openToEdits: Bool):\n  require l.owner == me else permission-denied \"Only the owner can change sharing\"\n  update l { visibility: visibility, openToEdits: openToEdits }\n\nmutation setListKind(l: List, kind: ListKind):\n  require l.owner == me else permission-denied \"Only the owner can change the list kind\"\n  update l { kind: kind }\n\nmutation toggleListReaction(l: List):\n  require me != null               else user-required \"This operation requires a Story user\"\n  require l.visibility == \"Public\" else not-found \"Only public lists can be liked\"\n  // both lines read the snapshot, so exactly one of them acts\n  delete r for r in l.reactions where r.person == me\n  insert Reaction { list: l, person: me, emoji: \"👍\" } where me not in l.reactions.person\n  return { reacted: me not in l.reactions.person }\n\nmutation duplicateList(original: List):\n  require me != null else user-required \"This operation requires a Story user\"\n  require original.visibility == \"Public\" or original.owner == me else not-found \"List not found\"\n  let copy = insert List { owner: me, name: \"Copy of \" + original.name, about: original.about,\n                           visibility: original.visibility, kind: \"Standard\", openToEdits: false }\n  append i.practice to copy.items for i in original.items\n  return { id: copy.id }\n\n// ------------------------------------------------------------- membership and order\n\nmutation setListPractice(l: List, p: Practice, included: Bool):\n  require editor(l) else permission-denied \"You cannot edit this list\"\n  when included and p not in l.items.practice\n    append p to l.items\n    do recordContributor(l)\n  when not included and p in l.items.practice\n    remove p from l.items\n    do recordContributor(l)\n\nmutation reorderList(l: List, practices: Practice[]):\n  require editor(l) else permission-denied \"You cannot edit this list\"\n  reorder l.items to practices\n  do recordContributor(l)\n\n// ------------------------------------------------------------- tags\n\nmutation createListTag(l: List, name: Text, color: Text?):\n  require l.owner == me else permission-denied \"Only the owner can create tags\"\n  let t = insert Tag { list: l, name: name, color: color }\n  return { id: t.id }\n\nmutation deleteListTag(l: List, t: Tag):\n  require l.owner == me else permission-denied \"Only the owner can delete tags\"\n  require t.list == l   else not-found \"Tag not found\"\n  delete t  // its taggings go with it: a USL cascade, not mutation code\n\nmutation setPracticeTag(l: List, p: Practice, t: Tag, included: Bool):\n  require editor(l)             else permission-denied \"You cannot edit this list\"\n  require p in l.items.practice else invalid-input \"The practice is not on this list\"\n  when included and p not in t.practices\n    append p to t.practices\n    do recordContributor(l)\n  when not included and p in t.practices\n    remove p from t.practices\n    do recordContributor(l)\n\n// ------------------------------------------------------------- practices\n\nmutation createPractice(name: Text, about: Markdown, addToList: List?):\n  require me != null else user-required \"This operation requires a Story user\"\n  require addToList == null or editor(addToList) else permission-denied \"You cannot edit this list\"\n  let p = insert Practice { name: name, about: about, authors: [me] }\n  when addToList != null\n    append p to addToList.items\n    do recordContributor(addToList)\n  return { id: p.id }\n\nmutation updatePractice(p: Practice, name: Text, about: Markdown):\n  require me != null else user-required \"This operation requires a Story user\"\n  require count(p.authors) == 0 or me in p.authors else permission-denied \"Only an author can edit this practice\"\n  update p { name: name, about: about }\n",
+    "/supplies/data/schema.usl": "// Supplies: lists of practices, with tags, reactions and contributors.\n// The tables are named as USL lays them out (`List`, `Item`, ...); run\n// `usl sql sqlite schema.usl` for the setup SQL. Who may edit a list (its\n// owner, or anyone when openToEdits) is access policy, not schema.\n\nmain model List {\n  name        Text\n  about       Markdown?\n  visibility  Visibility\n  kind        ListKind\n  openToEdits Bool    // was allow_arbor_user_edits\n  owner       Person  // was owner_profile\n  items       Item[]  // cross-references, declared below\n  tags        Tag[]\n\n  @index(owner, modified)  // my lists, newest first\n}\n\n{ List.owner, Person.ownedLists[] }\n{ List.visibility, Visibility.lists[] }\n{ List.kind, ListKind.lists[] }\n\nmodel Practice {\n  name    unique Text  // no two practices share a name\n  about   Markdown?\n  authors Person[]     // cross-reference\n}\n\n// practice_authors\n{ Practice.authors[], Person.practices[] }\n\n// list_practices: a named connection, because tags hang off it.\nmodel Item {\n  ordered List.items[]  // position column, per list\n  Practice.items[]\n}\n\n// list_tags: a tag's id is unique only within its list, so the list is part\n// of its key.\nmodel Tag (list, id) {\n  name  Text\n  color Text?  // data, since people add tags\n}\n\n{ Tag.list, List.tags[] }\n\n// practice_tags: tags connect to the practice, not the list item. A tag\n// belongs to one list, so a tagging can't cross lists. Unlike the SQL, a\n// practice removed from a list keeps its tags there, and gets them back if\n// re-added.\n{ Tag.practices[], Practice.tags[] }\n\n// list_reactions: one emoji per person per list.\nmodel Reaction {\n  List.reactions[]\n  Person.reactions[]\n  emoji Text\n}\n\n// list_contributors\nmodel Contribution {\n  List.contributors[]\n  Person.contributions[]\n  first Date\n  last  Date\n}\n\nenum Visibility { Public, Private }\n\nenum ListKind { Standard, Tagged }\n\nre Tag {\n  color ~color  // the field that holds each tag's color\n}\n",
+    "/supplies/parts/cards.view": "// Views drawn as elements by the pages above.\nuse \"../data/schema.usl\"\n\nview ListCard(list: List):\n  <Card>\n    <Row>\n      <Link style=\"heading\" to=\"List?id={list.id}\">{list.name}</Link>\n      <Text style=\"secondary\">{count(list.items)} practices</Text>\n    </Row>\n    <Markdown source={list.about} />\n    <Row>\n      <Avatar person={list.owner} />\n      <Text>👍 {count(list.reactions)}</Text>\n    </Row>\n  </Card>\n\nview PracticeCard(p: Practice):\n  <Card>\n    <Link style=\"heading\" to=\"Practice?id={p.id}\">{p.name}</Link>\n    <Row>\n      <Text style=\"secondary\">by</Text>\n      <Avatar person={a} for={a in p.authors} orderBy={a.name} />\n    </Row>\n    <Markdown source={p.about} lines={6} />\n  </Card>\n\nview Avatar(person: Person):\n  <Link to=\"Profile?id={person.id}\">\n    <Portrait src={person.portrait} name={person.name} />\n    {person.name}\n  </Link>\n"
+  },
+  "cases": [
+    {
+      "path": "/invalid/cycle.view",
+      "diagnostics": [
+        {
+          "line": 2,
+          "column": 1,
+          "code": "use-cycle"
+        }
+      ],
+      "views": [],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/elements.view",
+      "diagnostics": [
+        {
+          "line": 10,
+          "column": 6,
+          "code": "missing-attribute"
+        },
+        {
+          "line": 12,
+          "column": 25,
+          "code": "unknown-attribute"
+        },
+        {
+          "line": 14,
+          "column": 22,
+          "code": "type-mismatch"
+        },
+        {
+          "line": 18,
+          "column": 7,
+          "code": "limit-reads-state"
+        },
+        {
+          "line": 20,
+          "column": 38,
+          "code": "not-a-condition"
+        },
+        {
+          "line": 22,
+          "column": 40,
+          "code": "not-a-collection"
+        },
+        {
+          "line": 24,
+          "column": 25,
+          "code": "set-target"
+        },
+        {
+          "line": 26,
+          "column": 11,
+          "code": "fallback-element"
+        }
+      ],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [
+            {
+              "name": "q",
+              "kind": "state"
+            }
+          ],
+          "events": [],
+          "plan": {
+            "type": "PracticeCard",
+            "at": "10:5",
+            "draws": {
+              "view": "PracticeCard",
+              "from": "/supplies/parts/cards.view",
+              "args": {}
+            }
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/more-cards.view",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "Avatar",
+          "params": [
+            {
+              "name": "person",
+              "type": "Person",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Text",
+            "at": "5:3",
+            "reads": [
+              {
+                "path": {
+                  "param": "person"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/mutations.view",
+      "diagnostics": [
+        {
+          "line": 6,
+          "column": 14,
+          "code": "implicit-field"
+        },
+        {
+          "line": 8,
+          "column": 10,
+          "code": "missing-field"
+        },
+        {
+          "line": 10,
+          "column": 23,
+          "code": "upsert-key"
+        },
+        {
+          "line": 14,
+          "column": 11,
+          "code": "not-ordered"
+        },
+        {
+          "line": 16,
+          "column": 10,
+          "code": "type-mismatch"
+        },
+        {
+          "line": 19,
+          "column": 14,
+          "code": "conflicting-writes"
+        },
+        {
+          "line": 22,
+          "column": 3,
+          "code": "return-twice"
+        },
+        {
+          "line": 25,
+          "column": 31,
+          "code": "row-action"
+        }
+      ],
+      "views": [],
+      "mutations": [
+        {
+          "name": "bad",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "model": "Contribution",
+              "fields": [
+                "first",
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "append",
+              "model": "Item",
+              "relationship": "List.items"
+            },
+            {
+              "op": "update",
+              "model": "List",
+              "fields": [
+                "modified",
+                "name"
+              ]
+            },
+            {
+              "op": "reorder",
+              "model": "Person",
+              "relationship": "Practice.authors"
+            },
+            {
+              "op": "insert",
+              "model": "Tag",
+              "fields": [
+                "name"
+              ]
+            }
+          ],
+          "reads": [
+            "List",
+            "Practice"
+          ]
+        },
+        {
+          "name": "edit",
+          "params": [
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "rowAction": {
+            "model": "List",
+            "op": "edit"
+          },
+          "writes": [],
+          "reads": []
+        }
+      ]
+    },
+    {
+      "path": "/invalid/names.view",
+      "diagnostics": [
+        {
+          "line": 4,
+          "column": 51,
+          "code": "unknown-pick"
+        },
+        {
+          "line": 7,
+          "column": 1,
+          "code": "builtin-name"
+        },
+        {
+          "line": 12,
+          "column": 12,
+          "code": "unknown-name"
+        },
+        {
+          "line": 14,
+          "column": 14,
+          "code": "unknown-field"
+        },
+        {
+          "line": 16,
+          "column": 34,
+          "code": "enum-value"
+        },
+        {
+          "line": 18,
+          "column": 16,
+          "code": "duplicate-name"
+        },
+        {
+          "line": 20,
+          "column": 12,
+          "code": "no-clock"
+        },
+        {
+          "line": 22,
+          "column": 6,
+          "code": "unknown-element"
+        },
+        {
+          "line": 26,
+          "column": 1,
+          "code": "two-unnamed-views"
+        }
+      ],
+      "views": [
+        {
+          "name": "",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Column",
+            "at": "10:3",
+            "for": [
+              {
+                "name": "l",
+                "source": {
+                  "model": "List"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "id"
+                    ]
+                  },
+                  {
+                    "param": "id"
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "l"
+            ],
+            "children": [
+              {
+                "type": "Text",
+                "at": "12:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "nobody"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "at": "14:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "colour"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "at": "16:5",
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "visibility"
+                        ]
+                      },
+                      {
+                        "value": "Hidden"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "at": "18:5",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "expandsBy": [
+                  "l"
+                ],
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": null
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/rules.view",
+      "diagnostics": [
+        {
+          "line": 5,
+          "column": 1,
+          "code": "rule-recursion"
+        }
+      ],
+      "views": [],
+      "mutations": []
+    },
+    {
+      "path": "/invalid/syntax.view",
+      "diagnostics": [
+        {
+          "line": 2,
+          "column": 6,
+          "code": "syntax"
+        },
+        {
+          "line": 7,
+          "column": 15,
+          "code": "syntax"
+        },
+        {
+          "line": 11,
+          "column": 25,
+          "code": "syntax"
+        }
+      ],
+      "views": [],
+      "mutations": [
+        {
+          "name": "m",
+          "params": [],
+          "writes": [],
+          "reads": []
+        }
+      ]
+    },
+    {
+      "path": "/invalid/uses.view",
+      "diagnostics": [
+        {
+          "line": 3,
+          "column": 1,
+          "code": "use-not-found"
+        },
+        {
+          "line": 5,
+          "column": 1,
+          "code": "use-cycle"
+        },
+        {
+          "line": 8,
+          "column": 1,
+          "code": "ambiguous-use"
+        }
+      ],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": null
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Home.view",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "ListCard",
+            "at": "9:9",
+            "for": [
+              {
+                "name": "l",
+                "source": {
+                  "model": "List"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "visibility"
+                    ]
+                  },
+                  {
+                    "value": "Public"
+                  }
+                ]
+              }
+            ],
+            "orderBy": [
+              {
+                "value": {
+                  "call": "count",
+                  "args": [
+                    {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "reactions"
+                      ]
+                    }
+                  ]
+                },
+                "desc": true
+              }
+            ],
+            "limit": {
+              "value": 12
+            },
+            "expandsBy": [
+              "l"
+            ],
+            "draws": {
+              "view": "ListCard",
+              "from": "/supplies/parts/cards.view",
+              "args": {
+                "list": {
+                  "name": "l"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/List.view",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Shell",
+            "at": "7:3",
+            "for": [
+              {
+                "name": "l",
+                "source": {
+                  "model": "List"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "id"
+                    ]
+                  },
+                  {
+                    "param": "id"
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "l"
+            ],
+            "reads": [
+              {
+                "path": {
+                  "name": "l"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ],
+            "children": [
+              {
+                "type": "Avatar",
+                "at": "13:7",
+                "draws": {
+                  "view": "Avatar",
+                  "from": "/supplies/parts/cards.view",
+                  "args": {
+                    "person": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "owner"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Avatar",
+                "at": "14:7",
+                "for": [
+                  {
+                    "name": "c",
+                    "source": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "contributors",
+                        "person"
+                      ]
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "!=",
+                    "args": [
+                      {
+                        "name": "c"
+                      },
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "owner"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "c"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    "desc": false
+                  }
+                ],
+                "expandsBy": [
+                  "c"
+                ],
+                "draws": {
+                  "view": "Avatar",
+                  "from": "/supplies/parts/cards.view",
+                  "args": {
+                    "person": {
+                      "name": "c"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Button",
+                "at": "19:5",
+                "where": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "visibility"
+                        ]
+                      },
+                      {
+                        "value": "Public"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "!=",
+                    "args": [
+                      {
+                        "builtin": "me"
+                      },
+                      {
+                        "value": null
+                      }
+                    ]
+                  }
+                ],
+                "reads": [
+                  {
+                    "call": "count",
+                    "args": [
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "reactions"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Markdown",
+                "at": "24:5",
+                "reads": [
+                  {
+                    "path": {
+                      "name": "l"
+                    },
+                    "fields": [
+                      "about"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "at": "27:7",
+                "for": [
+                  {
+                    "name": "i",
+                    "source": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "items"
+                      ]
+                    }
+                  }
+                ],
+                "expandsBy": [
+                  "i"
+                ],
+                "children": [
+                  {
+                    "type": "PracticeCard",
+                    "at": "28:9",
+                    "draws": {
+                      "view": "PracticeCard",
+                      "from": "/supplies/parts/cards.view",
+                      "args": {
+                        "p": {
+                          "path": {
+                            "name": "i"
+                          },
+                          "fields": [
+                            "practice"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "Badge",
+                    "at": "30:11",
+                    "for": [
+                      {
+                        "name": "t",
+                        "source": {
+                          "path": {
+                            "name": "i"
+                          },
+                          "fields": [
+                            "practice",
+                            "tags"
+                          ]
+                        }
+                      }
+                    ],
+                    "where": [
+                      {
+                        "op": "==",
+                        "args": [
+                          {
+                            "path": {
+                              "name": "t"
+                            },
+                            "fields": [
+                              "list"
+                            ]
+                          },
+                          {
+                            "name": "l"
+                          }
+                        ]
+                      }
+                    ],
+                    "expandsBy": [
+                      "t"
+                    ],
+                    "reads": [
+                      {
+                        "path": {
+                          "name": "t"
+                        },
+                        "fields": [
+                          "color"
+                        ]
+                      },
+                      {
+                        "path": {
+                          "name": "t"
+                        },
+                        "fields": [
+                          "name"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Practices.view",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [],
+          "state": [
+            {
+              "name": "q",
+              "kind": "state"
+            },
+            {
+              "name": "sortBy",
+              "kind": "keep"
+            }
+          ],
+          "events": [],
+          "plan": {
+            "type": "PracticeCard",
+            "at": "17:7",
+            "for": [
+              {
+                "name": "p",
+                "source": {
+                  "model": "Practice"
+                }
+              }
+            ],
+            "clientWhere": [
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      {
+                        "state": "q"
+                      },
+                      {
+                        "value": ""
+                      }
+                    ]
+                  },
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "state": "q"
+                      },
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "name"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "clientOrderBy": [
+              {
+                "value": {
+                  "op": "?:",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "state": "sortBy"
+                        },
+                        {
+                          "value": "name"
+                        }
+                      ]
+                    },
+                    {
+                      "path": {
+                        "name": "p"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    {
+                      "call": "count",
+                      "args": [
+                        {
+                          "path": {
+                            "name": "p"
+                          },
+                          "fields": [
+                            "authors"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "desc": true
+              }
+            ],
+            "expandsBy": [
+              "p"
+            ],
+            "draws": {
+              "view": "PracticeCard",
+              "from": "/supplies/parts/cards.view",
+              "args": {
+                "p": {
+                  "name": "p"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Profile.view",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "",
+          "params": [
+            {
+              "name": "id",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Shell",
+            "at": "9:3",
+            "for": [
+              {
+                "name": "person",
+                "source": {
+                  "model": "Person"
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "path": {
+                      "name": "person"
+                    },
+                    "fields": [
+                      "id"
+                    ]
+                  },
+                  {
+                    "param": "id"
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "person"
+            ],
+            "reads": [
+              {
+                "path": {
+                  "name": "person"
+                },
+                "fields": [
+                  "name"
+                ]
+              },
+              {
+                "path": {
+                  "name": "person"
+                },
+                "fields": [
+                  "handle"
+                ]
+              }
+            ],
+            "children": [
+              {
+                "type": "PracticeCard",
+                "at": "15:9",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "name": "person"
+                      },
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "authors"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "p"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    "desc": false
+                  }
+                ],
+                "expandsBy": [
+                  "p"
+                ],
+                "draws": {
+                  "view": "PracticeCard",
+                  "from": "/supplies/parts/cards.view",
+                  "args": {
+                    "p": {
+                      "name": "p"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "ListCard",
+                "at": "23:9",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "name": "person"
+                      },
+                      {
+                        "path": {
+                          "name": "l"
+                        },
+                        "fields": [
+                          "items",
+                          "practice",
+                          "authors"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "expandsBy": [
+                  "l"
+                ],
+                "draws": {
+                  "view": "ListCard",
+                  "from": "/supplies/parts/cards.view",
+                  "args": {
+                    "list": {
+                      "name": "l"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "ListCard",
+                "at": "29:9",
+                "for": [
+                  {
+                    "name": "l",
+                    "source": {
+                      "model": "List"
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "or",
+                    "args": [
+                      {
+                        "op": "==",
+                        "args": [
+                          {
+                            "path": {
+                              "name": "l"
+                            },
+                            "fields": [
+                              "owner"
+                            ]
+                          },
+                          {
+                            "name": "person"
+                          }
+                        ]
+                      },
+                      {
+                        "op": "in",
+                        "args": [
+                          {
+                            "name": "person"
+                          },
+                          {
+                            "path": {
+                              "name": "l"
+                            },
+                            "fields": [
+                              "contributors",
+                              "person"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "l"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    "desc": false
+                  }
+                ],
+                "expandsBy": [
+                  "l"
+                ],
+                "draws": {
+                  "view": "ListCard",
+                  "from": "/supplies/parts/cards.view",
+                  "args": {
+                    "list": {
+                      "name": "l"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Avatar",
+                "at": "37:9",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  },
+                  {
+                    "name": "other",
+                    "source": {
+                      "path": {
+                        "name": "p"
+                      },
+                      "fields": [
+                        "authors"
+                      ]
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "name": "person"
+                      },
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "authors"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "!=",
+                    "args": [
+                      {
+                        "name": "other"
+                      },
+                      {
+                        "name": "person"
+                      }
+                    ]
+                  }
+                ],
+                "orderBy": [
+                  {
+                    "value": {
+                      "path": {
+                        "name": "other"
+                      },
+                      "fields": [
+                        "name"
+                      ]
+                    },
+                    "desc": false
+                  }
+                ],
+                "expandsBy": [
+                  "other"
+                ],
+                "draws": {
+                  "view": "Avatar",
+                  "from": "/supplies/parts/cards.view",
+                  "args": {
+                    "person": {
+                      "name": "other"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Text",
+                "at": "44:7",
+                "for": [
+                  {
+                    "name": "p",
+                    "source": {
+                      "model": "Practice"
+                    }
+                  },
+                  {
+                    "name": "other",
+                    "source": {
+                      "path": {
+                        "name": "p"
+                      },
+                      "fields": [
+                        "authors"
+                      ]
+                    }
+                  }
+                ],
+                "where": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "name": "person"
+                      },
+                      {
+                        "path": {
+                          "name": "p"
+                        },
+                        "fields": [
+                          "authors"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "!=",
+                    "args": [
+                      {
+                        "name": "other"
+                      },
+                      {
+                        "name": "person"
+                      }
+                    ]
+                  }
+                ],
+                "expandsBy": [
+                  "p",
+                  "other"
+                ],
+                "reads": [
+                  {
+                    "path": {
+                      "name": "other"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  },
+                  {
+                    "path": {
+                      "name": "p"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/Today.md",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "#1",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Text",
+            "at": "19:1",
+            "reads": [
+              {
+                "call": "count",
+                "over": {
+                  "name": "c",
+                  "source": {
+                    "path": {
+                      "builtin": "page"
+                    },
+                    "fields": [
+                      "children"
+                    ]
+                  }
+                },
+                "where": [
+                  {
+                    "path": {
+                      "name": "c"
+                    },
+                    "fields": [
+                      "done"
+                    ]
+                  }
+                ]
+              },
+              {
+                "call": "count",
+                "args": [
+                  {
+                    "path": {
+                      "builtin": "page"
+                    },
+                    "fields": [
+                      "children"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "Late",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Text",
+            "at": "16:5",
+            "for": [
+              {
+                "name": "c",
+                "source": {
+                  "path": {
+                    "builtin": "page"
+                  },
+                  "fields": [
+                    "children"
+                  ]
+                }
+              }
+            ],
+            "where": [
+              {
+                "op": "not",
+                "args": [
+                  {
+                    "path": {
+                      "name": "c"
+                    },
+                    "fields": [
+                      "done"
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "<",
+                "args": [
+                  {
+                    "path": {
+                      "name": "c"
+                    },
+                    "fields": [
+                      "due"
+                    ]
+                  },
+                  {
+                    "path": {
+                      "builtin": "page"
+                    },
+                    "fields": [
+                      "date"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "expandsBy": [
+              "c"
+            ],
+            "reads": [
+              {
+                "path": {
+                  "name": "c"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "#2",
+          "params": [],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "List",
+            "at": "42:1",
+            "draws": {
+              "view": "List",
+              "from": "/supplies/List.view",
+              "args": {
+                "id": {
+                  "text": [
+                    "42"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "mutations": []
+    },
+    {
+      "path": "/supplies/actions.view",
+      "diagnostics": [],
+      "views": [],
+      "mutations": [
+        {
+          "name": "recordContributor",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "model": "Contribution",
+              "fields": [
+                "first",
+                "last",
+                "list",
+                "person"
+              ]
+            }
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "createList",
+          "params": [
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            },
+            {
+              "name": "visibility",
+              "type": "Visibility",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "insert",
+              "model": "List",
+              "fields": [
+                "kind",
+                "name",
+                "openToEdits",
+                "owner",
+                "visibility"
+              ]
+            }
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "renameList",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "model": "List",
+              "fields": [
+                "name"
+              ]
+            }
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "setListSharing",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "visibility",
+              "type": "Visibility",
+              "arity": "one"
+            },
+            {
+              "name": "openToEdits",
+              "type": "Bool",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "model": "List",
+              "fields": [
+                "openToEdits",
+                "visibility"
+              ]
+            }
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "setListKind",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "kind",
+              "type": "ListKind",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "model": "List",
+              "fields": [
+                "kind"
+              ]
+            }
+          ],
+          "reads": [
+            "List"
+          ]
+        },
+        {
+          "name": "toggleListReaction",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "delete",
+              "model": "Reaction"
+            },
+            {
+              "op": "insert",
+              "model": "Reaction",
+              "fields": [
+                "emoji",
+                "list",
+                "person"
+              ]
+            }
+          ],
+          "reads": [
+            "List",
+            "Reaction"
+          ]
+        },
+        {
+          "name": "duplicateList",
+          "params": [
+            {
+              "name": "original",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "append",
+              "model": "Item",
+              "relationship": "List.items"
+            },
+            {
+              "op": "insert",
+              "model": "List",
+              "fields": [
+                "about",
+                "kind",
+                "name",
+                "openToEdits",
+                "owner",
+                "visibility"
+              ]
+            }
+          ],
+          "reads": [
+            "Item",
+            "List"
+          ]
+        },
+        {
+          "name": "setListPractice",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            },
+            {
+              "name": "included",
+              "type": "Bool",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "model": "Contribution",
+              "fields": [
+                "first",
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "append",
+              "model": "Item",
+              "relationship": "List.items"
+            },
+            {
+              "op": "remove",
+              "model": "Item",
+              "relationship": "List.items"
+            }
+          ],
+          "reads": [
+            "Item",
+            "List",
+            "Practice"
+          ]
+        },
+        {
+          "name": "reorderList",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "practices",
+              "type": "Practice",
+              "arity": "many"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "model": "Contribution",
+              "fields": [
+                "first",
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "reorder",
+              "model": "Item",
+              "relationship": "List.items"
+            }
+          ],
+          "reads": [
+            "List",
+            "Practice"
+          ]
+        },
+        {
+          "name": "createListTag",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            },
+            {
+              "name": "color",
+              "type": "Text",
+              "arity": "optional"
+            }
+          ],
+          "writes": [
+            {
+              "op": "insert",
+              "model": "Tag",
+              "fields": [
+                "color",
+                "list",
+                "name"
+              ]
+            }
+          ],
+          "reads": [
+            "List",
+            "Tag"
+          ]
+        },
+        {
+          "name": "deleteListTag",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "t",
+              "type": "Tag",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "delete",
+              "model": "Tag"
+            }
+          ],
+          "reads": [
+            "List",
+            "Tag"
+          ]
+        },
+        {
+          "name": "setPracticeTag",
+          "params": [
+            {
+              "name": "l",
+              "type": "List",
+              "arity": "one"
+            },
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            },
+            {
+              "name": "t",
+              "type": "Tag",
+              "arity": "one"
+            },
+            {
+              "name": "included",
+              "type": "Bool",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "model": "Contribution",
+              "fields": [
+                "first",
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "append",
+              "model": "Practice",
+              "relationship": "Tag.practices"
+            },
+            {
+              "op": "remove",
+              "model": "Practice",
+              "relationship": "Tag.practices"
+            }
+          ],
+          "reads": [
+            "Item",
+            "List",
+            "Practice",
+            "Tag"
+          ]
+        },
+        {
+          "name": "createPractice",
+          "params": [
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            },
+            {
+              "name": "about",
+              "type": "Markdown",
+              "arity": "one"
+            },
+            {
+              "name": "addToList",
+              "type": "List",
+              "arity": "optional"
+            }
+          ],
+          "writes": [
+            {
+              "op": "upsert",
+              "model": "Contribution",
+              "fields": [
+                "first",
+                "last",
+                "list",
+                "person"
+              ]
+            },
+            {
+              "op": "append",
+              "model": "Item",
+              "relationship": "List.items"
+            },
+            {
+              "op": "insert",
+              "model": "Practice",
+              "fields": [
+                "about",
+                "authors",
+                "name"
+              ]
+            }
+          ],
+          "reads": [
+            "List",
+            "Practice"
+          ]
+        },
+        {
+          "name": "updatePractice",
+          "params": [
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            },
+            {
+              "name": "name",
+              "type": "Text",
+              "arity": "one"
+            },
+            {
+              "name": "about",
+              "type": "Markdown",
+              "arity": "one"
+            }
+          ],
+          "writes": [
+            {
+              "op": "update",
+              "model": "Practice",
+              "fields": [
+                "about",
+                "name"
+              ]
+            }
+          ],
+          "reads": [
+            "Practice"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "/supplies/parts/cards.view",
+      "diagnostics": [],
+      "views": [
+        {
+          "name": "ListCard",
+          "params": [
+            {
+              "name": "list",
+              "type": "List",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Link",
+            "at": "7:7",
+            "reads": [
+              {
+                "path": {
+                  "param": "list"
+                },
+                "fields": [
+                  "id"
+                ]
+              },
+              {
+                "path": {
+                  "param": "list"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "PracticeCard",
+          "params": [
+            {
+              "name": "p",
+              "type": "Practice",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Link",
+            "at": "19:5",
+            "reads": [
+              {
+                "path": {
+                  "param": "p"
+                },
+                "fields": [
+                  "id"
+                ]
+              },
+              {
+                "path": {
+                  "param": "p"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "Avatar",
+          "params": [
+            {
+              "name": "person",
+              "type": "Person",
+              "arity": "one"
+            }
+          ],
+          "state": [],
+          "events": [],
+          "plan": {
+            "type": "Link",
+            "at": "28:3",
+            "reads": [
+              {
+                "path": {
+                  "param": "person"
+                },
+                "fields": [
+                  "id"
+                ]
+              },
+              {
+                "path": {
+                  "param": "person"
+                },
+                "fields": [
+                  "name"
+                ]
+              }
+            ],
+            "children": [
+              {
+                "type": "Portrait",
+                "at": "29:5",
+                "reads": [
+                  {
+                    "path": {
+                      "param": "person"
+                    },
+                    "fields": [
+                      "portrait"
+                    ]
+                  },
+                  {
+                    "path": {
+                      "param": "person"
+                    },
+                    "fields": [
+                      "name"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "mutations": []
+    }
+  ]
+}
