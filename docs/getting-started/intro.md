@@ -178,7 +178,7 @@ A folder of similar pages is already almost a database. Think past meeting
 agendas, each with a date and attendees in its front matter. Add a
 `schema.usl` beside them and it becomes one: a typed collection you can
 query, written in a small schema language
-([USL](../overstory-spec/11-schema-language.md)):
+([USL](../overstory-spec/1.5-schema-language.md)):
 
 ```text
 // essays/schema.usl
@@ -200,55 +200,68 @@ row is a web page too.
 # Put little apps in it
 
 Since these trees are on the web anyway, you should be able to put little
-apps inside them, right next to the data. That's the next piece being built,
-and it's where the security model gets interesting.
+apps inside them, right next to the data. Here's what that looks like.
+
+An app is just more files in the tree. A view is a `.tsx` file whose default
+export reads rows and returns what to draw:
+
+```tsx
+// views/reading-room.tsx
+import { node, view } from "overstory/data"
+import { Button, Column, Link, Row, Text } from "overstory/ui"
+import { z } from "zod"
+import { recommend } from "../mutations.ts"
+
+const Essay = node("../essays").children
+
+export default view(z.object({ status: z.string().default("published") }), ({ status }) =>
+  <Column>
+    {Essay.all(e => [e.status.is(status)]).map(e =>
+      <Row key={e.id}>
+        <Link href={`../essays/${e.id}`}>{e.title}</Link>
+        <Text style="secondary">{e.date}</Text>
+        <Button action={recommend({ essay: e.id })}>Recommend</Button>
+      </Row>)}
+  </Column>)
+```
+
+To use it, put a link to it on a line by itself in any page:
+
+```md
+[](views/reading-room.tsx?status=draft)
+```
+
+and it draws right there, live. The query string is its input. There's no
+route table and no app manifest: the file's path is its address, the same
+spelling you import, embed, link to, or fetch.
+
+It isn't React, and there's no web view. The JSX builds a plain tree of
+`Column`, `Row`, `Text` and `Button`, which Story draws natively on the Mac
+and iPhone and a browser gets as HTML. You also never write a query. The
+facts inside `Essay.all(…)` are the narrowing, and the host works out the
+whole plan by tracing what the view reads. The view's own code then runs on
+your device over the rows that come back, so a tap or a picker redraws it
+without a round trip. It's live by default: when the tree changes, the rows
+change, and the view redraws. On a tree you've placed, it all runs against
+your local copy.
+
+Then there's the security model, where this gets interesting.
 
 The web's answer to hostile code is the same-origin sandbox: code is trusted
 or distrusted *by site*. That's why your data has to live on the app's
 site, under its account system, behind its private API. And it's why
 combining data from two sources is a nightmare of CORS, OAuth, and API keys.
 
-Here, code arrives with no network and no file system. Instead it states
-what it reads and writes, in terms of trees, and the runtime enforces
-exactly that. "This component reads `essays` and appends to `submissions`."
-The write set can just as easily name a tree you don't own, such as another
-community's public inbox, and the consent statement would say so. Since
-access is about trees and people rather than domains, an app can fold
-together data from many sources safely.
-
-The shape we're aiming for looks roughly like this (the headless query and
-mutation runtime underneath it exists today; the component layer is next):
-
-```tsx
-// atlas.tsx
-const essays = node("./essays").children;
-const submissions = node("./submissions").children;
-
-export const recentEssays = query.many(essays, z.object({ tag: z.string() }),
-  (essay, { input }) => ({
-    where: [essay.tag.eq(input.tag), essay.status.eq("published")],
-    select: essay.pick("id", "title", "date"),
-  }));
-
-export const submitEssay = mutation(node("."),
-  z.object({ title: z.string(), body: z.string() }),
-  async ({ tx, id, now }, input) => {
-    await tx.insert(submissions, { id: id("submission"), ...input, status: "pending", submitted_at: now });
-  });
-
-export default function ReadingRoom() {
-  const [tag, setTag] = useState("governance");
-  const list = useQuery(recentEssays, { tag });
-  return <EssayList essays={list} tag={tag} onTagChange={setTag} />;
-}
-```
-
-Link to `atlas.tsx` from a page and the component renders there as a live
-island. Every query is a standing subscription: when the data changes, the
-component updates, because the tree is already syncing. A query on a tree
-you've placed runs on your own machine against your local copy; a query on
-a tree you're merely visiting runs at its host. It's the same code either
-way, so there's no client/server split to design.
+Here, code arrives with no network, no file system, and no clock. It runs as
+you, the reader. On its own it can reach only what everyone can read and
+what its own tree grants it. When it needs more, say to read your notes or
+to append to another community's public inbox, it asks in terms of trees:
+"this reads `essays` and appends to `submissions`." Your yes is recorded in
+your own profile, and the runtime holds the code to exactly that. Someone
+can also lend an app their access for others: a library can let a homepage
+app show its new books to every visitor. Since access is about trees and
+people rather than domains, an app can fold together data from many sources
+safely.
 
 And because everyone has a profile, a site doesn't need its own accounts.
 Your identity is a tree you control, on a host you choose. Apps grant access
@@ -268,10 +281,10 @@ ever glue:
 - **The API layer.** REST routes, GraphQL schemas, controllers. All of it
   existed to move data between a store and a client.
 - **Client fetch code.** `fetch` calls, serializers, DTOs, loading-state
-  plumbing. Here a component calls `useQuery` on a typed handle.
+  plumbing. Here a view reads rows directly, and the host plans the query
+  from what it reads.
 - **Type plumbing.** ORM types, API types, client types, and the code that
-  keeps them aligned. Here the schema types the query that types the
-  component.
+  keeps them aligned. Here the schema types the rows a view reads.
 - **Auth.** Sessions, JWTs, password resets, permission checks scattered
   through handlers. Here, access rules on trees and profiles you already
   have.
@@ -315,9 +328,9 @@ Here's what works today: the Story app for Mac and iPhone; sharing folders
 with canonical URLs and access lists; placing other people's trees on your
 disk; continuous sync with history and block-level merging; public trees
 served to ordinary browsers; profiles and invitation links; your own agents
-as visible collaborators; and USL collections backed by files or SQLite.
-Moving trees between hosts, live components, and the app security model are
-next. The [status page](../../status.md) has the precise boundary.
+as visible collaborators; USL collections backed by files or SQLite; and
+little apps drawn natively in Story pages. Moving trees between hosts and
+lending access to apps are next. The [status page](../../status.md) has the precise boundary.
 
 <!-- TODO: Joe, link to the Mac download, TestFlight, and how to get an account or start a host. -->
 
@@ -362,53 +375,52 @@ a side effect:
   invalidation, and the only live data is refs, a few bytes each. A CDN's
   hard problem was always invalidation; content addressing deletes it.
 
-# Appendix B: materialized views, a query language, and a successor to React
+# Appendix B: where views go next
 
-The TypeScript and React layer is a pragmatic choice. I think a v2 can do
-better.
+The usual move would have been to ship v1 on React and promise something
+better later. Views skipped most of that. There's no React: a view builds a
+plain tree of abstract primitives, `Column`, `Row`, `Text`, not `div` and
+`span`, and each client maps them to its own surface. Story draws them in
+SwiftUI, and a browser gets HTML, so a future browser doesn't have to
+implement the DOM. Reads are narrowed by Datalog-style facts, with shared
+variables for joins and named rules for reuse:
 
-**Streaming materialized views.** Today a query re-runs when its read set
-changes. The better long-term model is queries as standing dataflow:
-incremental view maintenance, where changes stream *through* queries and out
-to subscribers as deltas.
-
-**A statically analyzable query language.** A builder API is familiar, but
-its handlers are arbitrary JavaScript, so the runtime only learns what a
-query read by running it. A declarative, Datalog-style query language would
-let the compiler know everything up front: shared `?vars` make joins,
-`$params` bind arguments, and the result shape follows from the joins.
-
-```text
-query RecentEssays(tag: string) {
-  essay(path, title, date, authorId: ?a, tag: $tag, status: "published")
-  author: person(id: ?a, name, avatar)
-}
+```tsx
+Person.all({ p: Practice }, (other, { p }) => [
+  p.authors.has(person), p.authors.has(other), not(other.id.is(person.id)),
+])
 ```
 
-Because the whole body is analyzable, the compiler knows a query's exact
-possible read set, so permissions can be checked before anything runs, hosts
-can reason precisely about egress, and every query is incrementally
-maintainable by construction.
+and the host knows a view's plan, and so its exact read set, before it
+discloses anything.
 
-**A successor to React.** More declarative than React: a genuine
-*projection* of data into UI, rather than a program that produces one.
-Compiled ahead of time, deliberately less expressive than JavaScript, with a
-simpler type system and no garbage collector. The precedents are **Riffle**
+Three things are still ahead.
+
+**Streaming materialized views.** Today a view reruns when something it read
+changes. The better model is standing dataflow: incremental view
+maintenance, where changes stream *through* views and out to subscribers as
+deltas.
+
+**A plan you can read without running anything.** The host finds a view's
+plan by tracing it. A view language, deliberately less expressive than
+TypeScript, would make the whole body analyzable up front, so permissions
+can be checked and egress reasoned about before anything runs, and every
+view is incrementally maintainable by construction.
+
+**A compiled view language.** A genuine *projection* of data into UI rather
+than a program that produces one: compiled ahead of time, with a simpler
+type system and no garbage collector. The precedents are **Riffle**
 (everything, including UI state, lives in the store, and a component is a
 subscription to a query) and **SwiftUI** (value-semantic view trees,
 identity by structural position):
 
 ```text
-view ReadingRoom(tag: string) {
-  let { essay } = RecentEssays(tag)
+view ReadingRoom(status: string) {
+  let essays = Essay(status: $status, title, date, author: ?a)
   Column(spacing: 12) {
-    for e in essay {
+    for e in essays {
       Row {
-        Avatar(e.author?.avatar)
-        Column {
-          Text(e.title).headline()
-          Text(e.author?.name ?? "anonymous").subdued()
-        }
+        Text(e.title).headline()
         Spacer()
         Text(relative(e.date))
       }
@@ -418,18 +430,10 @@ view ReadingRoom(tag: string) {
 }
 ```
 
-Notice `Column`, `Row`, `Text`, not `div` and `span`. These are abstract
-primitives each client maps to its own rendering surface, so a future
-browser doesn't have to implement the DOM. Everything is analyzable ahead of
-time (the query's read set, the view's shape), so the whole pipeline from a
-changed file to a repainted pixel can be incremental, typed, and tiny. In the
-long run `.tsx` islands become click-to-load legacy content, the way Flash
-went.
-
-But adoption comes first, and this already asks for a real shift in how
-people think about the namespace. Asking them to learn a new language at the
-same time would sink it. So v1 speaks TypeScript and React, and earns the
-right to replace them later.
+The view trees, the facts and the native drawing are already the model;
+what changes is only the surface you write them in. TypeScript stays for
+now, because adoption comes first, and it already compiles to the same
+thing.
 
 # Credits
 
