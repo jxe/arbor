@@ -1052,8 +1052,7 @@ final class StoryWorkspaceState {
         ))
         let offer = try await client.createPairing()
         _ = try await ProtocolClient(origin: origin).claimPairing(
-            id: offer.id,
-            secret: offer.secret,
+            code: offer.code,
             device: ProtocolPairingDevice(id: deviceID, label: label, key: try StoryCloudBundle.deviceKey(seed: deviceKeySeed))
         )
         let record = StoryCloudBundleRecord(
@@ -2018,7 +2017,7 @@ final class StoryWorkspaceState {
         let offer = try await accountService.client(for: account).createPairing()
         let payload = PairingPayload(
             origin: origin,
-            pairing: .init(id: offer.id, secret: offer.secret)
+            pairing: .init(code: offer.code)
         )
         let data = try JSONEncoder().encode(payload)
         return StoryPairingOffer(

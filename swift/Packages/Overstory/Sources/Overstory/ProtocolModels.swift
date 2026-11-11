@@ -992,14 +992,14 @@ public struct ProtocolDevice: Codable, Sendable, Equatable {
     }
 }
 
+/// A pairing for the caller's account: `code` is its only name and its secret (accounts §4).
 public struct ProtocolPairingOffer: Codable, Sendable, Equatable {
-    public var id: String
-    public var secret: String
+    public var code: String
     public var confirmationCode: String
     public var expiresAt: Double
 
     public func validated() throws -> Self {
-        guard !id.isEmpty, !secret.isEmpty, !confirmationCode.isEmpty, expiresAt.isFinite else {
+        guard !code.isEmpty, !confirmationCode.isEmpty, expiresAt.isFinite else {
             throw ProtocolValidationError.invalidValue("Malformed pairing offer")
         }
         return self
@@ -1039,8 +1039,12 @@ public struct ProtocolPairingDevice: Codable, Sendable, Equatable {
     }
 }
 
+/// What a profile key signs to join a community (accounts §1.2, federation
+/// §3): `account` claims the address as the profile's home, `placement` makes
+/// it a member whose home is `profile`, its canonical locator elsewhere.
 public struct ProtocolAccountChallenge: Codable, Sendable, Equatable {
     public var version: Int
+    public var purpose: String
     public var id: String
     public var origin: String
     public var account: String
@@ -1049,14 +1053,38 @@ public struct ProtocolAccountChallenge: Codable, Sendable, Equatable {
     public var nonce: String
     public var issuedAt: Int
     public var expiresAt: Int
+    /// Only on a placement's challenge: the profile's locator at its home host.
+    public var profile: String?
+
+    public init(version: Int = 1, purpose: String, id: String, origin: String, account: String, profileTree: String,
+                configurationTree: String, nonce: String, issuedAt: Int, expiresAt: Int, profile: String? = nil) {
+        self.version = version; self.purpose = purpose; self.id = id; self.origin = origin; self.account = account
+        self.profileTree = profileTree; self.configurationTree = configurationTree; self.nonce = nonce
+        self.issuedAt = issuedAt; self.expiresAt = expiresAt; self.profile = profile
+    }
 
     public func validated() throws -> Self {
-        guard version == 1, !id.isEmpty, !origin.isEmpty, !account.isEmpty,
-              !profileTree.isEmpty, !configurationTree.isEmpty, !nonce.isEmpty,
+        guard version == 1, purpose == "account" || purpose == "placement", (purpose == "placement") == (profile != nil),
+              !id.isEmpty, !origin.isEmpty, !account.isEmpty,
+              !profileTree.isEmpty, configurationTree == treeConfigurationID(profileTree), !nonce.isEmpty,
               expiresAt > issuedAt else {
             throw ProtocolValidationError.invalidValue("Malformed account challenge")
         }
         return self
+    }
+
+    /// Check, before signing, that this is the challenge asked for: its
+    /// purpose, the host's origin, the account, the profile and its derived
+    /// configuration, and for a placement the profile's home locator.
+    public func verified(origin expectedOrigin: String, account expectedAccount: String?, profileTree expectedProfile: String, profile expectedHome: String?) throws -> Self {
+        let value = try validated()
+        guard value.purpose == (expectedHome == nil ? "account" : "placement"),
+              value.origin == expectedOrigin, expectedAccount == nil || value.account == expectedAccount,
+              value.profileTree == expectedProfile, value.configurationTree == treeConfigurationID(expectedProfile),
+              value.profile == expectedHome else {
+            throw ProtocolValidationError.invalidValue("The host's challenge is not the one asked for")
+        }
+        return value
     }
 }
 
@@ -1164,10 +1192,9 @@ public struct ProtocolAnyAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAnyAccountDescriptor
 }
 
+/// A claim's body: the host reads the account, profile and configuration
+/// from the signed challenge (accounts §1.2).
 public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable {
-    public var account: String
-    public var profileTree: String
-    public var configurationTree: String
     public var challenge: ProtocolAccountChallenge
     public var publicKey: String
     public var signature: String
@@ -1177,9 +1204,6 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
     public var configuration: ProtocolCandidateUpdate
 
     public init(
-        account: String,
-        profileTree: String,
-        configurationTree: String,
         challenge: ProtocolAccountChallenge,
         publicKey: String,
         signature: String,
@@ -1187,9 +1211,6 @@ public struct ProtocolExistingProfileClaimRequest: Codable, Sendable, Equatable 
         device: ProtocolPairingDevice,
         configuration: ProtocolCandidateUpdate
     ) {
-        self.account = account
-        self.profileTree = profileTree
-        self.configurationTree = configurationTree
         self.challenge = challenge
         self.publicKey = publicKey
         self.signature = signature

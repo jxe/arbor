@@ -8,7 +8,9 @@ import Security
 public struct PendingPairingClaim: Codable, Equatable, Sendable {
     public enum Stage: String, Codable, Sendable { case prepared, uncertain, claimed }
     public var origin: URL
+    /// The pairing code's digest, which names the pending claim.
     public var pairingID: String
+    /// The pairing code, resent if the claim's outcome was uncertain.
     public var pairingSecret: String
     public var deviceID: String
     public var deviceLabel: String
@@ -460,11 +462,14 @@ public func generateOverstoryID(prefix: String) throws -> String {
     return prefix + "_" + Data(bytes).lowercaseBase32()
 }
 
+/// What one device shows another to pair (accounts §4): `{ version: 1, origin, pairing: { code } }`.
 public struct PairingPayload: Codable, Equatable, Sendable {
     public struct Pairing: Codable, Equatable, Sendable {
-        public var id: String
-        public var secret: String
-        public init(id: String, secret: String) { self.id = id; self.secret = secret }
+        /// The pairing's only name and its secret.
+        public var code: String
+        public init(code: String) { self.code = code }
+        /// The code's digest: which pairing a pending claim resumes.
+        public var digest: String { ProtocolObjectCodec.hash(Data(code.utf8)) }
     }
     public var version: Int
     public var origin: URL
@@ -477,7 +482,7 @@ public struct PairingPayload: Codable, Equatable, Sendable {
     }
 
     public func validated() throws -> Self {
-        guard version == 1, origin.scheme == "https", !pairing.id.isEmpty, !pairing.secret.isEmpty else {
+        guard version == 1, origin.scheme == "https", !pairing.code.isEmpty else {
             throw ProtocolValidationError.invalidValue("Malformed pairing payload")
         }
         return self
@@ -516,8 +521,9 @@ public actor NativeAccountService {
         let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanLabel.isEmpty else { throw ProtocolValidationError.invalidValue("Device label is empty") }
         var pending: PendingPairingClaim
-        if let stored = try await credentials.loadPending(origin: origin, pairingID: payload.pairing.id) {
-            guard stored.origin == origin, stored.pairingSecret == payload.pairing.secret, stored.deviceLabel == cleanLabel else {
+        // A pending claim is found by the code's digest and keeps the code to resend.
+        if let stored = try await credentials.loadPending(origin: origin, pairingID: payload.pairing.digest) {
+            guard stored.origin == origin, stored.pairingSecret == payload.pairing.code, stored.deviceLabel == cleanLabel else {
                 throw ProtocolValidationError.invalidValue("A different claim is already pending for this pairing")
             }
             pending = stored
@@ -526,8 +532,8 @@ public actor NativeAccountService {
             let key = try DeviceKeySecret.generate()
             pending = PendingPairingClaim(
                 origin: origin,
-                pairingID: payload.pairing.id,
-                pairingSecret: payload.pairing.secret,
+                pairingID: payload.pairing.digest,
+                pairingSecret: payload.pairing.code,
                 deviceID: try generatedDeviceID(),
                 deviceLabel: cleanLabel,
                 credential: key.stored,
@@ -538,8 +544,7 @@ public actor NativeAccountService {
         pending.stage = .uncertain
         try await credentials.savePending(pending)
         let claim = try await ProtocolClient(origin: origin, session: session, retryDelay: retryDelay).claimPairing(
-            id: pending.pairingID,
-            secret: pending.pairingSecret,
+            code: pending.pairingSecret,
             device: try enrollment(id: pending.deviceID, label: pending.deviceLabel, secret: pending.credential)
         )
         pending.stage = .claimed
@@ -625,7 +630,6 @@ public actor NativeAccountService {
             let challenge = try await wire.createAccountChallenge(
                 account: account.path.isEmpty || account.path == "/" ? nil : account.absoluteString,
                 profileTree: identity.profileTree,
-                configurationTree: configurationTree,
                 inviteCode: inviteCode
             )
             let signed = try await identityStore.sign(challenge)
@@ -648,10 +652,8 @@ public actor NativeAccountService {
             try await credentials.savePendingAccount(pending)
         }
         let request: (PendingAccountClaim) throws -> ProtocolExistingProfileClaimRequest = { [self] claim in
+            // The host reads account, profile and configuration from the signed challenge.
             ProtocolExistingProfileClaimRequest(
-                account: claim.account.absoluteString,
-                profileTree: claim.profileTree,
-                configurationTree: claim.configurationTree,
                 challenge: claim.challenge,
                 publicKey: claim.publicKey,
                 signature: claim.signature,
@@ -673,7 +675,6 @@ public actor NativeAccountService {
             let challenge = try await wire.createAccountChallenge(
                 account: pending.account.absoluteString,
                 profileTree: pending.profileTree,
-                configurationTree: pending.configurationTree,
                 inviteCode: pending.inviteCode
             )
             let signed = try await identityStore.sign(challenge)
@@ -801,8 +802,9 @@ public actor NativeAccountService {
             guard try await identityStore.identity()?.profileTree == profileTree else { throw NativePlacementError.noProfileKey }
             let profile = "\(homeHost)/~\(handle)"
             let client = ProtocolClient(origin: targetURL, session: session, retryDelay: retryDelay)
+            // Checked before signing: a placement's, for this account, profile and home.
             let challenge = try await client.createAccountChallenge(
-                account: invitation.account, profileTree: profileTree, configurationTree: configurationTree,
+                account: invitation.account, profileTree: profileTree,
                 inviteCode: invitation.code, profile: profile
             )
             guard challenge.origin == target.origin, challenge.account == invitation.account, challenge.profileTree == profileTree else {
@@ -810,7 +812,6 @@ public actor NativeAccountService {
             }
             let signed = try await identityStore.sign(challenge)
             try await client.acceptInvitationAsPlacement(
-                account: invitation.account, profile: profile, profileTree: profileTree, configurationTree: configurationTree,
                 inviteCode: invitation.code, challenge: challenge, publicKey: signed.identity.publicKey, signature: signed.signature
             )
         }

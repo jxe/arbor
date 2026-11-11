@@ -218,8 +218,9 @@ enum CanonicalCBOR {
 /// account: the complete challenge.
 public func accountChallengeSigningBytes(_ challenge: ProtocolAccountChallenge) throws -> Data {
     let value = try challenge.validated()
-    let fields: [(String, CanonicalCBORValue)] = [
+    var fields: [(String, CanonicalCBORValue)] = [
         ("version", .unsigned(value.version)),
+        ("purpose", .text(value.purpose)),
         ("id", .text(value.id)),
         ("origin", .text(value.origin)),
         ("account", .text(value.account)),
@@ -229,5 +230,6 @@ public func accountChallengeSigningBytes(_ challenge: ProtocolAccountChallenge) 
         ("issuedAt", .unsigned(value.issuedAt)),
         ("expiresAt", .unsigned(value.expiresAt)),
     ]
+    if let profile = value.profile { fields.append(("profile", .text(profile))) }
     return CanonicalCBOR.encode(.map(fields))
 }

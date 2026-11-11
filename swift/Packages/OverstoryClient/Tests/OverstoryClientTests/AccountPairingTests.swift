@@ -43,7 +43,7 @@ struct NativeAccountPairingTests {
     func pairingPayload() throws {
         let payload = PairingPayload(
             origin: URL(string: "https://overstory.example")!,
-            pairing: .init(id: "pa_test", secret: "secret")
+            pairing: .init(code: "arp_test")
         )
         #expect(try payload.validated() == payload)
     }
@@ -421,7 +421,7 @@ struct NativeAccountPairingTests {
     func exactClaimRetry() async throws {
         await PairingURLProtocol.state.reset()
         let origin = URL(string: "https://host.test")!
-        let payload = PairingPayload(origin: origin, pairing: .init(id: "pa_exact", secret: "pairing-secret"))
+        let payload = PairingPayload(origin: origin, pairing: .init(code: "arp_exact"))
         let store = MemoryAccountCredentialStore()
         let session = pairingSession()
 
@@ -439,7 +439,7 @@ struct NativeAccountPairingTests {
         }
         #expect(firstFailed)
 
-        let persisted = try #require(await store.loadPending(origin: origin, pairingID: "pa_exact"))
+        let persisted = try #require(await store.loadPending(origin: origin, pairingID: payload.pairing.digest))
         #expect(persisted.stage == .claimed)
         #expect(persisted.deviceLabel == "Joe's iPhone")
 
@@ -458,7 +458,9 @@ struct NativeAccountPairingTests {
         let claimRequests = captured.filter { $0.path.hasSuffix("/claim") }
         #expect(claimRequests.count == 2)
         #expect(claimRequests[0].body == claimRequests[1].body)
-        #expect(claimRequests.allSatisfy { $0.authorization == nil })
+        #expect(claimRequests.allSatisfy { $0.authorization == nil && $0.path == "/.overstory/pairings/claim" })
+        // A claim names the pairing by its code alone.
+        #expect(Set(try #require(try JSONSerialization.jsonObject(with: claimRequests[0].body) as? [String: Any]).keys) == ["code", "device"])
         // The new device enrolls with a key, never a credential digest, and signs in with sessions.
         let claimed = try #require(try JSONSerialization.jsonObject(with: claimRequests[0].body) as? [String: Any])
         let enrolled = try #require(claimed["device"] as? [String: Any])
@@ -469,7 +471,7 @@ struct NativeAccountPairingTests {
         #expect(accountRequests[0].authorization == accountRequests[1].authorization)
         #expect(accountRequests[1].authorization == "Bearer ars_exact")
 
-        #expect(await store.loadPending(origin: origin, pairingID: "pa_exact") == nil)
+        #expect(await store.loadPending(origin: origin, pairingID: payload.pairing.digest) == nil)
         #expect(await store.load(configurationTree: "tr_configexact") == persisted.credential)
         #expect(persisted.credential.hasPrefix("arbor-device-key:v1:"))
         #expect(await store.accounts().map(\.configurationTree) == ["tr_configexact"])
@@ -522,10 +524,10 @@ private actor PairingURLProtocolState {
             ]))
         }
         // A key device signs in for a session (accounts §5.1).
-        if path == "/.overstory/device-sessions/challenges" {
+        if path == "/.overstory/challenges" {
             guard case let .string(id) = device["id"] else { return (404, Data(#"{"error":"not-found","message":"no device","retryable":false}"#.utf8)) }
             return (201, jsonData([
-                "version": 1, "purpose": "device-session", "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa", "origin": "https://host.test",
+                "version": 1, "purpose": "session", "id": "ax_aaaaaaaaaaaaaaaaaaaaaaaaaa", "origin": "https://host.test",
                 "profileTree": "tr_profileexact", "device": id, "nonce": String(repeating: "A", count: 43),
                 "issuedAt": 1_788_000_000_000, "expiresAt": 1_788_000_120_000,
             ]))

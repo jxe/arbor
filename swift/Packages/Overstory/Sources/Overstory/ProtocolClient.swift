@@ -343,51 +343,46 @@ public actor ProtocolClient {
         return try value.validated()
     }
 
+    /// Claim a pairing by its code; the host finds the pairing by the code's digest (accounts §4).
     public func claimPairing(
-        id: String,
-        secret: String,
+        code: String,
         device: ProtocolPairingDevice
     ) async throws -> ProtocolPairingClaim {
         _ = try device.validated()
         let value: ProtocolPairingClaim = try await put(
-            path: "/.overstory/pairings/\(component(id))/claim",
-            body: PairingClaimBody(secret: secret, device: device),
+            path: "/.overstory/pairings/claim",
+            body: PairingClaimBody(code: code, device: device),
             authorized: false
         )
         return try value.validated()
     }
 
-    /// A challenge for claiming an account with the profile key (accounts
-    /// §1.2), or, with `profile` (the profile's locator at its home host),
-    /// for accepting an invitation as a placement (§1.4).
-    public func createAccountChallenge(account: String? = nil, profileTree: String, configurationTree: String, inviteCode: String? = nil, profile: String? = nil) async throws -> ProtocolAccountChallenge {
+    /// A challenge to join this host's community (accounts §1.2, federation
+    /// §3): with `profile` (the profile's locator at its home host) a
+    /// placement's, else a claim's. The host derives the configuration TreeID;
+    /// the answer is checked to be the challenge asked for before it is returned.
+    public func createAccountChallenge(account: String? = nil, profileTree: String, inviteCode: String? = nil, profile: String? = nil) async throws -> ProtocolAccountChallenge {
         let value: ProtocolAccountChallenge = try await post(
-            path: "/.overstory/account-challenges",
-            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree, inviteCode: inviteCode, profile: profile),
+            path: "/.overstory/challenges",
+            body: AccountChallengeRequest(purpose: profile == nil ? "account" : "placement", profileTree: profileTree,
+                                          account: account, inviteCode: inviteCode, profile: profile),
             authorized: false
         )
-        return try value.validated()
+        return try value.verified(origin: canonicalOrigin, account: account, profileTree: profileTree, profile: profile)
     }
 
     /// Accept an invitation with a profile homed at another host: this host
     /// makes the invited address a placement account (accounts §1.4).
     public func acceptInvitationAsPlacement(
-        account: String,
-        profile: String,
-        profileTree: String,
-        configurationTree: String,
         inviteCode: String,
         challenge: ProtocolAccountChallenge,
         publicKey: String,
         signature: String
     ) async throws {
-        // One route joins a community: with `profile`, as a member homed elsewhere (accounts §1.4).
+        // One route joins a community; the host tells a placement by its challenge's purpose (federation §3).
         let _: PlacementAcceptance = try await put(
             path: "/.overstory/accounts",
-            body: PlacementAcceptanceRequest(
-                account: account, profile: profile, profileTree: profileTree, configurationTree: configurationTree,
-                inviteCode: inviteCode, challenge: challenge, publicKey: publicKey, signature: signature
-            ),
+            body: PlacementAcceptanceRequest(challenge: challenge, publicKey: publicKey, signature: signature, inviteCode: inviteCode),
             authorized: false
         )
     }
@@ -408,7 +403,7 @@ public actor ProtocolClient {
     /// A single-use challenge for one of this profile's key devices (accounts §5.1).
     public func createDeviceSessionChallenge(profileTree: String, device: String) async throws -> ProtocolDeviceSessionChallenge {
         let value: ProtocolDeviceSessionChallenge = try await post(
-            path: "/.overstory/device-sessions/challenges",
+            path: "/.overstory/challenges",
             body: DeviceSessionChallengeRequest(profileTree: profileTree, device: device),
             authorized: false
         )
@@ -887,27 +882,25 @@ func updateRequestIdentities(tree: String, base: String?, elements: [[String: Pr
 }
 
 private struct EmptyBody: Encodable {}
+/// `POST /.overstory/challenges` (accounts §1.2): no configurationTree, which the host derives.
 private struct AccountChallengeRequest: Encodable {
-    var account: String?
+    var purpose: String
     var profileTree: String
-    var configurationTree: String
+    var account: String?
     var inviteCode: String?
     var profile: String?
 }
 private struct PlacementAcceptanceRequest: Encodable {
-    var account: String
-    var profile: String
-    var profileTree: String
-    var configurationTree: String
-    var inviteCode: String
     var challenge: ProtocolAccountChallenge
     var publicKey: String
     var signature: String
+    var inviteCode: String
 }
 /// The host answers the placement's descriptor; the caller connects to it next.
 /// The answer, `{ account }`; the caller reads the account through a session afterwards.
 private struct PlacementAcceptance: Decodable {}
 private struct DeviceSessionChallengeRequest: Encodable {
+    var purpose = "session"
     var profileTree: String
     var device: String
 }
@@ -916,7 +909,7 @@ private struct DeviceSessionRequest: Encodable {
     var signature: String
 }
 private struct PairingClaimBody: Encodable {
-    var secret: String
+    var code: String
     var device: ProtocolPairingDevice
 }
 private struct ProtocolErrorEnvelope: Decodable {

@@ -643,21 +643,25 @@ struct UpdateProtocolTests {
     @Test("Community-address and exact-account requests share the account-bound challenge")
     func accountChallengeFixtures() async throws {
         struct Case: Decodable { var name: String; var request: Request; var response: ProtocolAccountChallenge }
-        struct Request: Codable { var account: String?; var profileTree: String; var configurationTree: String; var inviteCode: String? }
+        struct Request: Codable { var purpose: String; var account: String?; var profileTree: String; var inviteCode: String?; var profile: String?; var configurationTree: String? }
         struct Fixture: Decodable { var cases: [Case] }
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtures.appending(path: "protocol-account-challenges.json")))
-        #expect(!fixture.cases.contains { $0.name == "placement" })
+        #expect(fixture.cases.contains { $0.name == "placement" })
         for item in fixture.cases {
             let response = try JSONEncoder().encode(item.response)
-            await HostURLProtocolStub.state.install { _, _ in (201, response) }
+            // One route for every challenge.
+            await HostURLProtocolStub.state.install { request, _ in request.url?.path == "/.overstory/challenges" ? (201, response) : (404, Data()) }
             let client = ProtocolClient(origin: URL(string: item.response.origin)!, session: protocolStubSession())
-            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree, configurationTree: item.request.configurationTree, inviteCode: item.request.inviteCode)
+            let challenge = try await client.createAccountChallenge(account: item.request.account, profileTree: item.request.profileTree,
+                                                                    inviteCode: item.request.inviteCode, profile: item.request.profile)
             #expect(challenge == item.response)
             let captured = await HostURLProtocolStub.state.snapshot()
             let sent = try JSONDecoder().decode(Request.self, from: #require(captured.bodies.first))
             #expect(sent.account == item.request.account)
             #expect(sent.profileTree == item.request.profileTree)
             #expect(sent.inviteCode == item.request.inviteCode)
+            // One route, a purpose, and no configurationTree: the host derives it.
+            #expect(sent.purpose == item.request.purpose && sent.profile == item.request.profile && sent.configurationTree == nil)
         }
     }
 
@@ -675,7 +679,7 @@ struct UpdateProtocolTests {
             case ("GET", "/.overstory/account"): (200, Data(#"{"account":\#(placementAccount),"observedThrough":"up_1"}"#.utf8))
             case ("POST", "/.overstory/pairings"):
                 (403, Data(#"{"error":"permission-denied","message":"Pairing is the home host's","retryable":false,"details":{"homeHost":"https://home.example"}}"#.utf8))
-            case ("POST", "/.overstory/device-sessions/challenges"):
+            case ("POST", "/.overstory/challenges"):
                 (503, Data(#"{"error":"internal-error","message":"home unreachable","retryable":true,"details":{"homeHost":"https://home.example"}}"#.utf8))
             default: (404, Data(#"{"error":"not-found","message":"missing","retryable":false}"#.utf8))
             }
@@ -894,7 +898,7 @@ struct UpdateProtocolTests {
         {"device":{"id":"\(deviceID)","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null},"confirmationCode":"123456"}
         """.utf8)
         await HostURLProtocolStub.state.install { request, _ in
-            request.url?.path == "/.overstory/pairings/pair_1/claim"
+            request.url?.path == "/.overstory/pairings/claim"
                 && request.value(forHTTPHeaderField: "Authorization") == nil
                 ? (201, response)
                 : (401, Data(#"{"error":"unauthenticated","message":"unexpected credentials"}"#.utf8))
@@ -905,8 +909,7 @@ struct UpdateProtocolTests {
             session: protocolStubSession()
         )
         let claimed = try await client.claimPairing(
-            id: "pair_1",
-            secret: "secret",
+            code: "arp_code",
             device: ProtocolPairingDevice(id: deviceID, label: "iPad", key: key)
         )
         #expect(claimed.device.id == deviceID)
@@ -914,7 +917,7 @@ struct UpdateProtocolTests {
         let captured = await HostURLProtocolStub.state.snapshot()
         let body = try #require(captured.bodies.first)
         let fields = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        #expect(Set(fields.keys) == Set(["secret", "device"]))
+        #expect(Set(fields.keys) == Set(["code", "device"]))
     }
 
     @Test("Descriptors, snapshots, and objects use tree-scoped routes")
@@ -991,8 +994,7 @@ struct LiveProtocolTests {
         let pairedKey = DeviceKeySecret.software(P256.Signing.PrivateKey().rawRepresentation)
         let deviceID = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
         let claim = try await client.claimPairing(
-            id: offer.id,
-            secret: offer.secret,
+            code: offer.code,
             device: ProtocolPairingDevice(id: deviceID, label: "Swift test device", key: try pairedKey.publicKey())
         )
         #expect(claim.device.id == deviceID)

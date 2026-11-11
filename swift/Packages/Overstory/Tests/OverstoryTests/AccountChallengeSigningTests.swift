@@ -35,8 +35,6 @@ struct AccountChallengeSigningTests {
     func homeSigningBytes() throws {
         let vectors = try signingVectors()
         let home = try #require(vectors.challenges.first { $0.name == "home" })
-        // Placement accounts come from reservations (accounts §1.3): no challenge names a home host.
-        #expect(!vectors.challenges.contains { $0.name == "placement" })
 
         let seed = Data(stride(from: 0, to: vectors.seedHex.count, by: 2).map { offset -> UInt8 in
             let start = vectors.seedHex.index(vectors.seedHex.startIndex, offsetBy: offset)
@@ -49,5 +47,12 @@ struct AccountChallengeSigningTests {
         let homeBytes = try accountChallengeSigningBytes(home.challenge)
         #expect(hex(homeBytes) == home.canonicalCBORHex)
         #expect(key.verifies(home.signature, over: homeBytes))
+
+        // A placement's challenge signs its purpose and the profile's home locator too.
+        let placement = try #require(vectors.challenges.first { $0.name == "placement" })
+        #expect(placement.challenge.purpose == "placement" && placement.challenge.profile != nil)
+        let placementBytes = try accountChallengeSigningBytes(placement.challenge)
+        #expect(hex(placementBytes) == placement.canonicalCBORHex)
+        #expect(key.verifies(placement.signature, over: placementBytes))
     }
 }
