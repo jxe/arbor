@@ -124,7 +124,7 @@ view():
   </Column>
 ```
 
-and draws it in his page with a view block ([view blocks](4.1-apps-and-views.md#82-view-blocks-in-pages)):
+and draws it in his page with a view block ([view blocks](4.1-apps-and-views.md#22-view-blocks-in-pages)):
 
 ````md
 ```view
@@ -136,7 +136,7 @@ use "views/practices.view" (view as Practices)
 The server has enabled hosting for the tree, so it checks the file and binds
 `Practice` to `(tr_…, /practices, model fingerprint)` ([handles](4.1-apps-and-views.md#101-handles-and-code-versions)).
 The plan comes from the source alone: the `Link` expands once per published
-practice ([expansion](4.1-apps-and-views.md#34-expansion), [the language](4.1-apps-and-views.md)).
+practice ([expansion](4.1-apps-and-views.md#27-expansion), [the language](4.1-apps-and-views.md)).
 A visitor's browser receives the page with the view drawn as HTML. Story opens
 `QUERY /.overstory/trees/tr_…/views` naming the view's handle and code version,
 receives the plan's rows as `result`, then `ready`, and draws the view natively.
@@ -161,8 +161,8 @@ caller-chosen `mutationID`. The runtime checks the guards, then submits the
 insert as one guarded update of row operations. The receipt's `affected` names
 that accepted update, and Alice's watch sees an ordinary `tree.update` frame;
 Joe's Mac rewrites the CSV. A retry with the same `mutationID` returns the
-original receipt and does nothing twice ([mutations](4.1-apps-and-views.md#6-mutations),
-[apps and views §11.2](4.1-apps-and-views.md#112-execute-named-mutations), [actions](4.1-apps-and-views.md#5-actions-forms-and-events)).
+original receipt and does nothing twice ([mutations](4.1-apps-and-views.md#5-mutations),
+[apps and views §11.2](4.1-apps-and-views.md#112-execute-named-mutations), [actions](4.1-apps-and-views.md#4-actions-forms-and-events)).
 
 ## 9. Rename the canonical URL
 

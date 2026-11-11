@@ -89,8 +89,8 @@ the removed modules.
 
 Joe decided on 2026-11-11 that a `.view` file is a node's body, like a `.md` file, so
 `List.view` answers at `List`, and that pages may hold fenced `view` blocks
-([apps and views §8.1](../../docs/overstory-spec/4.1-apps-and-views.md#81-addresses),
-[§8.2](../../docs/overstory-spec/4.1-apps-and-views.md#82-view-blocks-in-pages)).
+([apps and views §8](../../docs/overstory-spec/4.1-apps-and-views.md#8-addresses),
+[§2.2](../../docs/overstory-spec/4.1-apps-and-views.md#22-view-blocks-in-pages)).
 
 - Node mapping in both stacks (`packages/protocol` pages and path reads, Swift
   `ProtocolPage`/`ProtocolPathRead`): `x.view` and `x/_index.view` supply node `x`;

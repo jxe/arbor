@@ -33,7 +33,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   | Reader | Personal data, as `personal model X` or `personal model X (placement)`, read like any model |
 
   The spec now has these as state models
-  ([apps and views §4](../../docs/overstory-spec/4.1-apps-and-views.md#4-state)), with
+  ([apps and views §3](../../docs/overstory-spec/4.1-apps-and-views.md#3-state)), with
   `state` and `keep` as one-row shorthands and `session` models for fast state such as games.
 
   An app reads and writes only its own personal models, with no prompt, written locally
@@ -99,7 +99,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
 - Placement identity, page and personal models, `state` and `keep`, as decided above.
 - Decide where kept page and personal rows are stored and how they reach the reader's other
   devices, then write it into
-  [apps and views §4](../../docs/overstory-spec/4.1-apps-and-views.md#4-state).
+  [apps and views §3](../../docs/overstory-spec/4.1-apps-and-views.md#3-state).
 - Personal rows live under the reader's own tree and sync like any collection.
 - Port Supplies' List, Practice and search screens as widgets. They are the acceptance
   corpus.
@@ -124,7 +124,7 @@ site, served by overstoryd and later from a host such as Vercel.
 ## Code to bring in line with the spec (Joe, 2026-11-11)
 
 The spec addresses views by file path with the extension
-([apps and views §8.1](../../docs/overstory-spec/4.1-apps-and-views.md#81-addresses)),
+([apps and views §8](../../docs/overstory-spec/4.1-apps-and-views.md#8-addresses)),
 now `views/list.view`, the view at `views/list` (a `.view` file is a node's body, like a
 `.md` file). `.mdx` is gone. Still to do in code:
 
