@@ -39,7 +39,7 @@ the host.
 
 A **local change** is one durable authored record:
 
-- its authored identity (`change`);
+- its authored identity (`change`) and when it was made (`at`);
 - its basis: either an accepted `{ root, update }` or the authored identity
   of the local change it was made on;
 - its candidate root and the objects the candidate introduces over its basis;
@@ -94,9 +94,8 @@ There is one normal entry into the machine.
 **Installation.** The entry into `current` is the installation of one
 validated accepted snapshot with its `{ root, update }`. A complete
 snapshot qualifies. So does a **sparse install**: a validated spine, every
-directory and Markdown object present and hash-checked, whose absent hashes
-are files the client can resolve on demand through an object store and whose
-sizes and media types the bootstrap names. A spine that omits a directory
+directory and page object present and hash-checked, whose absent hashes are
+files the client can resolve on demand through an object store. A spine that omits a directory
 object is not sparse, it is incomplete, and must fail installation loudly. A
 preview, a partial download, or a fetched descriptor cannot enter the machine.
 If the host advanced while the snapshot downloaded, the client begins
@@ -443,8 +442,8 @@ is needed: snapshot reconciliation is by state, not by replayed operation. A dec
 path is released when the source agrees with the accepted state there; the explicit
 actions are restoring the accepted state at declined points and resending them with
 fresh identity. A request rejected as `unsupported` is not replaced this way.
-They MUST retain the exact accepted projection underlying each captured local change.
-The host establishes whether a snapshot edit continues a displayed alternative.
+An editor client MUST retain the exact accepted projection underlying each captured
+local change. The host establishes whether a snapshot edit continues a displayed alternative.
 When attribution is ambiguous, it retains the ambiguity if representable within the
 contract limits; otherwise it rejects the edit, which remains locally recoverable.
 The client MUST NOT preemptively hold an edit solely because its basis is unresolved.
