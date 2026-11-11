@@ -18,7 +18,7 @@ constraints worth keeping are below.
 - **Risk:** MEDIUM for stage 1 and 2 (read-only, rebuildable). HIGH for stage 3, which must
   converge offline writes without making two data authorities.
 - **State:** a direction, with the contract already in the spec
-  ([collections §1.3 and external stores §1](../../docs/overstory-spec/5.3-external-stores.md#1-postgres-and-placement-projections))
+  ([collections §1 and external stores §1](../../docs/overstory-spec/4.2-external-stores.md#1-postgres-and-placement-projections))
   and spec deferred items 4 and 5. Not designed in detail.
 - **Related:** [Performance 007](performance-007-sqlite-collection-storage.md) (the host
   keeps a collection in SQLite) is separate and nearer.

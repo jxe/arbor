@@ -15,7 +15,7 @@ filesystem synchronizer, with a separate loopback API for local clients.
 
 - [The update machine and its coordinator](update-machine.md): reference reducers, durable requests, watching, recovery, and timing.
 - [Local placements](local-placements.md): reference YAML layout and platform working-tree ownership.
-- [Porting the client library](../overstory-spec/4.1-client-library.md): the seven modules, the three ways to hold a tree, the order to build them, and their conformance files; `bun tools/client-parity.ts` compares TypeScript and Swift.
+- [Porting the client library](porting-a-client.md): the seven modules, the three ways to hold a tree, the order to build them, and their conformance files; `bun tools/client-parity.ts` compares TypeScript and Swift.
 
 ## Reference services
 

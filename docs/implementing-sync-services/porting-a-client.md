@@ -1,39 +1,17 @@
-# Client library
-*Part of the [Overstory spec](README.md), layer 4 (the standard client): the one client library every language port has, the three ways it holds a tree, and local placements. It builds on [working trees](2.1-working-trees.md) for holding and editing a tree and on [accounts and devices](3.1-accounts-and-devices.md) for credentials.*
+# Porting the client library
+
+*Reference documentation, not part of the spec. The three ways a client holds a tree are [working trees §1](../overstory-spec/2.1-working-trees.md#1-three-ways-to-hold-a-tree); local placements are [placements on disk §7](../overstory-spec/2.2-placements-on-disk.md#7-local-placements).*
 
 The client library exists once per language (TypeScript and Swift now), and
 every port has the same seven modules with the same interfaces and the same
 conformance files. A port is complete when an app written on it can hold a
-tree in each of the three ways below. §3 gives the order to build the modules
+tree in each of the three ways. §2 gives the order to build the modules
 in, what each one holds, and which conformance files check it.
 `bun tools/client-parity.ts` lists each module's public types in TypeScript
 and Swift and flags the ones only one side has; extend its module table when
 you add a language.
 
-## 1. Three ways to hold a tree
-
-Every port has one engine. It differs in three settings that don't interact:
-
-| Setting | Values |
-|---|---|
-| Prefetch | opened pages only · every directory and page · everything |
-| Object sources | a chain tried in order: memory, disk cache, placed folder, Story Sync, host. Every object is checked against its hash, so the order is only about speed |
-| Durability | node index and change log in memory or on disk (the change log is always on disk when the tree can be edited) |
-
-The ways are named combinations:
-
-| Way | Prefetch | Sources | Durability | Used for |
-|---|---|---|---|---|
-| **Browse** | opened pages | memory, host | memory | visits; trees too big for the device |
-| **Replica** | everything | disk, host | disk | phones; a desktop's writable remote trees |
-| **Alongside Story Sync** | opened pages | memory, folder, Story Sync's loopback reads | memory, change log on disk | trees Story Sync places on this machine |
-| *(Story Sync itself)* | everything | disk, host | disk, plus the folder | the daemon |
-
-Choose the way from facts about the machine (whether Story Sync runs here and
-places the tree, free disk, tree size, whether the caller can write), not from
-the platform.
-
-## 2. The modules, in the order to build them
+## 1. The modules, in the order to build them
 
 A module depends only on modules above it. Platform things (storage,
 keychains, sockets) come in through small interfaces.
@@ -52,7 +30,7 @@ keychains, sockets) come in through small interfaces.
 Outside the library, in each language: editors, app UI, and the daemon process
 (Story Sync is module 5 with a folder, plus a loopback server).
 
-## 3. Building a port
+## 2. Building a port
 
 1. **Protocol.** Pass every module-1 vector before anything else; every later
    module trusts its codec. The HTTP client needs the standard reads
@@ -74,23 +52,8 @@ Outside the library, in each language: editors, app UI, and the daemon process
    (whole snapshot to disk), then Alongside Story Sync if the platform runs it.
 6. **Accounts.** Device keys and sessions; on a desktop beside Story Sync, read
    the data home's connection records and key and share its `session.json`
-   (see [Story Sync API §3b](../implementing-sync-services/story-sync-api.md#3b-sessions)).
+   (see [Story Sync API §3b](story-sync-api.md#3b-sessions)).
 7. **Workspace.** The interface an editor binds to, over the session.
 
 Run `bun tools/client-parity.ts <module>` as you go; `--strict` fails when a
 type that `parity.json` requires in both ports has no twin.
-
-## 4. Local placements
-
-Placement is intentionally separate from account membership, device
-registration, and portable Overstory content. Each implementation may choose its
-own local representation, but it must keep operating-system paths and
-placement-private options outside synchronized configuration and Overstory content.
-How a placement projects each logical collection, and its own storage mapping
-for it, are such options ([placements on disk §4](2.2-placements-on-disk.md#4-projections)).
-Removing a placement stops that local materialization without deleting local
-files, remote identity, ACLs, history, canonical boundaries, or conflicts.
-
-See [reference local placements](../implementing-sync-services/local-placements.md)
-for the local file layout and the distinction between a placed folder and a
-working tree borrowing that folder's object store.

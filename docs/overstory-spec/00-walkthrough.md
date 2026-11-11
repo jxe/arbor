@@ -133,14 +133,14 @@ export default view(() => (
 
 The server has enabled hosting for the tree, so compilation produces a
 manifest that binds the view to `(tr_…, /practices, schema fingerprint)` and
-records its read prefix ([handles](5.1-executable-documents.md#3-modules-and-named-handles),
-[queries](5.1-executable-documents.md#4-queries), [compilation](5.1-executable-documents.md#7-compilation-and-hosting)).
+records its read prefix ([handles](4.1-executable-documents.md#3-modules-and-named-handles),
+[queries](4.1-executable-documents.md#4-queries), [compilation](4.1-executable-documents.md#7-compilation-and-hosting)).
 A visitor's browser receives the page with the view's result
 embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the document
 version and the view. The stream sends `result` and `ready`. When Joe edits
 the CSV, the tree advances, the provider reports which rows changed, the host
 re-evaluates, and a new `result` with a new `outputHash` follows
-([executable documents §12.1](5.1-executable-documents.md#121-evaluate-and-stream-views), [authoring API](5.2-authoring-api.md)).
+([executable documents §12.1](4.1-executable-documents.md#121-evaluate-and-stream-views), [executable documents](4.1-executable-documents.md#16-authoring-api)).
 
 ## 8. Run a mutation
 
@@ -153,8 +153,8 @@ and records the receipt with the same durability as the data. Because the
 mutation changed an Overstory-canonical tree, the receipt's `affected` names the
 new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
 retry with the same `mutationID` returns the original receipt and does nothing
-twice ([mutations](5.1-executable-documents.md#5-mutations),
-[executable documents §12.2](5.1-executable-documents.md#122-execute-named-mutations), [actions](5.2-authoring-api.md#4-actions-and-forms)).
+twice ([mutations](4.1-executable-documents.md#5-mutations),
+[executable documents §12.2](4.1-executable-documents.md#122-execute-named-mutations), [actions](4.1-executable-documents.md#164-actions-and-forms)).
 
 ## 9. Rename the canonical URL
 

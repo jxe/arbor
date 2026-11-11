@@ -1,7 +1,7 @@
 # Reference local placements
 
 This is an informative layout for local synchronizers. The portable
-[placement requirements](../overstory-spec/4.1-client-library.md#4-local-placements)
+[placement requirements](../overstory-spec/2.2-placements-on-disk.md#7-local-placements)
 keep local paths outside synchronized content. See [implementation status](../../status.md)
 for current coverage and [the data home](../architecture/story-sync/data-home.md)
 for the daemon's storage.

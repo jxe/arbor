@@ -124,7 +124,7 @@ Each names the case and the outcome it would get: **merge**, **note** or
    Native copies such a selection until it merges in both orders.
 2. **Two moves of the same text.** You move a paragraph up, I move it down. A
    real choice: **review**, presented as "moved here, or here" rather than byte
-   ranges through the portable [accepted-state review contract](../../docs/overstory-spec/2.1-working-trees.md#44-accepted-state-review).
+   ranges through the portable [accepted-state review contract](../../docs/overstory-spec/2.1-working-trees.md#54-accepted-state-review).
 3. **A move and a delete.** You move a paragraph while I delete it. Deleting
    loses your move, so **review**, which is today's behaviour. Keep it.
 
