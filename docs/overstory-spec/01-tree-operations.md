@@ -182,6 +182,11 @@ Scoped or executable-constrained authority is evaluated by
 The descriptor's `root` is the bytes hash of the current accepted tree state
 and `update` is the accepted-update id that produced it. A client watches
 with `after={update}` (§1.1.3), so the read and the watch meet without a gap.
+Throughout the protocol a member that points at an accepted update (`update`
+here, in an update answer's `head` and in `AcceptedRef`, and the `base`,
+`ifCurrent` and `after` that name one) holds its id. Only where the accepted
+update itself is the payload, an update result's and a watch transition's
+`update`, is it the whole `AcceptedUpdate` record (§1.1.3).
 Hosted trees have, in addition, a canonical path, endpoint, and might be nested
 inside a parent tree. `canonical.url`, when present, is the tree's canonical URL at a
 person's domain ([locators §5.1](03-locators.md#51-trees-at-a-persons-domain)); without it
