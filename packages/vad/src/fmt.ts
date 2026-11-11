@@ -333,19 +333,26 @@ function dataRecordLines(record: DataRecord, head: string, indent: string): stri
   return lines;
 }
 
+/** `lines` with `suffix` after the last one, the record's closing brace. */
+function suffixed(lines: string[], suffix: string): string[] {
+  lines[lines.length - 1] += suffix;
+  return lines;
+}
+
 /** An entry's lines: the first starts with `first`, the rest are at `indent` or deeper. */
 function dataEntryLines(entry: DataEntry, first: string, indent: string): string[] {
   switch (entry.kind) {
     case "comment": return [first + comment(entry.text)];
     case "value": return [`${first}${entry.key}: ${expr(entry.value)}`];
     case "field": return entry.record ? dataRecordLines(entry.record, `${first}${entry.name} `, indent) : [first + entry.name];
-    case "if": return dataRecordLines(entry.record, `${first}${entry.key}: if ${entry.conditions.map(expr).join(", ")} `, indent);
+    case "record": return dataRecordLines(entry.record, `${first}${entry.key}: `, indent);
+    case "if": return suffixed(dataRecordLines(entry.record, `${first}${entry.key}: `, indent), ` if ${entry.conditions.map(expr).join(", ")}`);
     case "list": {
-      let head = `${first}${entry.key}: for ${bindingsText(entry.bindings)}`;
-      if (entry.where.length) head += ` where ${entry.where.map(expr).join(", ")}`;
-      if (entry.orderBy.length) head += ` orderBy ${orderBy(entry.orderBy)}`;
-      if (entry.limit) head += ` limit ${expr(entry.limit)}`;
-      return dataRecordLines(entry.record, head + " ", indent);
+      let suffix = ` for ${bindingsText(entry.bindings)}`;
+      if (entry.where.length) suffix += ` where ${entry.where.map(expr).join(", ")}`;
+      if (entry.orderBy.length) suffix += ` orderBy ${orderBy(entry.orderBy)}`;
+      if (entry.limit) suffix += ` limit ${expr(entry.limit)}`;
+      return suffixed(dataRecordLines(entry.record, `${first}${entry.key}: `, indent), suffix);
     }
   }
 }

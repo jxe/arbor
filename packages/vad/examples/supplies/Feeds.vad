@@ -3,22 +3,20 @@
 use "data/schema.vad"
 
 view ListsByOwner(owner Person) {
-  lists: for l in List where l.owner == owner orderBy l.modified desc limit 20 {
+  lists: {
     name
     size: count(l.items)
     owner { name, handle }
-    practices: for p in l.items.practice orderBy p.name {
-      name
-    }
-  }
+    practices: { name } for p in l.items.practice orderBy p.name
+  } for l in List where l.owner == owner orderBy l.modified desc limit 20
 }
 
 view OnePractice(id) {
-  practice: for p in Practice where p.id == id {
+  practice: {
     name
     about
     authors { name }
     lists: count(l in List where p in l.items.practice)
-    tagged: if count(p.tags) > 0 { tags { name, color } }
-  }
+    tagged: { tags { name, color } } if count(p.tags) > 0
+  } for p in Practice where p.id == id
 }

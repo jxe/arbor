@@ -9,3 +9,8 @@ mutation m():
 view ok():
   // expect: syntax
   <Column><Text>unclosed</Column>
+
+view Old() {
+  // expect: syntax
+  lists: for l in List { name }
+}

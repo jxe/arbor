@@ -117,8 +117,8 @@ describe("vad formatting", () => {
   });
 
   test("a data view's record stays on one line only when it was written on one", () => {
-    const source = "view A(o Person) {\n  x: for l in List { name, size: count(l.items) }\n  // note\n\n  y: 1, z: 2\n}\n";
-    expect(formatView(source)).toBe("view A(o Person) {\n  x: for l in List { name, size: count(l.items) }\n  // note\n\n  y: 1\n  z: 2\n}\n");
+    const source = "view A(o Person) {\n  x: { name, size: count(l.items) }   for l in List\n  // note\n\n  y: 1, z: { a: 2 }  if o != null\n}\n";
+    expect(formatView(source)).toBe("view A(o Person) {\n  x: { name, size: count(l.items) } for l in List\n  // note\n\n  y: 1\n  z: { a: 2 } if o != null\n}\n");
   });
 
   test("a source with syntax errors isn't formatted", () => {

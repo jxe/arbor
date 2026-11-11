@@ -4,16 +4,16 @@ use "../supplies/data/schema.vad"
 view Bad(id) {
   // expect: data-entry-key
   name
-  lists: for l in List where l.id == id {
+  lists: {
     // expect: unknown-field
     colour
     // expect: not-a-relationship
     name { size }
     // expect: duplicate-key
     colour: 1
-  }
+  } for l in List where l.id == id
   // expect: not-data
   go: <Text>x</Text>
   // expect: limit
-  few: for p in Practice limit "ten" { name }
+  few: { name } for p in Practice limit "ten"
 }

@@ -1167,6 +1167,9 @@ export class Checker {
           } else this.checkData(entry.record, scope, { k: "row", model: ty.model });
           break;
         }
+        case "record":
+          this.checkData(entry.record, scope, about);
+          break;
         case "if":
           for (const c of entry.conditions) this.condition(c, scope, ctx);
           this.checkData(entry.record, scope, about);

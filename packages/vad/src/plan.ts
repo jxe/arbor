@@ -71,7 +71,8 @@ export type DataPlanEntry =
   /** A field of the row the record is about; with `record`, the rows it reaches. */
   | { key: string; field: string; record?: DataPlan }
   | { key: string; for: { name: string; source: PlanExpr }[]; where?: PlanExpr[]; orderBy?: OrderPlan[]; limit?: PlanExpr; record: DataPlan }
-  | { key: string; if: PlanExpr[]; record: DataPlan };
+  | { key: string; if: PlanExpr[]; record: DataPlan }
+  | { key: string; record: DataPlan };
 
 /** `stateBinding` is a name bound to rows of a state table. */
 type Kind = "param" | "binding" | "stateBinding" | "state" | "keep" | "let" | "builtin" | "rule-arg";
@@ -118,6 +119,9 @@ export class ElementPlanner {
         case "value": entries.push({ key: entry.key, value: this.expr(entry.value, env, lookup) }); break;
         case "field":
           entries.push({ key: entry.name, field: entry.name, ...(entry.record ? { record: this.dataRecord(entry.record, env, lookup) } : {}) });
+          break;
+        case "record":
+          entries.push({ key: entry.key, record: this.dataRecord(entry.record, env, lookup) });
           break;
         case "if":
           entries.push({ key: entry.key, if: entry.conditions.map((c) => this.expr(c, env, lookup)), record: this.dataRecord(entry.record, env, lookup) });
