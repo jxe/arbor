@@ -284,7 +284,7 @@ extension UpdateCoordinator {
             for entry in entries {
                 if let directory = entry.directory { pending.append((directory, .directory)); continue }
                 guard let file = entry.hash, seen.insert(file).inserted, let object = objects[file] else { continue }
-                if entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx") || extra.contains(file) { kept.append(object) }
+                if entry.name.hasSuffix(".md") || extra.contains(file) { kept.append(object) }
             }
         }
         let spine = ProtocolSnapshot(root: snapshot.root, objects: kept.sorted { $0.hash < $1.hash })

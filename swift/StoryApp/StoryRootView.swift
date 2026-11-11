@@ -2136,7 +2136,6 @@ struct StoryRootView: View {
         if path == "/_index.md" { return "/" }
         if path.hasSuffix("/_index.md") { return String(path.dropLast(10)) }
         if path.hasSuffix(".md") { return String(path.dropLast(3)) }
-        if path.hasSuffix(".mdx") { return String(path.dropLast(4)) }
         return path
     }
 

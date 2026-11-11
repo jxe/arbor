@@ -18,18 +18,11 @@ public enum LocalFolderPreview {
     /// The update ID recorded for a preview. It is never sent anywhere.
     public static let update = "local-folder-preview"
 
-    /// `dates` are the host's page dates as last reported, by body entry
-    /// path; they date the pages they name, so the preview's sidebar matches
-    /// the confirmed tree's, and file times date the rest.
-    public static func workingTree(tree: TreeID, folder: URL, dates: [String: Date] = [:]) async throws -> WorkingTree {
-        var nodes = try nodes(in: folder)
-        if !dates.isEmpty {
-            for index in nodes.indices {
-                if let entry = nodes[index].bodyEntryPath, let date = dates[entry] {
-                    nodes[index].metadata.modifiedAt = date
-                }
-            }
-        }
+    /// Files date their pages: Story Sync writes each with its entry's
+    /// `modified` time (data model §6), so the preview's sidebar matches the
+    /// confirmed tree's.
+    public static func workingTree(tree: TreeID, folder: URL) async throws -> WorkingTree {
+        let nodes = try nodes(in: folder)
         let workingTree = try await WorkingTree.inMemory(tree: tree)
         try await workingTree.initializeFromPreview(nodes)
         return workingTree

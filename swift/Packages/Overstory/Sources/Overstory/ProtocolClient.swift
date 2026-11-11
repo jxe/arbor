@@ -182,23 +182,17 @@ public actor ProtocolClient {
     }
 
     public func snapshot(tree: String, root: String) async throws -> ProtocolSnapshot {
-        try ProtocolSnapshotBundleCodec.decode(try await snapshotBundle(tree: tree, root: root, times: false), root: root)
+        try ProtocolSnapshotBundleCodec.decode(try await snapshotBundle(tree: tree, root: root), root: root)
     }
 
-    /// A snapshot read with its entry times (tree operations §1.1.2a): when
-    /// each file and page entry's content first appeared at its path, in Unix
-    /// milliseconds, keyed by entry path. Immutable with the root.
-    public func timedSnapshot(tree: String, root: String) async throws -> (snapshot: ProtocolSnapshot, times: [String: Double]) {
-        try ProtocolSnapshotBundleCodec.decodeTimed(try await snapshotBundle(tree: tree, root: root, times: true), root: root)
-    }
-
-    private func snapshotBundle(tree: String, root: String, times: Bool) async throws -> Data {
+    /// Entries carry their own times (data model §6); a snapshot read has no other form.
+    private func snapshotBundle(tree: String, root: String) async throws -> Data {
         try validateObjectHash(root)
         var request = try await authorizedRequest(
-            path: "/.overstory/trees/\(component(tree))/snapshots/\(component(root))\(times ? "?times" : "")"
+            path: "/.overstory/trees/\(component(tree))/snapshots/\(component(root))"
         )
         request.setValue("application/cbor", forHTTPHeaderField: "Accept")
-        let (data, response) = try await logged(request, kind: .read, name: times ? "snapshot-times" : "snapshot", tree: tree)
+        let (data, response) = try await logged(request, kind: .read, name: "snapshot", tree: tree)
         let status = try statusCode(response)
         try validate(data: data, status: status)
         guard let http = response as? HTTPURLResponse,
@@ -219,17 +213,6 @@ public actor ProtocolClient {
         let (data, response) = try await logged(request, kind: .read, name: "path-read", tree: tree)
         try validate(data: data, status: try statusCode(response))
         return try await ProtocolPathRead.decode(data, root: root, path: path)
-    }
-
-    /// Descriptive metadata of the current root's file entries: never part of
-    /// any hash, and describing `update`, which may be newer than a snapshot
-    /// just installed (the watch corrects that).
-    public func entryMetadata(tree: String) async throws -> ProtocolEntryMetadata {
-        let value: ProtocolEntryMetadata = try await get(path: "/.overstory/trees/\(component(tree))/entry-metadata")
-        guard !value.update.isEmpty, value.entries.keys.allSatisfy({ $0.hasPrefix("/") }) else {
-            throw ProtocolValidationError.invalidValue("Malformed entry metadata")
-        }
-        return value
     }
 
     public func prepareUpdate(

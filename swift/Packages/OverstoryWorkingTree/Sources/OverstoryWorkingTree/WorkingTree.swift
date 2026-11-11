@@ -381,24 +381,6 @@ public actor WorkingTree {
         return fork
     }
 
-    /// Dates from the host's entry metadata, keyed by entry path. They describe
-    /// `update`: when that is this tree's accepted, materialized state they
-    /// are authoritative; otherwise they only date nodes that have no date.
-    /// Content and hashes are untouched.
-    public func applyEntryDates(_ dates: [String: Date], update: String) throws {
-        try requireOpen()
-        let exact = control.acceptedUpdate == update && control.acceptedRoot == control.materializedRoot
-        var next = state, changed = false
-        for index in next.nodes.indices {
-            guard let entry = next.nodes[index].bodyEntryPath, let date = dates[entry],
-                  exact || next.nodes[index].modifiedAt == nil, next.nodes[index].modifiedAt != date else { continue }
-            next.nodes[index].modifiedAt = date
-            changed = true
-        }
-        guard changed else { return }
-        try transact(mutation: "entry-metadata", pageKey: "_system", recordsModificationDates: false) { $0 = next }
-    }
-
     /// Replace a fork's nodes with a local candidate. Unlike an accepted
     /// replacement this ignores pending work: a fork is a disposable view.
     /// Modification dates carry over by page ID and path, and changed or new
@@ -630,7 +612,7 @@ public actor WorkingTree {
         var found: [String: Data] = [:]
         var wanted: [String] = []
         for entry in entries where entry.directory == nil {
-            guard let child = entry.hash, entry.page != nil || entry.name.hasSuffix(".md") || entry.name.hasSuffix(".mdx"),
+            guard let child = entry.hash, entry.page != nil || entry.name.hasSuffix(".md"),
                   found[child] == nil, !wanted.contains(child) else { continue }
             if let local = try overlay.storedBytes(child) { found[child] = local }
             else if let file = folderBody(entry, in: path) { found[child] = file }
@@ -1482,6 +1464,13 @@ public actor WorkingTree {
             // other descriptive fields and moves only the date.
             next.nodes[index].metadata = old.metadata
             if old.withoutMetadata != candidate.withoutMetadata { next.nodes[index].modifiedAt = stamp }
+        }
+        // A node with a content entry is dated by that entry's `modified`
+        // (data model §6): a move keeps it, an edit sets it, as on the host.
+        for index in next.nodes.indices {
+            if let modified = next.nodes[index].times?.modified {
+                next.nodes[index].modifiedAt = Date(timeIntervalSince1970: Double(modified) / 1000)
+            }
         }
     }
 

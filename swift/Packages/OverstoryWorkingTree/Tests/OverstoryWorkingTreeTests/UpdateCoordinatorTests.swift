@@ -343,9 +343,10 @@ struct UpdateCoordinatorTests {
         ]))
         let snapshot = ProtocolSnapshot(root: root.hash, objects: [root, directory, markdown, mdx])
 
-        #expect(throws: ProtocolValidationError.self) {
-            _ = try SnapshotBridge.replacement(snapshot: snapshot, tree: "tr_ambiguous", update: "up_initial")
-        }
+        // `x.mdx` is a plain file (Apps 011), not a second body of `x`.
+        let replacement = try SnapshotBridge.replacement(snapshot: snapshot, tree: "tr_ambiguous", update: "up_initial")
+        #expect(replacement.nodes.first { $0.path == "/x.mdx" }.map { if case .file = $0.content { true } else { false } } == true)
+        #expect(replacement.nodes.first { $0.path == "/x" }?.directoryBodyPlacement == .siblingMarkdown)
 
         let plain = try ProtocolObjectCodec.object(.file(Data("plain".utf8)))
         let duplicateRoot = try ProtocolObjectCodec.object(.directory([
@@ -2290,11 +2291,20 @@ extension SourceSessionPublicationTests {
     @Test("Pending source work keeps accepted modification dates in provider reads")
     func pendingReadsKeepDates() async throws {
         try await withTemporaryRoot { root in
-            let initial = try snapshot(files: ["a.md": "A\n", "b.md": "---\nid: pg_b\n---\nB\n"])
             let aDate = Date(timeIntervalSince1970: 1_789_000_000), bDate = Date(timeIntervalSince1970: 1_788_000_000)
+            // The accepted entries carry their own times (data model §6).
+            let untimed = try snapshot(files: ["a.md": "A\n", "b.md": "---\nid: pg_b\n---\nB\n"])
+            let rootObject = try #require(untimed.objects.first { $0.hash == untimed.root })
+            guard case let .directory(rootEntries, collection) = try ProtocolObjectCodec.decode(rootObject.bytes, kind: .directory) else { return }
+            let times = ["a.md": ProtocolEntryTime.milliseconds(aDate), "b.md": ProtocolEntryTime.milliseconds(bDate)]
+            let dated = try ProtocolObjectCodec.object(.directory(rootEntries.map { entry in
+                var entry = entry
+                if let time = times[entry.name] { entry.created = time; entry.modified = time }
+                return entry
+            }, collection: collection))
+            let initial = ProtocolSnapshot(root: dated.hash, objects: untimed.objects.filter { $0.hash != untimed.root } + [dated])
             let tree = try await WorkingTree.inMemory(tree: treeID)
-            try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: initial, tree: treeID,
-                update: "up_initial", entryMetadata: ["/a.md": EntryMetadata(modifiedAt: aDate), "/b.md": EntryMetadata(modifiedAt: bDate)]))
+            try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: initial, tree: treeID, update: "up_initial"))
             let coordinator = try UpdateCoordinator(workingTree: tree, transport: SourceModeTransport(initial: initial, peer: initial),
                 stateRoot: root , publicationDelay: .seconds(3600), publicationMaxDelay: .seconds(3600))
             let provider = WorkingTreeProvider(workingTree: tree, coordinator: coordinator)
@@ -2317,8 +2327,8 @@ extension SourceSessionPublicationTests {
             let group = try #require(try await provider.perform(.createDirectory(parent: parent, name: "group")))
             _ = try #require(try await provider.perform(.move(reference: .init(tree: treeID, path: "/b"), destination: group.reference)))
             pending = try await dates()
-            // A move is a modification here, exactly as on the live working tree.
-            #expect(try #require(pending["/group/b"]) >= started)
+            // A move keeps its entry's times (data model §6), here as on the live working tree.
+            #expect(pending["/group/b"] == bDate)
             #expect(try #require(pending["/a"]) >= started)
             #expect(try await tree.heads().acceptedRoot == initial.root)
             await coordinator.close(); await session.close(); await tree.close()

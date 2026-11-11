@@ -36,7 +36,6 @@ public enum SnapshotBridge {
         update: String,
         cursor: String? = nil,
         mode: ProtocolObjectGraph.ValidationMode = .complete,
-        entryMetadata: [String: EntryMetadata] = [:],
         acceptedAt: Date? = nil
     ) throws -> WorkingTreeSystemReplacement {
         let sparse = mode != .complete
@@ -95,7 +94,8 @@ public enum SnapshotBridge {
                 throw ProtocolValidationError.invalidValue("Duplicate logical path \(node.path)")
             }
             var node = node
-            if let entry = node.bodyEntryPath, let metadata = entryMetadata[entry] { node.metadata = metadata }
+            // A node is dated by its content entry's `modified` (data model §6).
+            if let modified = node.times?.modified { node.metadata.modifiedAt = Date(timeIntervalSince1970: Double(modified) / 1000) }
             nodes.append(node)
         }
 
@@ -110,10 +110,9 @@ public enum SnapshotBridge {
             let siblingBodies = Dictionary(grouping: entries.compactMap { entry -> (stem: String, name: String)? in
                 guard let hash = entry.hash, let object = objects[hash] else { return nil }
                 switch object { case .file, .page: break; default: return nil }
-                for suffix in [".md", ".mdx"] where entry.name.hasSuffix(suffix) {
-                    return (String(entry.name.dropLast(suffix.count)), entry.name)
-                }
-                return nil
+                // Only `x.md` is a directory's sibling body; `x.mdx` is a plain file (Apps 011).
+                guard entry.name.hasSuffix(".md") else { return nil }
+                return (String(entry.name.dropLast(3)), entry.name)
             }, by: { $0.stem })
             for (stem, bodies) in siblingBodies where directoryNames.contains(stem) && bodies.count > 1 {
                 throw ProtocolValidationError.invalidValue(

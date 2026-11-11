@@ -105,8 +105,8 @@ public struct ConflictReviewDecision: Codable, Equatable, Identifiable, Sendable
         var parts = path.split(separator: "/").map(String.init)
         guard let name = parts.popLast() else { return path }
         // A folder's page is named by its folder; the tree's own page is Home.
-        if name == "_index.md" || name == "_index.mdx" { return parts.last ?? "Home" }
-        for suffix in [".md", ".mdx"] where name.hasSuffix(suffix) { return String(name.dropLast(suffix.count)) }
+        if name == "_index.md" { return parts.last ?? "Home" }
+        if name.hasSuffix(".md") { return String(name.dropLast(3)) }
         return name
     }
     public var summary: String {
