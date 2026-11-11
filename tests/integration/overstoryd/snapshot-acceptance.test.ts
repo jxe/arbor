@@ -262,7 +262,7 @@ test.each(["current", "incoming"])("a nested folder conflict is one choice about
   expect(page.decisions).toHaveLength(1);
   const decision = page.decisions[0]!;
   const parent = { material: { kind: "basis" as const, path: "/", object: accepted.root }, within: ["outer"] };
-  expect(decision).toMatchObject({ kind: "entry", affected: [parent], dependencies: [], actions: ["resolveConflict"] });
+  expect(decision).toMatchObject({ kind: "entry", affected: [parent], dependencies: [] });
   expect(decision.alternatives.map((alternative) => [alternative.value, alternative.placement, alternative.contributions])).toEqual([
     [{ directory: inner("left.md") }, { parent, name: "inner" }, [{ change: a.change, operation: null }]],
     [{ directory: inner("right.md") }, { parent, name: "inner" }, [{ change: b.change, operation: null }]],

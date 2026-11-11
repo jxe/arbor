@@ -21,7 +21,7 @@ export interface InspectedDecision {
   row?: { model: string; key: string; field: string | null };
   /** A property choice's property of the page `affected` names. */
   property?: string;
-  alternatives: InspectedAlternative[]; dependencies: string[]; actions: string[];
+  alternatives: InspectedAlternative[]; dependencies: string[];
 }
 export interface DecisionPage {
   tree: string; state: string; root: string; conflicted: boolean;
@@ -68,10 +68,10 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
   if(!v.conflicted) check(v.decisions.length===0 && v.next===null);
   const seen=new Set();
   for(const raw of v.decisions) {
-    const d=obj(raw); required(d,["id","kind","affected","selected","alternatives","dependencies","actions"]);
+    const d=obj(raw); required(d,["id","kind","affected","selected","alternatives","dependencies"]); check(!Object.hasOwn(d,"actions"));
     id(d.id); check(!seen.has(d.id)); seen.add(d.id); token(d.kind); id(d.selected);
     check(Array.isArray(d.affected) && d.affected.length>0); d.affected.forEach((r:unknown)=>decodeMaterialRef(r));
-    ids(d.dependencies); check(!d.dependencies.includes(d.id)); ids(d.actions);
+    ids(d.dependencies); check(!d.dependencies.includes(d.id));
     // A field choice, and only one, names its row field (spec 01 §1.2.3).
     check(Object.hasOwn(d,"row")===(d.kind==="field"));
     // A property choice names its page's property the same way.

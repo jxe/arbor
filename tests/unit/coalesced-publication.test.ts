@@ -122,7 +122,7 @@ test("generic frame limits remain boundaries and accepted-base deltas remain com
   const result = hashObject(new TextEncoder().encode(steps[0]!.source));
   first.update.objects = first.update.objects.filter(object => object.hash !== result);
   first.update.deltas = [{base: hashObject(new TextEncoder().encode(initial)), result,
-    instructions: [{insert: encodeBase64(new TextEncoder().encode("B"))}, {copy: {offset: 1, length: initial.length - 1}}]}];
+    instructions: [{insert: encodeBase64(new TextEncoder().encode("B"))}, {copy: [1, initial.length - 1] as [number, number]}]}];
   for (const delta of local[0]!.update.deltas) {
     expect(partial.update.deltas.some(item => item.result === delta.result) || partial.update.objects.some(item => item.hash === delta.result)).toBe(true);
   }

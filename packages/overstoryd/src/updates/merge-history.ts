@@ -190,7 +190,6 @@ export class MergeHistory {
       id: decisionID(d.key),
       selected: id([entry.tree, "alternative", d.key, d.selected]),
       dependencies: d.dependencies.map(decisionID),
-      actions: ["resolveConflict"],
     };
     if (!d.path)
       return { ...common, kind: "directory", affected: [root], alternatives: d.alternatives.map((a, i) => alternative(i, { directory: a.object })) };

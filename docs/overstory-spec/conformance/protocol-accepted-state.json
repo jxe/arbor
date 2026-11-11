@@ -52,10 +52,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -146,11 +143,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -211,11 +204,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -279,10 +268,6 @@
             ],
             "dependencies": [
               "on-another-page"
-            ],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
             ]
           }
         ],
@@ -363,11 +348,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -428,11 +409,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -493,11 +470,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -806,11 +779,7 @@
             ],
             "selected": "a",
             "alternatives": [],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -871,11 +840,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -936,11 +901,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           },
           {
             "id": "deadline",
@@ -987,11 +948,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -1054,10 +1011,6 @@
             ],
             "dependencies": [
               "deadline"
-            ],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
             ]
           }
         ],
@@ -1125,11 +1078,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -1197,11 +1146,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -1272,11 +1217,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -1337,11 +1278,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -1558,11 +1495,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -1631,10 +1564,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ]
       }
@@ -1691,10 +1621,6 @@
               }
             ],
             "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ],
             "row": {
               "model": "Game",
               "key": "[[\"id\",\"g1\"]]",
@@ -1757,10 +1683,6 @@
               }
             ],
             "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ],
             "row": {
               "model": "Game",
               "key": "[[\"id\",\"g1\"]]",
@@ -1822,11 +1744,7 @@
                 ]
               }
             ],
-            "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ]
+            "dependencies": []
           }
         ],
         "next": null
@@ -1884,10 +1802,6 @@
               }
             ],
             "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ],
             "row": {
               "model": "Game",
               "key": "[[\"id\",\"g1\"]]",
@@ -1951,10 +1865,6 @@
               }
             ],
             "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ],
             "row": {
               "model": "Game/x",
               "key": "[[\"id\",\"g1\"]]",
@@ -2021,10 +1931,6 @@
               }
             ],
             "dependencies": [],
-            "actions": [
-              "editAlternative",
-              "resolveConflict"
-            ],
             "row": {
               "model": "Game",
               "key": "[[\"id\",\"g1\"]]",

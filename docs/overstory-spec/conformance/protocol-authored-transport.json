@@ -72,10 +72,10 @@
                 "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
                 "instructions": [
                   {
-                    "copy": {
-                      "offset": 0,
-                      "length": 13
-                    }
+                    "copy": [
+                      0,
+                      13
+                    ]
                   },
                   {
                     "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
@@ -203,10 +203,10 @@
                 "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
                 "instructions": [
                   {
-                    "copy": {
-                      "offset": 0,
-                      "length": 13
-                    }
+                    "copy": [
+                      0,
+                      13
+                    ]
                   },
                   {
                     "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
@@ -584,10 +584,10 @@
                 "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
                 "instructions": [
                   {
-                    "copy": {
-                      "offset": 0,
-                      "length": 13
-                    }
+                    "copy": [
+                      0,
+                      13
+                    ]
                   },
                   {
                     "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
@@ -623,10 +623,10 @@
                 "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
                 "instructions": [
                   {
-                    "copy": {
-                      "offset": 0,
-                      "length": 13
-                    }
+                    "copy": [
+                      0,
+                      13
+                    ]
                   },
                   {
                     "insert": "QSBzZWNvbmQgcGFyYWdyYXBoLgo="
@@ -724,10 +724,10 @@
                 "result": "sha256:558995392783a04f9d3f95a638146f3aa86c7f34ad10d8335256c6c054b6c3c6",
                 "instructions": [
                   {
-                    "copy": {
-                      "offset": 9007199254740991,
-                      "length": 1
-                    }
+                    "copy": [
+                      9007199254740991,
+                      1
+                    ]
                   }
                 ]
               }

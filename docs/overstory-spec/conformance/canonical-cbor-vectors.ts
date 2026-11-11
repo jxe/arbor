@@ -3,7 +3,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { createPrivateKey, createPublicKey, sign } from "node:crypto";
-import { accountChallengeBytes, personProfileTreeID, treeConfigurationID, type AccountChallenge } from "@ovst/protocol";
+import { accountChallengeBytes, directoryStamper, personProfileTreeID, treeConfigurationID, type AccountChallenge } from "@ovst/protocol";
 import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, encodeProtocolRows, encodeProtocolTable, hashObject, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
 import { activationElement, decodeUpdateRequestJSON, decodeUpdateResponseJSON, encodeCandidateUpdateJSON, encodeUpdateRequestJSON, encodeUpdateResponseJSON, initialPersonConfig, snapshotTreeConfig } from "@ovst/protocol";
 
@@ -55,7 +55,10 @@ for (const vector of objectVectors.objects) {
 }
 const invalidHash = "sha256:" + "0".repeat(64);
 const reference = { version: 1, modelFingerprint: invalidHash, tables: [{ model: "Game", table: invalidHash }] };
-const schemaEntry = { name: "schema.usl", file: invalidHash };
+const CREATED = Date.parse("2026-10-24T09:00:00.000Z"), MODIFIED = Date.parse("2026-10-24T09:30:00.000Z");
+const schemaEntry = { name: "schema.usl", file: invalidHash, created: CREATED, modified: MODIFIED };
+// File and page entries carry their times, so each case is invalid only for its own reason.
+const timed = (e: any) => (e.file !== undefined || e.page !== undefined) && e.created === undefined ? { ...e, created: CREATED, modified: MODIFIED } : e;
 objectVectors.invalid = [
   { name: "unsorted-directory", entries: [{ name: "z", file: invalidHash }, { name: "a", file: invalidHash }] },
   { name: "duplicate-name", entries: [{ name: "a", file: invalidHash }, { name: "a", file: invalidHash }] },
@@ -69,9 +72,20 @@ objectVectors.invalid = [
   { name: "collection-tables-unsorted", entries: [schemaEntry], collection: { ...reference, tables: [{ model: "List", table: invalidHash }, { model: "Game", table: invalidHash }] } },
 ].map(({ name, entries, collection }: { name: string; entries: unknown[]; collection?: unknown }) => ({
   name,
-  canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries, ...(collection ? { collection } : {}) })),
+  canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries: entries.map(timed), ...(collection ? { collection } : {}) })),
 }));
-objectVectors.invalid.push({ name: "noncanonical-cbor", canonicalCborBase64: b64(Buffer.concat([Buffer.from([0xa2]), encodeCanonicalCBOR("entries"), encodeCanonicalCBOR([]), encodeCanonicalCBOR("type"), encodeCanonicalCBOR("directory")])) });
+{
+  // A time written with a longer integer head than it needs.
+  const canonical = Buffer.from(encodeCanonicalCBOR({ type: "directory", entries: [{ name: "a", file: invalidHash, created: 5, modified: 5 }] }));
+  const at = canonical.indexOf(Buffer.concat([Buffer.from([0x67]), Buffer.from("created"), Buffer.from([0x05])]));
+  objectVectors.invalid.push({ name: "noncanonical-cbor", canonicalCborBase64: b64(Buffer.concat([canonical.subarray(0, at + 8), Buffer.from([0x18, 0x05]), canonical.subarray(at + 9)])) });
+}
+for (const [name, entry] of [
+  ["entry-without-times", { name: "a", file: invalidHash }],
+  ["created-after-modified", { name: "a", file: invalidHash, created: MODIFIED, modified: CREATED }],
+  ["time-as-text", { name: "a", page: invalidHash, created: "2026-10-24T09:00:00.000Z", modified: "2026-10-24T09:00:00.000Z" }],
+  ["times-on-directory-entry", { name: "a", directory: invalidHash, created: CREATED, modified: CREATED }],
+] as const) objectVectors.invalid.push({ name, canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries: [entry] })) });
 await writeFile(objectPath, JSON.stringify(objectVectors, null, 2) + "\n");
 
 const valid = [
@@ -159,7 +173,7 @@ console.log("Regenerated Wire vectors");
   // fixes the transport, not a verifiable claim.
   const challenge = challenges.cases.find((c: any) => c.name === "exact-account").response;
   const device = { id: "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa", label: "Alice's Mac", key: "ed25519:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" };
-  const configuration = activationElement(snapshotTreeConfig(initialPersonConfig(challenge.profileTree, device)), device.id);
+  const configuration = activationElement(snapshotTreeConfig(initialPersonConfig(challenge.profileTree, device), directoryStamper(undefined, 0)), device.id);
   const claim = (encoding: "json" | "cbor") => ({
     account: challenge.account, profileTree: challenge.profileTree, configurationTree: challenge.configurationTree, challenge,
     publicKey: "A".repeat(43), signature: "A".repeat(86), device, configuration: encodeCandidateUpdateJSON(configuration, encoding),

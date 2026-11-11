@@ -75,7 +75,8 @@ export interface ObjectEnvelopeJSON<B extends string | Uint8Array = string> {
 export interface ObjectDeltaJSON<B extends string | Uint8Array = string> {
   base: ObjectHash;
   result: ObjectHash;
-  instructions: Array<{ copy: { offset: number; length: number } } | { insert: B }>;
+  /** A copy is `[offset, length]` of the base (tree operations §2.5). */
+  instructions: Array<{ copy: [number, number] } | { insert: B }>;
 }
 
 export interface UpdateRequestJSON<B extends string | Uint8Array = string> {
@@ -163,14 +164,14 @@ export function decodeObjectDeltas(value: unknown, encoding: WireEncoding = "jso
       const value = instruction as { copy?: unknown; insert?: unknown };
       if ((value.copy === undefined) === (value.insert === undefined)) throw new Error("Object delta instruction requires exactly one operation");
       if (value.copy !== undefined) {
-        if (!value.copy || typeof value.copy !== "object") throw new Error("Invalid object delta copy");
-        const copy = value.copy as { offset?: unknown; length?: unknown };
-        if (!Number.isSafeInteger(copy.offset) || (copy.offset as number) < 0
-          || !Number.isSafeInteger(copy.length) || (copy.length as number) <= 0
-          || !Number.isSafeInteger((copy.offset as number) + (copy.length as number))) {
+        if (!Array.isArray(value.copy) || value.copy.length !== 2) throw new Error("Invalid object delta copy");
+        const [offset, length] = value.copy as unknown[];
+        if (!Number.isSafeInteger(offset) || (offset as number) < 0
+          || !Number.isSafeInteger(length) || (length as number) <= 0
+          || !Number.isSafeInteger((offset as number) + (length as number))) {
           throw new Error("Invalid object delta copy");
         }
-        return { copy: { offset: copy.offset as number, length: copy.length as number } };
+        return { copy: { offset: offset as number, length: length as number } };
       }
       const insert = decodeWireBytes(value.insert, encoding, "Object delta insert");
       if (insert.byteLength === 0) throw new Error("Object delta insert is empty");
@@ -187,7 +188,7 @@ export function encodeObjectDeltaJSON<E extends WireEncoding = "json">(delta: Ob
     base: delta.base,
     result: delta.result,
     instructions: delta.instructions.map((instruction) => "copy" in instruction
-      ? { copy: { offset: instruction.copy.offset, length: instruction.copy.length } }
+      ? { copy: [instruction.copy.offset, instruction.copy.length] as [number, number] }
       : { insert: encodeWireBytes(instruction.insert, encoding) }),
   };
 }
