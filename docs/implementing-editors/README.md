@@ -6,7 +6,7 @@ it is not the editor's publication path.
 
 ## Integration order
 
-1. Read the portable [data model](../overstory-spec/1.1-data-model.md), [locators](../overstory-spec/1.6-locators.md), and [source intent](../overstory-spec/1.3-source-intent.md) contracts.
+1. Read the portable [data model](../overstory-spec/1.1-data-model.md), [locators](../overstory-spec/1.6-locators.md), and [updates and merging](../overstory-spec/1.3-updates-and-merging.md) contracts.
 2. Implement an [editor source](editor-source.md): exact per-generation capture, durable appends to the change log, keystroke guards, and recovery from the log.
 3. Connect admission to the [working-tree update machine](../implementing-sync-services/update-machine.md) and [working trees contract](../overstory-spec/2.1-working-trees.md).
 4. Review [Story local state](../architecture/story-browser/local-state.md) for the reference app's working trees and change logs.

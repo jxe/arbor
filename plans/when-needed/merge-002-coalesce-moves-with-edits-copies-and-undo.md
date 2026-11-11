@@ -16,7 +16,7 @@ Read the implementation and tests before selecting a case:
 
 - [Update machine and runner](../../docs/implementing-sync-services/update-machine.md).
 - [Editor capture and publication](../../docs/implementing-editors/editor-source.md).
-- [Source intent and provenance](../../docs/overstory-spec/1.3-source-intent.md).
+- [Source intent and provenance](../../docs/overstory-spec/1.3-updates-and-merging.md).
 - Swift `ChangePublication.swift` and TypeScript `publication.ts` in their
   working-tree packages; `docs/overstory-spec/conformance/coalesced-publication.json`.
 - [Native 008](../when-needed/merge-008-copies-with-changes-and-compound-undo.md) owns missing

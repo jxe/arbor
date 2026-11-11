@@ -1,6 +1,6 @@
 # Presence in overstoryd
 
-[Host: overstoryd](README.md) · [Spec 12: presence](../../overstory-spec/1.8-presence.md)
+[Host: overstoryd](README.md) · [Spec 12: presence](../../overstory-spec/1.2-reading-and-watching.md#3-presence)
 
 `PresenceHub` (`packages/overstoryd/src/presence.ts`) holds every open presence
 entry in this process's memory: `Map<TreeID, Map<PresenceID, Entry>>`. Nothing

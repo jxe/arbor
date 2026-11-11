@@ -114,7 +114,7 @@ Under a tree's state root:
   its exact request bytes and `contentType` their encoding: new attempts are
   CBOR (`application/cbor`), and an attempt without `contentType` is JSON, so
   one written before bodies could be CBOR replays unchanged, as JSON
-  ([tree protocol §3.2](../overstory-spec/1.2-tree-protocol.md#32-request-and-response-encodings)).
+  ([reading and watching §2.2](../overstory-spec/1.2-reading-and-watching.md#22-request-and-response-encodings)).
 - **`sync/conflict-review.json`** (schema 3): review drafts, and the draft
   fingerprint each submitted resolution change carries.
 

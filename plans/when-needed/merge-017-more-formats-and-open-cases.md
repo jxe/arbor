@@ -50,7 +50,7 @@ A merge tool may give any of three outcomes:
 - **Review.** For when a merge would lose something or break the syntax. Both
   versions are kept as alternatives and a person chooses. Reviews already never
   block synchronization or further editing
-  ([source intent §6](../../docs/overstory-spec/1.3-source-intent.md#6-accepted-decisions-and-continued-editing)).
+  ([updates and merging §3.4](../../docs/overstory-spec/1.3-updates-and-merging.md#34-accepted-decisions-and-continued-editing)).
 
 Review costs the user attention, so **ours should rarely call for review**. It
 biases towards the two merge outcomes and uses review for real loss or broken

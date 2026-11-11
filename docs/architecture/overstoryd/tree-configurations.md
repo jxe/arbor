@@ -11,7 +11,7 @@ migration 022 (`packages/overstoryd/migrations/022-tree-configurations/README.md
 
 - **A separate tree, not a file inside the tree.** Objects are shared across a
   host, and any reader of any tree may fetch an object whose hash they know
-  ([tree protocol](../../overstory-spec/1.2-tree-protocol.md), object reads).
+  ([reading and watching](../../overstory-spec/1.2-reading-and-watching.md), object reads).
   A reserved file's hash is in the root directory every reader receives, so
   its content cannot be hidden without serving a directory that does not match
   its hash. It would also need per-path write rules, which Overstory does not

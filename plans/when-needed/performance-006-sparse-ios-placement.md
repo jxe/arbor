@@ -4,7 +4,7 @@
 
 Historical identifier: **Reliability 006**, formerly "Preview and resume initial
 working-tree bootstrap". Rewritten 2026-09-24 against the specification's sparse
-install ([tree protocol §1.1](../../docs/overstory-spec/1.2-tree-protocol.md#11-current-tree-accepted-snapshots-and-watch)).
+install ([reading and watching §1.1](../../docs/overstory-spec/1.2-reading-and-watching.md#11-current-tree-accepted-snapshots-and-watch)).
 The earlier design (HTTP `Range` resume of one whole snapshot bundle, a staging
 replica, a read-only preview, a bootstrap state machine) is in git history. A sparse
 placement removes the problem it was built around: one large body that must arrive

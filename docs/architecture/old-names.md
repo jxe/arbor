@@ -35,7 +35,7 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 
 | Old chapter | Now |
 |---|---|
-| 01 tree operations | [data model](../overstory-spec/1.1-data-model.md) (the model, objects, entry times, CBOR) and [tree protocol](../overstory-spec/1.2-tree-protocol.md) (reads, watch, updates, encodings); §1.3 canonical-URL reads moved to [locators §6](../overstory-spec/1.6-locators.md#6-reading-at-the-canonical-url), §3 editor round trip to [working trees](../overstory-spec/2.1-working-trees.md) |
+| 01 tree operations | [data model](../overstory-spec/1.1-data-model.md) (the model, objects, entry times, CBOR) and [reading and watching](../overstory-spec/1.2-reading-and-watching.md) (reads, watch, encodings) and [updates and merging §1, §3](../overstory-spec/1.3-updates-and-merging.md) (updates); §1.3 canonical-URL reads moved to [locators §6](../overstory-spec/1.6-locators.md#6-reading-at-the-canonical-url), §3 editor round trip to [working trees](../overstory-spec/2.1-working-trees.md) |
 | 02 directory format | [data model §8–12](../overstory-spec/1.1-data-model.md) (bodies, pages, pages with children, recognized and reserved names), [placements on disk](../overstory-spec/2.2-placements-on-disk.md) (frontmatter on disk, membership), old §4 is data model §10 |
 | 03 locators | [locators](../overstory-spec/1.6-locators.md) |
 | 04 accounts and devices | [accounts and devices](../overstory-spec/3.1-accounts-and-devices.md); §4 local placements moved to [client library §4](../overstory-spec/4.1-client-library.md#4-local-placements) |
@@ -44,7 +44,7 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 | 07 executable documents | [executable documents](../overstory-spec/5.1-executable-documents.md) |
 | 08 authoring API | [authoring API](../overstory-spec/5.2-authoring-api.md) |
 | 09 client synchronization | [working trees](../overstory-spec/2.1-working-trees.md) |
-| 10 source intent | [source intent](../overstory-spec/1.3-source-intent.md) |
+| 10 source intent | [updates and merging §2–3](../overstory-spec/1.3-updates-and-merging.md) |
 | 11 schema language | [schema language](../overstory-spec/1.5-schema-language.md) |
-| 12 presence | [presence](../overstory-spec/1.8-presence.md) |
+| 12 presence | [reading and watching §3](../overstory-spec/1.2-reading-and-watching.md#3-presence) |
 | implementing-sync-services/porting-a-client.md | [client library](../overstory-spec/4.1-client-library.md) |

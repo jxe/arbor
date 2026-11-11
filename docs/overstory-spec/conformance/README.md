@@ -56,7 +56,7 @@ pairings.
 `presented-views.json` binds presented views (plan schema-language/002
 milestone 3): a schema, data-file rows and people's names presented by one
 view, and each view intent with the row operations
-([source intent §4.1](../1.3-source-intent.md#41-property-operations)) and rows it
+([updates and merging §2.5](../1.3-updates-and-merging.md#25-property-operations)) and rows it
 leads to. `@ovst/usl` (`presentView`, `viewEdits`) and StoryKit
 (`PresentedView`) run it; `tests/support/regenerate-presented-views.ts`
 recomputes its expectations from the TypeScript reference.
@@ -96,7 +96,7 @@ fixed count cap without duplicating fixture text. The previous deployed-format
 `protocol-cbor-transport.json` gives every valid request and response vector
 above (and those in `protocol-endpoints.json`), and a complete account claim,
 in both body encodings of
-[tree protocol §3.2](../1.2-tree-protocol.md#32-request-and-response-encodings):
+[reading and watching §2.2](../1.2-reading-and-watching.md#22-request-and-response-encodings):
 the JSON body and the canonical CBOR of the same value, with byte strings
 where JSON has padded base64. Requests repeat their digests, which neither
 encoding changes. `rejected` holds CBOR bodies a receiver refuses:
@@ -109,7 +109,7 @@ that a host supports those effects. `protocol-operations.json` and
 `protocol-update-intent.json` are likewise grammar and digest vectors: they do
 not assert that their effects execute today. [status.md](../../../status.md) is the
 authority for the implemented subset; the request grammar itself is in
-[tree protocol §2.1](../1.2-tree-protocol.md#21-the-update-request).
+[updates and merging §1](../1.3-updates-and-merging.md#1-the-update-request).
 
 - `cross-document-copy.json` supplies the same exact UTF-8 source span, destination
   and foreign-document capture to Swift and TypeScript admission tests. Both must
@@ -144,8 +144,8 @@ authority for the implemented subset; the request grammar itself is in
 | `node-model.json` | Provider-neutral node model decoding |
 | `node-targets.json` | Node target resolution |
 | `observation-events.sse`, `observation-events-invalid.json` | Watch stream framing, valid and invalid: the cursor in the SSE `id`, the kind in `event`, one transition per `tree.update`, and `resync-required` with no `id` |
-| `presence-events.sse`, `presence-events-invalid.json` | Presence stream framing, valid and invalid ([spec 12](../1.8-presence.md)): a ready roster, peers (one an agent with a status), cursors, a leave, and frames a client must reject |
-| `presence-runners.sse` | Runners and messages ([spec 12 §6](../1.8-presence.md#6-runners-and-messages)): a runner in the roster, a `run` message, an agent doing the run, `stop` and `done` |
+| `presence-events.sse`, `presence-events-invalid.json` | Presence stream framing, valid and invalid ([spec 12](../1.2-reading-and-watching.md#3-presence)): a ready roster, peers (one an agent with a status), cursors, a leave, and frames a client must reject |
+| `presence-runners.sse` | Runners and messages ([spec 12 §3.6](../1.2-reading-and-watching.md#36-runners-and-messages)): a runner in the roster, a `run` message, an agent doing the run, `stop` and `done` |
 | `page-presentation.json` | Page presentation (spec 02 §4.1): presented title and Children headings (`cases`), and the source an edited page writes (`edits`) |
 | `page-conversion-undo.json` | Page-creation receipts and undo targets through restart |
 | `resource-policy.json` | `who` / `app` / `allow` / `within` rule grammar, profile locators, and one file's rules |
@@ -159,7 +159,7 @@ authority for the implemented subset; the request grammar itself is in
 | `protocol-endpoints.json` | Route shapes |
 | `protocol-graphs.json`, `protocol-objects.json`, `protocol-object-deltas.json`, `protocol-snapshot-bundles.json`, `protocol-values.json` | Objects, directory graphs, deltas, snapshot bundles, and canonical values |
 | `protocol-operations.json`, `protocol-update-intent.json` | Source operations and the update digest |
-| `protocol-path-reads.json` | Path reads: which objects a read of a path holds, the bundle's bytes, and bundles a reader must reject ([tree protocol §1.2.4](../1.2-tree-protocol.md#124-reading-a-path)) |
+| `protocol-path-reads.json` | Path reads: which objects a read of a path holds, the bundle's bytes, and bundles a reader must reject ([reading and watching §1.2.4](../1.2-reading-and-watching.md#124-reading-a-path)) |
 
 `protocol-account-challenges.json` covers community-address, exact-account and invitation-code challenge requests. All return the same complete account-bound challenge; placement accounts have none ([accounts and devices §1.3](../3.1-accounts-and-devices.md#13-placement-accounts)). Its `signing` section fixes the bytes a profile key signs for a challenge, with the signature. TypeScript and Swift clients consume these cases.
 

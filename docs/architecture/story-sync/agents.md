@@ -1,6 +1,6 @@
 # Agents in placed folders
 
-[Story Sync](README.md) · [Story Sync API §4a](../../implementing-sync-services/story-sync-api.md#4a-agents-in-placed-folders) · [Spec 12: presence](../../overstory-spec/1.8-presence.md)
+[Story Sync](README.md) · [Story Sync API §4a](../../implementing-sync-services/story-sync-api.md#4a-agents-in-placed-folders) · [Spec 12: presence](../../overstory-spec/1.2-reading-and-watching.md#3-presence)
 
 Agents 001 shows any agent working in a placed folder as an agent of this
 device's person. `AgentSessions` (`packages/story-sync/src/agents.ts`) keeps

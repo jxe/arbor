@@ -3,7 +3,7 @@
 
 The current version is Story Sync REST v1.
 
-The protocol request grammar is in [tree protocol §2.1](../overstory-spec/1.2-tree-protocol.md#21-the-update-request); these local REST routes and filesystem scheduling
+The protocol request grammar is in [updates and merging §1](../overstory-spec/1.3-updates-and-merging.md#1-the-update-request); these local REST routes and filesystem scheduling
 do not acquire new capabilities from that specification.
 
 Story Sync makes placed folders content-addressable and keeps each one equal
@@ -61,7 +61,7 @@ observation values defined across the specification. In particular,
 [Data model](../overstory-spec/1.1-data-model.md), while
 `EventCursor`, `Hash`, `AccessLevel`, `TreeKind`, `TreeDescriptor`, and
 `RemoteTreeDescriptor` come from the
-[current-tree read](../overstory-spec/1.2-tree-protocol.md#111-reading-the-current-tree).
+[current-tree read](../overstory-spec/1.2-reading-and-watching.md#111-reading-the-current-tree).
 REST v1 adds the following local values:
 
 ```ts
@@ -223,7 +223,7 @@ GET /.overstory/trees/{TreeID}/watch?after={cursor}[&objects=none]
 ```
 
 For the trees placed on this device Story Sync answers the standard Overstory
-read routes ([tree protocol §1](../overstory-spec/1.2-tree-protocol.md#1-reading-trees))
+read routes ([reading and watching §1](../overstory-spec/1.2-reading-and-watching.md#1-reading-trees))
 on loopback, with the same shapes and status codes as overstoryd, so code
 written for overstoryd reads through Story Sync with the ordinary protocol
 client: its credential is the data home's caller token (§2). Writes, presence
@@ -459,7 +459,7 @@ GET  /v1/agents
 
 An agent working in a placed folder reports here (`story agent status`,
 `done` and `hook`), and Story Sync shows it in the tree's
-[presence](../overstory-spec/1.8-presence.md) as an agent of this device's
+[presence](../overstory-spec/1.2-reading-and-watching.md#3-presence) as an agent of this device's
 account: it opens an agent presence stream on the first report and moves the
 entry's page and cursor to the file the agent last read or edited (`hook`
 carries a Claude Code hook payload). `cwd` names the tree; a report outside
