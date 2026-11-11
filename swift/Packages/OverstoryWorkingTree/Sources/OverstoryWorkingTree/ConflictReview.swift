@@ -22,6 +22,27 @@ public struct ConflictReviewMaterial: Codable, Equatable, Sendable {
     public let material: Material
     public let within: [String]?
     public let range: [Int]?
+
+    private enum CodingKeys: String, CodingKey { case material, within, range, path, object, change, operation, update }
+    /// A decision page's reference is told apart by its keys (tree operations
+    /// §1.2.2); a stored draft keeps the in-memory `material` form.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        within = try c.decodeIfPresent([String].self, forKey: .within)
+        range = try c.decodeIfPresent([Int].self, forKey: .range)
+        if c.contains(.material) { material = try c.decode(Material.self, forKey: .material); return }
+        if c.contains(.path) {
+            material = Material(kind: "basis", path: try c.decode(String.self, forKey: .path), object: try c.decode(String.self, forKey: .object))
+        } else if c.contains(.change) { material = Material(kind: "operation", path: nil, object: nil) }
+        else if c.contains(.update) { material = Material(kind: "alternative", path: nil, object: nil) }
+        else { throw ProtocolValidationError.invalidValue("Unknown reference") }
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(material, forKey: .material)
+        try c.encodeIfPresent(within, forKey: .within)
+        try c.encodeIfPresent(range, forKey: .range)
+    }
     public var path: String? {
         guard material.kind == "basis", let path = material.path else { return nil }
         return ([path == "/" ? "" : path] + (within ?? [])).joined(separator: "/") .nonemptyRoot

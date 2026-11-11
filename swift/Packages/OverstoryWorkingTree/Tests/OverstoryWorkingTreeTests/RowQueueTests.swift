@@ -109,8 +109,9 @@ struct RowQueueTests {
             #expect(frame["before"] == nil && frame["after"] == nil)
             let operation = try #require(frame["operations"]?.items?.first?.fields)
             #expect(operation["kind"] == .string("set") && operation["model"] == .string("Game") && operation["row"] == .string(Self.chess))
-            #expect(operation["collection"]?.fields?["material"]?.fields?["object"] == .string(games))
-            #expect(operation["collection"]?.fields?["material"]?.fields?["path"] == .string("/games"))
+            // On the wire the reference is told apart by its keys.
+            #expect(operation["collection"]?.fields?["object"] == .string(games))
+            #expect(operation["collection"]?.fields?["path"] == .string("/games"))
 
             // Accepted, but shown until the tree installs the result.
             try await waitUntil { (try? await coordinator.rowQueue().submission?.accepted) != nil }

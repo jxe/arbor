@@ -88,14 +88,15 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
         guard let again = try? encoder.encode(pairs) else { return false }
         return String(decoding: again, as: UTF8.self) == s
     }
+    /// A reference as it travels (tree operations §1.2.2), told apart by its
+    /// keys: `{ path, object }`, `{ change, operation }` or `{ update,
+    /// conflict, alternative }`, with `within` and `range` beside them.
     @discardableResult private static func reference(_ raw: ProtocolSemanticValue?, entry: Bool = false) throws -> Obj {
-        let v = try object(raw); try keys(v, ["material"], ["within", "range"]); let m = try object(v["material"])
-        switch m["kind"]?.text {
-        case "basis": try keys(m, ["kind", "path", "object"]); try path(m["path"]); try hash(m["object"])
-        case "operation": try keys(m, ["kind", "change", "operation"]); try id(m["change"]); try id(m["operation"])
-        case "alternative": try keys(m, ["kind", "state", "conflict", "alternative"]); try token(m["state"]); try id(m["conflict"]); try id(m["alternative"])
-        default: try check(false)
-        }
+        let v = try object(raw)
+        if v["path"] != nil { try keys(v, ["path", "object"], ["within", "range"]); try path(v["path"]); try hash(v["object"]) }
+        else if v["change"] != nil { try keys(v, ["change", "operation"], ["within", "range"]); try id(v["change"]); try id(v["operation"]) }
+        else if v["update"] != nil { try keys(v, ["update", "conflict", "alternative"], ["within", "range"]); try token(v["update"]); try id(v["conflict"]); try id(v["alternative"]) }
+        else { try check(false) }
         if let within = v["within"] {
             guard let a = within.items else { throw ProtocolValidationError.invalidValue("Expected descendant components") }
             try check(!a.isEmpty && a.count <= 256)
@@ -186,11 +187,15 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             let at = ProtocolEntryTime.milliseconds(u["at"]!.text!)!
             try check(at >= previousAt); previousAt = at
         }
-        if v["base"] == .null { let first = updates[0].fields!; try check(first["ifCurrent"] == nil && first["resolves"]!.items!.isEmpty) }
+        if v["base"] == .null { let first = updates[0].fields!; try check(first["ifCurrent"] == nil && (first["resolves"]?.items ?? []).isEmpty) }
     }
     /// Shared by semantic fixtures and complete transport candidates.
     static func validateCandidate(_ u: [String: ProtocolSemanticValue]) throws {
-        try keys(u, ["change", "at", "candidate", "trace", "resolves"], ["ifCurrent"])
+        // An omitted trace is a snapshot and omitted resolves are none (tree operations §2.1).
+        try keys(u, ["change", "at", "candidate"], ["trace", "resolves", "ifCurrent"])
+        var u = u
+        if u["trace"] == nil { u["trace"] = .null }
+        if u["resolves"] == nil { u["resolves"] = .array([]) }
         try id(u["change"])
         try check(u["at"]?.text.map(ProtocolEntryTime.isValid) == true)
         // A derived candidate is an operation trace whose last frame leaves
@@ -200,7 +205,7 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
         guard let resolves = u["resolves"]?.items else { throw ProtocolValidationError.invalidValue("Expected resolves") }
         var decisions = Set<String>()
         for raw in resolves {
-            let r = try object(raw); try keys(r, ["state", "conflict", "alternatives"]); try token(r["state"]); try id(r["conflict"])
+            let r = try object(raw); try keys(r, ["update", "conflict", "alternatives"]); try token(r["update"]); try id(r["conflict"])
             try check(decisions.insert(r["conflict"]!.text!).inserted)
             guard let a = r["alternatives"]?.items else { throw ProtocolValidationError.invalidValue("Expected alternatives") }
             try check(!a.isEmpty); for v in a { try id(v) }

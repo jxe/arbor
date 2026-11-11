@@ -23,9 +23,9 @@ public struct ProtocolDerivedUpdate: Sendable, Equatable {
     var semantic: [String: ProtocolSemanticValue] {
         var fields: [String: ProtocolSemanticValue] = [
             "change": .string(change), "at": .string(at), "candidate": .null,
-            "trace": .array(frames.map { .object(["operations": .array($0.map { .object($0.fields) })]) }),
-            "resolves": .array(resolves.map(\.semantic)),
+            "trace": .array(frames.map { .object(["operations": .array($0.map { .object($0.wireFields) })]) }),
         ]
+        if !resolves.isEmpty { fields["resolves"] = .array(resolves.map(\.semantic)) }
         if let ifCurrent { fields["ifCurrent"] = .string(ifCurrent) }
         return fields
     }

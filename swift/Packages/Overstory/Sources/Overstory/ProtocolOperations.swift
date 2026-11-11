@@ -57,6 +57,13 @@ public indirect enum ProtocolSemanticValue: Codable, Sendable, Equatable {
     }
 }
 
+/// An operation keeps its references in their in-memory form, `{ material:
+/// { kind, … }, within?, range? }`; on the wire a reference is told apart by
+/// its keys (tree operations §1.2.2): `{ path, object }`, `{ change,
+/// operation }` or `{ update, conflict, alternative }`, with `within` and
+/// `range` beside them. `wireFields` gives the operation as it travels, and
+/// `init(wire:)` reads one. Its own Codable form is the in-memory one, for
+/// local records.
 public struct ProtocolSourceOperation: Codable, Sendable, Equatable {
     public let fields: [String: ProtocolSemanticValue]
     public var key: String { fields["key"]!.text! }
@@ -65,6 +72,71 @@ public struct ProtocolSourceOperation: Codable, Sendable, Equatable {
     public init(_ fields: [String: ProtocolSemanticValue]) throws {
         try Self.validate(fields)
         self.fields = fields
+    }
+    /// An operation as it travels, its references flat.
+    public init(wire: [String: ProtocolSemanticValue]) throws {
+        _ = try ProtocolAuthoredRequestIntent.validateOperation(.object(wire))
+        self.fields = Self.mapReferences(wire, Self.memoryReference)
+    }
+    /// This operation as it travels.
+    public var wireFields: [String: ProtocolSemanticValue] { Self.mapReferences(fields, Self.wireReference) }
+
+    /// A reference in its wire form; anything else as it is.
+    static func wireReference(_ value: ProtocolSemanticValue) -> ProtocolSemanticValue {
+        guard var reference = value.fields, let material = reference.removeValue(forKey: "material")?.fields else { return value }
+        switch material["kind"]?.text {
+        case "basis": reference["path"] = material["path"]; reference["object"] = material["object"]
+        case "operation": reference["change"] = material["change"]; reference["operation"] = material["operation"]
+        case "alternative": reference["update"] = material["state"]; reference["conflict"] = material["conflict"]; reference["alternative"] = material["alternative"]
+        default: return value
+        }
+        return .object(reference)
+    }
+    /// A wire reference in its in-memory form; anything else as it is.
+    static func memoryReference(_ value: ProtocolSemanticValue) -> ProtocolSemanticValue {
+        guard var reference = value.fields, reference["material"] == nil else { return value }
+        let material: [String: ProtocolSemanticValue]
+        if let path = reference.removeValue(forKey: "path") {
+            material = ["kind": .string("basis"), "path": path, "object": reference.removeValue(forKey: "object") ?? .null]
+        } else if let change = reference.removeValue(forKey: "change") {
+            material = ["kind": .string("operation"), "change": change, "operation": reference.removeValue(forKey: "operation") ?? .null]
+        } else if let update = reference.removeValue(forKey: "update") {
+            material = ["kind": .string("alternative"), "state": update, "conflict": reference.removeValue(forKey: "conflict") ?? .null,
+                        "alternative": reference.removeValue(forKey: "alternative") ?? .null]
+        } else { return value }
+        reference["material"] = .object(material)
+        return .object(reference)
+    }
+    /// `fields` with each reference an operation names passed through `convert`.
+    static func mapReferences(_ fields: [String: ProtocolSemanticValue], _ convert: (ProtocolSemanticValue) -> ProtocolSemanticValue) -> [String: ProtocolSemanticValue] {
+        var out = fields
+        func map(_ key: String) { if let value = fields[key] { out[key] = convert(value) } }
+        func destination() {
+            guard var d = fields["destination"]?.fields else { return }
+            if let parent = d["parent"] { d["parent"] = convert(parent) }
+            out["destination"] = .object(d)
+        }
+        switch fields["kind"]?.text {
+        case "editSource":
+            map("source")
+            if let lineage = fields["lineage"]?.items {
+                out["lineage"] = .array(lineage.map { item in
+                    guard var l = item.fields else { return item }
+                    if let source = l["source"] { l["source"] = convert(source) }
+                    return .object(l)
+                })
+            }
+        case "moveSource", "copySource": map("source"); map("at")
+        case "moveEntry", "copyEntry": map("source"); destination()
+        case "removeEntry": map("source")
+        case "replaceEntry":
+            map("source")
+            if let value = fields["value"]?.fields, value["file"] == nil, value["page"] == nil, value["directory"] == nil { map("value") }
+        case "addEntry": destination()
+        default:
+            if fields["page"] != nil { map("page") } else if fields["collection"] != nil { map("collection") }
+        }
+        return out
     }
     public init(from decoder: Decoder) throws {
         try self.init(try decoder.singleValueContainer().decode([String: ProtocolSemanticValue].self))
@@ -79,7 +151,7 @@ public struct ProtocolSourceOperation: Codable, Sendable, Equatable {
         !s.isEmpty && s.utf8.count <= 128 && s.utf8.allSatisfy { (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 }
     }
     private static func validate(_ fields: [String: ProtocolSemanticValue]) throws {
-        _ = try ProtocolAuthoredRequestIntent.validateOperation(.object(fields))
+        _ = try ProtocolAuthoredRequestIntent.validateOperation(.object(mapReferences(fields, wireReference)))
     }
 }
 

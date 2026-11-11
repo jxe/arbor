@@ -54,7 +54,7 @@ struct AcceptedContractTests {
                     // A run of frames, each one transition whose basis is the one before it.
                     let tree=try #require(file["tree"] as? String)
                     let fields=try #require(c["basis"] as? [String:String])
-                    var basis=ProtocolAcceptedLink(id:try #require(fields["id"]),root:try #require(fields["root"]))
+                    var basis=ProtocolAcceptedLink(id:try #require(fields["update"]),root:try #require(fields["root"]))
                     var transitions:[ProtocolAcceptedTransition]=[]
                     for frame in try #require(c["value"] as? [Any]) {
                         let change=try JSONDecoder().decode(ProtocolTreeUpdateFrame.self,from:JSONSerialization.data(withJSONObject:frame))
@@ -97,7 +97,7 @@ struct AcceptedContractTests {
     @Test("Resolution groups have no fixed count limit")
     func largeResolution() throws {
         let alternatives=(0..<1025).map { ProtocolSemanticValue.string("a\($0)") }
-        let resolves=(0..<40).map { ProtocolSemanticValue.object(["state":.string("u1"),"conflict":.string("d\($0)"),"alternatives":.array(alternatives)]) }
+        let resolves=(0..<40).map { ProtocolSemanticValue.object(["update":.string("u1"),"conflict":.string("d\($0)"),"alternatives":.array(alternatives)]) }
         let update: [String: ProtocolSemanticValue] = [
             "change": .string("c1"),
             "at": .string("2026-11-11T12:00:00.000Z"),

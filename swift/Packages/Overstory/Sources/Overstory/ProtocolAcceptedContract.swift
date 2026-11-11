@@ -33,7 +33,8 @@ public struct ProtocolDecisionPageContract: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws { fields = try decoder.singleValueContainer().decode([String: ProtocolReadValue].self); try AcceptedReadValidation.inspection(fields) }
     public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(fields) }
     public func validateContext(tree: String, state: String, root: String) throws {
-        for (k,v) in [("tree",tree),("state",state),("root",root)] { try AcceptedReadValidation.check(AcceptedReadValidation.equal(fields[k], .string(v))) }
+        // A decision page names the update whose state it inspects.
+        for (k,v) in [("tree",tree),("update",state),("root",root)] { try AcceptedReadValidation.check(AcceptedReadValidation.equal(fields[k], .string(v))) }
     }
 }
 enum AcceptedReadValidation {
@@ -67,7 +68,7 @@ enum AcceptedReadValidation {
         }
     }
     static func page(_ v: Obj, _ field: String) throws -> [ProtocolReadValue] {
-        try required(v,["tree","state",field,"next"]); try token(v["tree"]); try token(v["state"])
+        try required(v,["tree","update",field,"next"]); try token(v["tree"]); try token(v["update"])
         let a=try array(v[field]); if v["next"] != .null { try token(v["next"]); try check(!a.isEmpty) }; return a
     }
     static func state(_ v: Obj) throws {
@@ -76,7 +77,8 @@ enum AcceptedReadValidation {
         guard case .number(let t)=v["acceptedAt"], case .bool=v["conflicted"] else { try check(false); return }
         try check(t>=0 && t<=9_007_199_254_740_991 && t.rounded()==t)
         if v["subject"] != .null { try token(v["subject"]) }
-        if v["previous"] != .null { let p=try object(v["previous"]); try required(p,["id","root"]); try token(p["id"]); try hash(p["root"]); try check(!equal(p["id"],v["id"])) }
+        // An accepted state is { update, root }.
+        if v["previous"] != .null { let p=try object(v["previous"]); try required(p,["update","root"]); try check(p["id"] == nil); try token(p["update"]); try hash(p["root"]); try check(!equal(p["update"],v["id"])) }
     }
     static func inspection(_ v: Obj) throws {
         let decisions=try page(v,"decisions"); try required(v,["root","conflicted"]); try hash(v["root"])
@@ -120,7 +122,7 @@ enum AcceptedReadValidation {
                 }
                 if let placement=a["placement"] {
                     try check(["file","page","directory","tree"].contains(kind)); let p=try object(placement); try required(p,["parent","name"]); try reference(p["parent"],entry:true)
-                    try reference(.object(["material":.object(["kind":.string("basis"),"path":.string("/"),"object":v["root"]!]),"within":.array([p["name"]!])]))
+                    try reference(.object(["path":.string("/"),"object":v["root"]!,"within":.array([p["name"]!])]))
                 }
             }
             try check(names.contains(d["selected"]!.text!))

@@ -138,7 +138,8 @@ public actor ProtocolClient {
     public func conflicts(tree: String, state: String, root: String, after: String? = nil, conflict: String? = nil) async throws -> ProtocolDecisionPageContract {
         guard after == nil || conflict == nil else { throw ProtocolValidationError.invalidValue("Conflicting inspection options") }
         func queryValue(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! }
-        var query = "state=\(queryValue(state))"
+        // `state` is the accepted update the inspection is pinned to.
+        var query = "update=\(queryValue(state))"
         if let after { query += "&after=\(queryValue(after))" }
         if let conflict { query += "&conflict=\(queryValue(conflict))" }
         let page: ProtocolDecisionPageContract = try await get(path: "/.overstory/trees/\(component(tree))/conflicts?\(query)")
@@ -843,7 +844,9 @@ func canonicalUpdateIntent(tree: String, base: CanonicalCBORValue, fields: [Stri
         ("tree", .text(tree)),
         ("base", base),
         ("candidate", fields["candidate"]?.cbor ?? .null),
-        ("resolves", fields["resolves"]!.cbor),
+        // Identity is over the values as they travel, with an omitted trace
+        // filled in as null and resolves as empty (tree operations §2.1).
+        ("resolves", fields["resolves"]?.cbor ?? .array([])),
         ("ifCurrent", fields["ifCurrent"]?.cbor ?? .null),
     ]))
 }

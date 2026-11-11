@@ -256,10 +256,12 @@ public struct ProtocolLocatorResolution: Codable, Sendable, Equatable {
     public var enclosingTree: ProtocolTreeDescriptor
 }
 
+/// One accepted state of a tree (an AcceptedRef): `{ update, root }` on the wire.
 public struct ProtocolAcceptedLink: Codable, Sendable, Equatable {
     public var id: String
     public var root: String
     public init(id: String, root: String) { self.id = id; self.root = root }
+    private enum CodingKeys: String, CodingKey { case id = "update", root }
 }
 
 public struct ProtocolAcceptedUpdate: Codable, Sendable, Equatable {
@@ -315,7 +317,7 @@ public struct ProtocolAcceptedUpdate: Codable, Sendable, Equatable {
     public func validated() throws -> Self {
         try AcceptedReadValidation.state([
             "id": .string(id), "tree": .string(tree), "root": .string(root),
-            "previous": previous.map { .object(["id": .string($0.id), "root": .string($0.root)]) } ?? .null,
+            "previous": previous.map { .object(["update": .string($0.id), "root": .string($0.root)]) } ?? .null,
             "acceptedAt": .number(acceptedAt), "subject": subject.map(ProtocolReadValue.string) ?? .null,
             "conflicted": .bool(conflicted),
         ])
@@ -565,8 +567,9 @@ public struct ProtocolResolutionDeclaration: Codable, Sendable, Equatable {
     public init(state: String, conflict: String, alternatives: [String]) {
         self.state = state; self.conflict = conflict; self.alternatives = alternatives
     }
+    /// As it travels: `{ update, conflict, alternatives }`.
     var semantic: ProtocolSemanticValue {
-        .object(["state": .string(state), "conflict": .string(conflict), "alternatives": .array(alternatives.map(ProtocolSemanticValue.string))])
+        .object(["update": .string(state), "conflict": .string(conflict), "alternatives": .array(alternatives.map(ProtocolSemanticValue.string))])
     }
 }
 
@@ -580,16 +583,17 @@ public struct ProtocolTraceFrame: Sendable, Equatable {
     public init(before: String, after: String, operations: [ProtocolSourceOperation]) {
         self.before = before; self.after = after; self.operations = operations
     }
+    /// As it travels, its operations' references flat.
     var semantic: ProtocolSemanticValue {
         .object(["before": .string(before), "after": .string(after),
-                 "operations": .array(operations.map { .object($0.fields) })])
+                 "operations": .array(operations.map { .object($0.wireFields) })])
     }
     init(_ raw: ProtocolSemanticValue) throws {
         guard let f = raw.fields, let before = f["before"]?.text, let after = f["after"]?.text,
               let ops = f["operations"]?.items else {
             throw ProtocolValidationError.invalidValue("Expected trace frame")
         }
-        self.init(before: before, after: after, operations: try ops.map { try ProtocolSourceOperation(ProtocolSemanticValue.fields($0)) })
+        self.init(before: before, after: after, operations: try ops.map { try ProtocolSourceOperation(wire: ProtocolSemanticValue.fields($0)) })
     }
 }
 
@@ -614,10 +618,11 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
         self.candidate = candidate; self.change = change; self.at = at; self.trace = trace
         self.resolves = resolves; self.ifCurrent = ifCurrent; self.objects = objects; self.deltas = deltas
     }
+    /// The intent as it travels: a snapshot's null trace and empty resolves are left out.
     var semantic: [String: ProtocolSemanticValue] {
-        var fields: [String: ProtocolSemanticValue] = ["change": .string(change), "at": .string(at), "candidate": .string(candidate),
-            "trace": trace.map { .array($0.map(\.semantic)) } ?? .null,
-            "resolves": .array(resolves.map(\.semantic))]
+        var fields: [String: ProtocolSemanticValue] = ["change": .string(change), "at": .string(at), "candidate": .string(candidate)]
+        if let trace { fields["trace"] = .array(trace.map(\.semantic)) }
+        if !resolves.isEmpty { fields["resolves"] = .array(resolves.map(\.semantic)) }
         if let ifCurrent { fields["ifCurrent"] = .string(ifCurrent) }
         return fields
     }
@@ -627,13 +632,14 @@ public struct ProtocolCandidateUpdate: Codable, Sendable, Equatable {
     init(_ decoded: ProtocolAuthoredCandidate) throws {
         let fields = decoded.intentFields
         typealias Value = ProtocolSemanticValue
-        guard let trace = fields["trace"] else { throw ProtocolValidationError.invalidValue("Missing trace") }
+        // An omitted trace is a snapshot, omitted resolves none.
+        let trace = fields["trace"] ?? .null
         self.init(candidate: try Value.text(fields["candidate"]), change: try Value.text(fields["change"]),
             at: try Value.text(fields["at"]),
             trace: try trace.items.map { try $0.map(ProtocolTraceFrame.init) },
-            resolves: try Value.items(fields["resolves"]).map { raw in
+            resolves: try Value.items(fields["resolves"] ?? .array([])).map { raw in
                 let r = try Value.fields(raw)
-                return ProtocolResolutionDeclaration(state: try Value.text(r["state"]), conflict: try Value.text(r["conflict"]),
+                return ProtocolResolutionDeclaration(state: try Value.text(r["update"]), conflict: try Value.text(r["conflict"]),
                     alternatives: try Value.items(r["alternatives"]).map(Value.text))
             }, ifCurrent: fields["ifCurrent"]?.text, objects: decoded.payload.objects, deltas: decoded.payload.deltas)
     }
