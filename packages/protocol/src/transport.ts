@@ -460,11 +460,11 @@ export class ProtocolClient {
     return { tree: value.tree };
   }
 
-  async conflicts(tree: string, state: string, root: string, options: { after?: string; conflict?: string } = {}): Promise<DecisionPage> {
+  async conflicts(tree: string, update: string, root: string, options: { after?: string; conflict?: string } = {}): Promise<DecisionPage> {
     if (options.after !== undefined && options.conflict !== undefined) throw new Error("Conflicting inspection options");
-    const query = new URLSearchParams({ state, ...options });
+    const query = new URLSearchParams({ update, ...options });
     const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}/conflicts?${query}`, { headers: this.headers() }));
-    return decodeDecisionPage(await response.json(), { tree, state, root });
+    return decodeDecisionPage(await response.json(), { tree, update, root });
   }
 
   async snapshot(tree: string, root: string): Promise<TreeSnapshot> {

@@ -524,7 +524,7 @@ export class UpdateCoordinator {
     const accepted = await this.working.accepted();
     const transition = event.transition;
     const basis = transition.from ?? transition.update.previous;
-    if (!accepted || basis?.id !== accepted.update || basis.root !== accepted.root) {
+    if (!accepted || basis?.update !== accepted.update || basis.root !== accepted.root) {
       throw new UpdateValidationError("Watch predecessor differs from the installed accepted state");
     }
     const bases = new Map<string, Uint8Array>();

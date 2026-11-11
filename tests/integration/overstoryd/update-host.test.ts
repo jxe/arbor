@@ -249,7 +249,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       // A governed configuration tree accepts no authored evidence at all, so a
       // perfectly well-formed trace is the unsupported form here.
       const second = { ...first, at: TEST_TIME, change: crypto.randomUUID(), trace: [{ before: baseline.current.tree.root, after: snapshot.root, operations: [
-        { key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/devices.yaml", object: baseline.current.tree.root } }, text: "" },
+        { key: "edit", kind: "editSource", source: { path: "/devices.yaml", object: baseline.current.tree.root }, text: "" },
       ] }] };
       const count = running.overstoryd.acceptedUpdates(baseline.current.tree.id).length;
       const response = await fetch(`${running.url}/.overstory/trees/${baseline.current.tree.id}/updates`, {
@@ -478,8 +478,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect(lines.find((line) => line.startsWith("event: "))?.slice(7)).toBe("tree.update");
       const data = lines.filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
       const event = JSON.parse(data) as {
-        update: { id: string; previous: { id: string; root: string }; root: string };
-        from: { id: string; root: string };
+        update: { id: string; previous: { update: string; root: string }; root: string };
+        from: { update: string; root: string };
         access: string;
         canonical: unknown;
       };
@@ -487,8 +487,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect(Object.keys(event)).toContain("update");
       expect(Object.keys(event)).not.toContain("transition");
       expect(event.update.id).toBe(second.update.id);
-      expect(event.from).toEqual({id: baseline.current.tree.update, root: baseline.current.tree.root});
-      expect(event.update.previous).toEqual({id: first.update.id, root: first.update.root});
+      expect(event.from).toEqual({update: baseline.current.tree.update, root: baseline.current.tree.root});
+      expect(event.update.previous).toEqual({update: first.update.id, root: first.update.root});
       const replayAbort = new AbortController();
       for await (const decoded of client.watch(baseline.current.tree.id, baseline.current.tree.update, { signal: replayAbort.signal })) {
         if (decoded.kind !== "tree.update") throw new Error("Expected accepted transition replay");
@@ -526,7 +526,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         // An activation carries exact bytes only; any authored evidence, however
         // well formed, is unsupported.
         body: JSON.stringify({ base: null, updates: [{ at: TEST_TIME, change: crypto.randomUUID(), trace: [{ before: initial.root, after: initial.root, operations: [
-          { key: "edit", kind: "editSource", source: { material: { kind: "basis", path: "/note.md", object: initial.root } }, text: "" },
+          { key: "edit", kind: "editSource", source: { path: "/note.md", object: initial.root }, text: "" },
         ] }], candidate: initial.root, resolves: [], objects: [], deltas: [] }] }),
       });
       expect(unsupported.status).toBe(422);
@@ -658,7 +658,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       if (merged.outcome !== "accepted") throw new Error("Expected a merged update");
       expect((await running.overstoryd.acceptedTransition(merged.update.id))?.update).toMatchObject({
         id: merged.update.id,
-              previous: { id: remoteAccepted.update.id, root: remoteAccepted.update.root },
+              previous: { update: remoteAccepted.update.id, root: remoteAccepted.update.root },
       });
       // The result carries the transition from the candidate to the accepted root.
       const mergedCandidate = await snapshotWithCollectionFiles(treePath);
@@ -812,7 +812,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       try {
         const frames=await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.tree.update}`,1);
         expect(frames.map(frame=>frame.data.update.id)).toEqual([ids.at(-1)!]);
-        expect(frames[0]!.data.from?.id).toBe(baseline.current.tree.update);
+        expect(frames[0]!.data.from?.update).toBe(baseline.current.tree.update);
         expect(sizes.every(size=>size<=64)).toBe(true);
         expect(frames.at(-1)!.id).toBe(running.overstoryd.observedThrough(tree));
       } finally {running.overstoryd.observationPage=original; db.close();}
@@ -834,8 +834,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         const event = (await iterator.next()).value!;
         if (event.kind !== "tree.update") throw new Error("Expected net update");
         const transition = event.transition;
-        expect(transition.from).toEqual({id: baseline.current.tree.update, root: baseline.snapshot.root});
-        expect(transition.update.previous!.id).not.toBe(transition.from!.id);
+        expect(transition.from).toEqual({update: baseline.current.tree.update, root: baseline.snapshot.root});
+        expect(transition.update.previous!.update).not.toBe(transition.from!.update);
         const result = applyTransitionPayload(baseline.snapshot.objects, transition);
         expect(result.get(current.snapshot.root)).toEqual(current.snapshot.objects.get(current.snapshot.root));
         for (const [hash, bytes] of current.snapshot.objects) expect(result.get(hash)).toEqual(bytes);
@@ -859,8 +859,8 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         const frames = await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.tree.update}`,2);
         const first = decodeAcceptedTransitionJSON(frames[0]!.data);
         const second = decodeAcceptedTransitionJSON(frames[1]!.data);
-        expect(first.from?.id).toBe(baseline.current.tree.update);
-        expect(second.update.previous?.id).toBe(first.update.id);
+        expect(first.from?.update).toBe(baseline.current.tree.update);
+        expect(second.update.previous?.update).toBe(first.update.id);
         expect(second.update.id).toBe(appended!);
       } finally {running.overstoryd.netAcceptedTransition=original;db.close();}
     });
@@ -876,7 +876,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       try {
         const [frame]=await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.tree.update}`,1);
         expect(frame!.event).toBe("tree.update");
-        expect(frame!.data.update.previous!.id).not.toBe(baseline.current.tree.update);
+        expect(frame!.data.update.previous!.update).not.toBe(baseline.current.tree.update);
         expect(loaded).toBe(0);
         const current=await client.descriptor(tree);
         expect(frame!.id).toBe(current.tree.update);

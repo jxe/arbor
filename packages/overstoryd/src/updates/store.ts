@@ -92,7 +92,7 @@ export class AcceptedUpdateStore {
       id: String(record.ordinal),
       tree: record.tree_id,
       root: record.root,
-      previous: record.previous_ordinal === null ? null : { id: String(record.previous_ordinal), root: record.previous_root! },
+      previous: record.previous_ordinal === null ? null : { update: String(record.previous_ordinal), root: record.previous_root! },
       conflicted: Boolean(record.conflicted),
       acceptedAt: record.accepted_at,
       subject: record.subject,

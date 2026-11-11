@@ -3,7 +3,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { createPrivateKey, createPublicKey, sign } from "node:crypto";
-import { accountChallengeBytes, directoryStamper, personProfileTreeID, treeConfigurationID, type AccountChallenge } from "@ovst/protocol";
+import { accountChallengeBytes, decodeAuthoredCandidateIntent, directoryStamper, personProfileTreeID, treeConfigurationID, type AccountChallenge } from "@ovst/protocol";
 import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, encodeProtocolRows, encodeProtocolTable, hashObject, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
 import { activationElement, decodeUpdateRequestJSON, decodeUpdateResponseJSON, encodeCandidateUpdateJSON, encodeUpdateRequestJSON, encodeUpdateResponseJSON, initialPersonConfig, snapshotTreeConfig } from "@ovst/protocol";
 
@@ -17,7 +17,8 @@ for (const path of ["docs/overstory-spec/conformance/protocol-authored-updates.j
     if (!c.valid) continue;
     let base = c.value.base;
     c.identities = c.value.updates.map((u: any) => {
-      const intent = {...u,base};
+      const { objects: _o, deltas: _d, ...wire } = u;
+      const intent = {...decodeAuthoredCandidateIntent(wire),base};
       const bytes = canonicalUpdateIntent(fixture.tree,intent);
       const digest = updateRequestDigest(fixture.tree,intent);
       base = {requestDigest:digest,candidate:u.candidate};
@@ -32,7 +33,7 @@ for (const c of endpoints.cases) {
   if (!c.request.body?.updates) continue;
   const previous = c.request.derivedRequestDigest;
   const tree = decodeURIComponent(c.request.path.match(/^\/\.overstory\/trees\/([^/]+)\/updates$/)[1]);
-  const digest = updateRequestDigests(tree,c.request.body)[0];
+  const digest = updateRequestDigests(tree,decodeUpdateRequestJSON(c.request.body))[0];
   if (previous) {
     const text = JSON.stringify(c).replaceAll(previous,digest);
     Object.assign(c,JSON.parse(text));

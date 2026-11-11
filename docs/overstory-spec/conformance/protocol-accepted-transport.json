@@ -25,7 +25,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -41,7 +41,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -59,7 +59,7 @@
       ],
       "valid": true,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -73,7 +73,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -89,7 +89,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -123,7 +123,7 @@
       ],
       "valid": true,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -137,7 +137,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -150,7 +150,7 @@
       ],
       "valid": true,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -159,7 +159,7 @@
       "kind": "watch",
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       },
       "value": [
@@ -171,7 +171,7 @@
                 "tree": "transport-tree",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
                 "previous": {
-                  "id": "accepted-before",
+                  "update": "accepted-before",
                   "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
                 },
                 "acceptedAt": 1,
@@ -185,7 +185,7 @@
                 "tree": "transport-tree",
                 "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
                 "previous": {
-                  "id": "opaque-é",
+                  "update": "opaque-é",
                   "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
                 },
                 "acceptedAt": 1,
@@ -209,7 +209,7 @@
       "kind": "watch",
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       },
       "value": [
@@ -219,7 +219,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -243,7 +243,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -279,7 +279,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -315,7 +315,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -351,7 +351,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -382,7 +382,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -404,7 +404,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -432,7 +432,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -451,7 +451,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -472,7 +472,7 @@
       ],
       "valid": true,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -486,7 +486,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -502,7 +502,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "wrong",
+              "update": "wrong",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -520,7 +520,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -534,7 +534,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -552,7 +552,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -566,7 +566,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -587,7 +587,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -600,7 +600,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -614,7 +614,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -630,7 +630,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -648,7 +648,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "different",
+        "update": "different",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -662,7 +662,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -678,7 +678,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -696,7 +696,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -710,7 +710,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -726,7 +726,7 @@
             "tree": "other",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -744,7 +744,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -758,7 +758,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -774,7 +774,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -791,7 +791,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -818,7 +818,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -836,7 +836,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -850,7 +850,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -866,7 +866,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -885,7 +885,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -901,7 +901,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -937,7 +937,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -968,7 +968,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -1002,7 +1002,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1018,7 +1018,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1036,7 +1036,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -1050,7 +1050,7 @@
             "tree": "transport-tree",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892",
             "previous": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1066,7 +1066,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1115,7 +1115,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -1129,7 +1129,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1142,7 +1142,7 @@
           ],
           "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "from": {
-            "id": "accepted-before",
+            "update": "accepted-before",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
           },
           "access": "write",
@@ -1151,7 +1151,7 @@
       ],
       "valid": true,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -1165,7 +1165,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1178,7 +1178,7 @@
           ],
           "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "from": {
-            "id": "wrong",
+            "update": "wrong",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
           },
           "access": "write",
@@ -1187,7 +1187,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -1201,7 +1201,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1214,7 +1214,7 @@
           ],
           "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "from": {
-            "id": "accepted-before",
+            "update": "accepted-before",
             "root": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
           },
           "access": "write",
@@ -1223,7 +1223,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -1237,7 +1237,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1250,7 +1250,7 @@
           ],
           "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "from": {
-            "id": "opaque-final",
+            "update": "opaque-final",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
           },
           "access": "write",
@@ -1259,7 +1259,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -1273,7 +1273,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1292,7 +1292,7 @@
       ],
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       }
     },
@@ -1301,7 +1301,7 @@
       "kind": "watch",
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       },
       "value": [
@@ -1312,7 +1312,7 @@
               "tree": "transport-tree",
               "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
               "previous": {
-                "id": "opaque-é",
+                "update": "opaque-é",
                 "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
               },
               "acceptedAt": 1,
@@ -1332,7 +1332,7 @@
             "deltas": [],
             "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
             "from": {
-              "id": "accepted-before",
+              "update": "accepted-before",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             }
           },
@@ -1346,7 +1346,7 @@
       "kind": "watch",
       "valid": false,
       "basis": {
-        "id": "accepted-before",
+        "update": "accepted-before",
         "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
       },
       "value": [
@@ -1356,7 +1356,7 @@
             "tree": "transport-tree",
             "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
             "previous": {
-              "id": "opaque-é",
+              "update": "opaque-é",
               "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
             },
             "acceptedAt": 1,
@@ -1375,7 +1375,7 @@
           ],
           "requestDigest": "sha256:fac0a260662b7eaff3f2f1f28bbaa3b3ca17f0980c7b522e75740ccb97c8523d",
           "from": {
-            "id": "accepted-before",
+            "update": "accepted-before",
             "root": "sha256:a8a0422c113751406b3008d2da46710410368d6f2d623cb847150cdd3d599892"
           },
           "access": "write",

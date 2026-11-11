@@ -5,10 +5,10 @@
  * transition decoder; nothing here decodes it again.
  */
 import { decodeAcceptedTransitionJSON, encodeAcceptedTransitionJSON } from "./json.ts";
-import { decodeMaterialRef, type MaterialRef, type EntryDestination } from "./authored-contract.ts";
+import { decodeMaterialRef, encodeMaterialRef, type MaterialRef, type EntryDestination } from "./authored-contract.ts";
 import type { AcceptedTransition, AcceptedUpdate } from "./types.ts";
 import type { JSONValue } from "../model/node-model.ts";
-export interface StateLink { id: string; root: string }
+export interface StateLink { update: string; root: string }
 export interface Contribution { change: string; operation: string | null }
 export interface InspectedAlternative {
   id: string; revision: string;
@@ -24,7 +24,7 @@ export interface InspectedDecision {
   alternatives: InspectedAlternative[]; dependencies: string[];
 }
 export interface DecisionPage {
-  tree: string; state: string; root: string; conflicted: boolean;
+  tree: string; update: string; root: string; conflicted: boolean;
   decisions: InspectedDecision[]; next: string | null;
 }
 type Obj = Record<string, any>;
@@ -42,7 +42,7 @@ function contributionList(raw: unknown) {
     const key=JSON.stringify([v.change,v.operation]); check(!seen.has(key)); seen.add(key); }
 }
 function page(raw: unknown, field: string): Obj {
-  const v=obj(raw); required(v,["tree","state",field,"next"]); token(v.tree); token(v.state);
+  const v=obj(raw); required(v,["tree","update",field,"next"]); token(v.tree); token(v.update);
   check(Array.isArray(v[field])); if(v.next !== null) { token(v.next); check(v[field].length>0); }
   return v;
 }
@@ -50,21 +50,26 @@ export function decodeAcceptedUpdate(raw: unknown): AcceptedUpdate {
   const v=obj(raw); required(v,["id","tree","root","previous","acceptedAt","subject","conflicted"]);
   token(v.id); token(v.tree); hash(v.root); check(Number.isSafeInteger(v.acceptedAt) && v.acceptedAt >= 0);
   if(v.subject !== null) token(v.subject); check(typeof v.conflicted === "boolean");
-  if(v.previous !== null) { const p=obj(v.previous); required(p,["id","root"]); token(p.id); hash(p.root); check(p.id!==v.id); }
+  if(v.previous !== null) { const p=obj(v.previous); required(p,["update","root"]); check(!Object.hasOwn(p,"id")); token(p.update); hash(p.root); check(p.update!==v.id); }
   return v as AcceptedUpdate;
 }
 export function validateAcceptedChain(tree: string, previous: StateLink | null, updates: AcceptedUpdate[], head: StateLink) {
-  token(tree); check(updates.length>0); const seen=new Set(previous ? [previous.id] : []);
+  token(tree); check(updates.length>0); const seen=new Set(previous ? [previous.update] : []);
   for(const raw of updates) {
     const u=decodeAcceptedUpdate(raw); check(u.tree===tree && !seen.has(u.id)); seen.add(u.id);
-    check(previous===null ? u.previous===null : u.previous!==null && u.previous.id===previous.id && u.previous.root===previous.root);
-    previous={id:u.id,root:u.root};
+    check(previous===null ? u.previous===null : u.previous!==null && u.previous.update===previous.update && u.previous.root===previous.root);
+    previous={update:u.id,root:u.root};
   }
-  check(previous!.id===head.id && previous!.root===head.root);
+  check(previous!.update===head.update && previous!.root===head.root);
 }
-export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:string;root:string}): DecisionPage {
+/** A decision page as it travels: references told apart by their keys. */
+export function encodeDecisionPage(page: DecisionPage): Obj {
+  return { ...page, decisions: page.decisions.map((d) => ({ ...d, affected: d.affected.map(encodeMaterialRef),
+    alternatives: d.alternatives.map((a) => a.placement ? { ...a, placement: { parent: encodeMaterialRef(a.placement.parent), name: a.placement.name } } : a) })) };
+}
+export function decodeDecisionPage(raw: unknown, context?: {tree:string;update:string;root:string}): DecisionPage {
   const v=page(raw,"decisions"); required(v,["root","conflicted"]); hash(v.root); check(typeof v.conflicted==="boolean");
-  if(context) check(v.tree===context.tree && v.state===context.state && v.root===context.root);
+  if(context) check(v.tree===context.tree && v.update===context.update && v.root===context.root);
   if(!v.conflicted) check(v.decisions.length===0 && v.next===null);
   const seen=new Set();
   for(const raw of v.decisions) {
@@ -102,12 +107,13 @@ export function decodeDecisionPage(raw: unknown, context?: {tree:string;state:st
         check(["file","page","directory","tree"].includes(ks[0]!)); const p=obj(a.placement); required(p,["parent","name"]);
         decodeMaterialRef(p.parent,true);
         // Reuse the path-component grammar of material selectors.
-        decodeMaterialRef({material:{kind:"basis",path:"/",object:v.root},within:[p.name]});
+        decodeMaterialRef({path:"/",object:v.root,within:[p.name]});
       }
     }
     check(alternatives.has(d.selected));
   }
-  return v as DecisionPage;
+  return { ...v, decisions: v.decisions.map((d: Obj) => ({ ...d, affected: d.affected.map((r: unknown) => decodeMaterialRef(r)),
+    alternatives: d.alternatives.map((a: Obj) => a.placement ? { ...a, placement: { parent: decodeMaterialRef(a.placement.parent, true), name: a.placement.name } } : a) })) } as DecisionPage;
 }
 /** A `tree.update` frame's data: one transition, and the access and canonical placement the client's new descriptor takes. */
 export interface AcceptedWatchChange<Canonical = unknown> {
@@ -124,7 +130,7 @@ export function encodeAcceptedWatchChange(change: AcceptedWatchChange): Record<s
  * validated by the tree descriptor decoder; this checks the accepted-state binding.
  */
 export function decodeTransitionBasis(raw: unknown, update: AcceptedUpdate): StateLink {
-  const p=obj(raw); required(p,["id","root"]); token(p.id); hash(p.root); check(p.id!==update.id);
+  const p=obj(raw); required(p,["update","root"]); token(p.update); hash(p.root); check(p.update!==update.id);
   return p as StateLink;
 }
 /** Decode one `tree.update` frame's data for the watched `tree`: exactly one
@@ -139,6 +145,6 @@ export function decodeAcceptedWatchChange<Canonical = unknown>(
   const { access: _access, canonical: _canonical, ...fields } = v;
   const transition=decodeAcceptedTransitionJSON(fields);
   const update=transition.from ? {...transition.update, previous: transition.from} : transition.update;
-  validateAcceptedChain(tree,basis ?? update.previous,[update],{id:update.id,root:update.root});
+  validateAcceptedChain(tree,basis ?? update.previous,[update],{update:update.id,root:update.root});
   return { transition, access: v.access, canonical: v.canonical as Canonical | null };
 }

@@ -6,13 +6,13 @@ import type { AcceptedTransition } from "../../../packages/protocol/src/updates/
 import vectors from "../../../docs/overstory-spec/conformance/protocol-accepted-transport.json";
 import { decodeAcceptedWatchChange, encodeAcceptedWatchChange } from "../../../packages/protocol/src/updates/accepted-contract.ts";
 
-type StateLink = { id: string; root: string };
+type StateLink = { update: string; root: string };
 
 /** A watch case is a run of frames: each one transition, whose basis is the one before it. */
 function decodeChanges(frames: unknown[], basis: StateLink | undefined) {
   return frames.map((frame) => {
     const change = decodeAcceptedWatchChange(frame, vectors.tree, basis);
-    basis = { id: change.transition.update.id, root: change.transition.update.root };
+    basis = { update: change.transition.update.id, root: change.transition.update.root };
     return change;
   });
 }

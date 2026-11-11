@@ -1,22 +1,24 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { applySourceChange, applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit, type SourceMove } from "@ovst/protocol";
 import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory, decodeProtocolPage, encodeProtocolPage, isProtocolContentKind, parsePage, samePage, protocolObjectReferences, type ProtocolObjectKind,
-  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, entryTimeOf, stampedEntry, encodeCandidateUpdateJSON, encodeBase64,
-  type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdate, type CandidateUpdateJSON, type ObjectEnvelopeJSON, type ObjectDeltaJSON, type SourceOperation } from "@ovst/protocol";
+  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, entryTimeOf, stampedEntry, encodeCandidateUpdateJSON, encodeBase64, encodeAuthoredCandidateIntent,
+  type TreeSnapshot, type TreeSnapshotJSON, type AuthoredUpdateIntent, type CandidateUpdate, type CandidateUpdateJSON, type ObjectEnvelopeJSON, type ObjectDeltaJSON, type SourceOperation } from "@ovst/protocol";
 
 /**
  * A queued record's update: the wire element, except that each object keeps
  * its hash beside its bytes and both lists are always present, so publication
  * can match objects to snapshots. `wireUpdate` gives the element as sent.
  */
-export type LocalUpdate = Omit<CandidateUpdateJSON, "objects" | "deltas"> & { objects: ObjectEnvelopeJSON[]; deltas: ObjectDeltaJSON[] };
+export type LocalUpdate = AuthoredUpdateIntent & { objects: ObjectEnvelopeJSON[]; deltas: ObjectDeltaJSON[] };
 export function localUpdate(update: CandidateUpdate): LocalUpdate {
-  const { objects: _objects, deltas, ...fields } = encodeCandidateUpdateJSON(update);
-  return { ...fields, objects: update.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })), deltas: deltas ?? [] };
+  const { deltas } = encodeCandidateUpdateJSON(update);
+  const { change, at, candidate, trace, resolves, ifCurrent } = update;
+  return { change, at, candidate, trace, resolves, ...(ifCurrent !== undefined ? { ifCurrent } : {}),
+    objects: update.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })), deltas: deltas ?? [] };
 }
 export function wireUpdate(update: LocalUpdate): CandidateUpdateJSON {
-  const { objects, deltas, ...fields } = update;
-  return { ...fields, ...(objects.length ? { objects: objects.map(object => object.bytes) } : {}), ...(deltas.length ? { deltas } : {}) };
+  const { objects, deltas, ...intent } = update;
+  return { ...encodeAuthoredCandidateIntent(intent), ...(objects.length ? { objects: objects.map(object => object.bytes) } : {}), ...(deltas.length ? { deltas } : {}) } as CandidateUpdateJSON;
 }
 export function decodeLocalUpdate(update: LocalUpdate): CandidateUpdate {
   return decodeCandidateUpdateJSON(wireUpdate(update));

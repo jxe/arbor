@@ -33,11 +33,14 @@ export interface ServerDevice {
  * cursor: a host may spell both identically (overstoryd uses one ordinal for
  * both), but clients never derive one from the other or compare them as
  * accepted order (spec 01, tree operations). */
+/** One accepted state of a tree: the update that produced it and its root. */
+export interface AcceptedRef { update: string; root: ObjectHash }
+
 export interface AcceptedUpdate {
   id: string;
   tree: string;
   root: ObjectHash;
-  previous: { id: string; root: ObjectHash } | null;
+  previous: AcceptedRef | null;
   acceptedAt: number;
   subject: string | null;
   conflicted: boolean;
@@ -69,7 +72,7 @@ export interface TransitionPayload {
 }
 
 export interface AcceptedTransition extends TransitionPayload {
-  from?: { id: string; root: ObjectHash };
+  from?: AcceptedRef;
   update: AcceptedUpdate;
   requestDigest?: ObjectHash;
 }

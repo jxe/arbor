@@ -761,7 +761,7 @@ export class HostDaemon implements AsyncDisposable {
     if (!basis || !update || !tip || tip.ordinal <= after) return null;
     const requestDigest = this.matchingRequestDigest(update.id, credentialSubject);
     const payload = await this.acceptedTransitionPayload(basis.root, update.root);
-    return {record: tip, transition: {update, from: {id: basis.id, root: basis.root}, ...payload,
+    return {record: tip, transition: {update, from: {update: basis.id, root: basis.root}, ...payload,
       ...(requestDigest ? {requestDigest} : {})}};
   }
 
@@ -777,7 +777,7 @@ export class HostDaemon implements AsyncDisposable {
     const open = await this.history.decisions(update);
     const page = decisionPage(open.map((d) => d.inspection), tree, state, after, conflict);
     if (!page) return null;
-    return { tree, state, root: update.root, conflicted: update.conflicted, decisions: page.selected, next: page.next };
+    return { tree, update: state, root: update.root, conflicted: update.conflicted, decisions: page.selected, next: page.next };
   }
 
   /** Complete graph for one retained accepted root, without exposing history metadata. */

@@ -266,7 +266,7 @@ describe("private self-sync", () => {
       current.snapshot.objects.set(file, bytes); current.snapshot.objects.set(root, encoded);
       await owner.submitUpdates(tree, { base: current.descriptor.tree.update, updates: [{
         at: TEST_TIME, change: crypto.randomUUID(), candidate: root, trace: null, deltas: [],
-        resolves: [{ state: page.state, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }],
+        resolves: [{ state: page.update, conflict: decision.id, alternatives: decision.alternatives.map(a => a.id) }],
         objects: [...current.snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       }] });
       await waitFor(async () => (await readFile(join(treeB, "sample.bin"), "utf8")) === "binary-from-b");
@@ -455,7 +455,7 @@ describe("private self-sync", () => {
       await daemon.synchronizeNow();
       expect(await daemon.syncPresentation(tree)).toMatchObject({ state: "current", pending: 0 });
       expect(store.current(tree)!.conflicted).toBe(true);
-      expect(store.current(tree)!.previous!.id).toBe(metadata.id);
+      expect(store.current(tree)!.previous!.update).toBe(metadata.id);
     } finally { await daemon[Symbol.asyncDispose](); db.close(); }
     const restarted = await StorySyncDaemon.openControl({ autoSync: false });
     try {

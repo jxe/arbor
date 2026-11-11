@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { decodeMaterialRef, stableJSONString, type MaterialRef, type SourceOperation } from "@ovst/protocol";
+import { decodeMaterialRef, encodeMaterialRef, stableJSONString, type MaterialRef, type SourceOperation } from "@ovst/protocol";
 
 /** The contract between overstoryd and a merge sidecar: the log entries overstoryd
  * writes into the object store, the one question it asks, and the answer.
@@ -240,7 +240,7 @@ export function parseQuestion(raw: unknown): MergeQuestion {
     throw new Error("Validation requires a traced candidate and one accepted basis");
   for (const c of [...(question.prefix ?? []), question.candidate])
     for (const alternative of c.alternatives ?? []) {
-      const ref = decodeMaterialRef(alternative.ref);
+      const ref = decodeMaterialRef(encodeMaterialRef(alternative.ref));
       if (ref.material.kind !== "alternative" || ref.within || ref.range)
         throw new Error("Alternative bindings require a complete alternative reference");
     }

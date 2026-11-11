@@ -1,5 +1,5 @@
 import { decodeTransitionBasis, decodeAcceptedUpdate } from "./accepted-contract.ts";
-import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, isStatedUpdate, type AuthoredUpdateIntent, type DerivableRequestIntent, type DerivableUpdateIntent } from "./authored-contract.ts";
+import { decodeAuthoredCandidateIntent, decodeAuthoredRequestIntent, encodeAuthoredCandidateIntent, isStatedUpdate, type DerivableRequestIntent, } from "./authored-contract.ts";
 import { hashObject, protocolObjectReferences, type ProtocolObjectKind, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import { decodeCanonicalCBOR, encodeCanonicalCBOR } from "../model/cbor.ts";
 import type {
@@ -84,8 +84,17 @@ export interface UpdateRequestJSON<B extends string | Uint8Array = string> {
   updates: DerivableCandidateUpdateJSON<B>[];
 }
 
-export interface CandidateUpdateJSON<B extends string | Uint8Array = string> extends AuthoredUpdateIntent, TransitionPayloadJSON<B> {}
-export interface DerivableCandidateUpdateJSON<B extends string | Uint8Array = string> extends DerivableUpdateIntent, TransitionPayloadJSON<B> {}
+/** A candidate's intent as it travels: references told apart by their keys,
+ * `trace` and `resolves` omissible (tree operations §2.1). Decoding gives the
+ * in-memory `DerivableUpdateIntent`. */
+export interface WireUpdateIntent {
+  change: string; at: string; candidate: string | null;
+  trace?: Array<{ before?: string; after?: string; operations: Record<string, unknown>[] }> | null;
+  resolves?: Array<{ update: string; conflict: string; alternatives: string[] }>;
+  ifCurrent?: string;
+}
+export interface CandidateUpdateJSON<B extends string | Uint8Array = string> extends WireUpdateIntent, TransitionPayloadJSON<B> { candidate: string }
+export interface DerivableCandidateUpdateJSON<B extends string | Uint8Array = string> extends WireUpdateIntent, TransitionPayloadJSON<B> {}
 
 /**
  * Objects travel as their bytes alone (tree operations §2.1); the receiver
@@ -279,7 +288,7 @@ export function authoredIntentFromTransport(raw: unknown): DerivableRequestInten
 
 /** Validate semantic claims without re-encoding large transport payloads. */
 export function validateUpdateRequestIntent(request: DerivableUpdateRequest): void {
-  authoredIntentFromTransport(request);
+  decodeAuthoredRequestIntent({ base: request.base, updates: request.updates.map(encodeAuthoredCandidateIntent) });
 }
 
 /** Decode a request as an authority receives it, roots it may derive left out
@@ -329,10 +338,11 @@ export function decodeDerivableCandidateUpdateJSON(value: unknown, activation = 
  * checked as they are, not encoded and decoded again.
  */
 export function encodeUpdateRequestJSON<E extends WireEncoding = "json">(request: DerivableUpdateRequest, encoding: E = "json" as E): UpdateRequestJSON<WireBytes<E>> {
-  const intent = authoredIntentFromTransport(request);
-  if (intent.base === null && request.updates[0]?.deltas.length) throw new Error("Activation has no delta basis");
+  const updates = request.updates.map(encodeAuthoredCandidateIntent);
+  decodeAuthoredRequestIntent({ base: request.base, updates });
+  if (request.base === null && request.updates[0]?.deltas.length) throw new Error("Activation has no delta basis");
   request.updates.forEach(verifyCandidateObjects);
-  return { base: intent.base, updates: intent.updates.map((update, index) => ({ ...update, ...encodeTransitionPayloadJSON(request.updates[index]!, encoding) })) };
+  return { base: request.base, updates: updates.map((update, index) => ({ ...update, ...encodeTransitionPayloadJSON(request.updates[index]!, encoding) })) as DerivableCandidateUpdateJSON<WireBytes<E>>[] };
 }
 
 export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: CandidateUpdate, encoding?: E): CandidateUpdateJSON<WireBytes<E>>;
@@ -340,7 +350,9 @@ export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(updat
 export function encodeCandidateUpdateJSON<E extends WireEncoding = "json">(update: DerivableCandidateUpdate, encoding: E = "json" as E): DerivableCandidateUpdateJSON<WireBytes<E>> {
   const { objects: _objects, deltas: _deltas, ...fields } = update;
   verifyCandidateObjects(update);
-  return { ...decodeAuthoredCandidateIntent(fields), ...encodeTransitionPayloadJSON(update, encoding) };
+  const intent = encodeAuthoredCandidateIntent(fields);
+  decodeAuthoredCandidateIntent(intent);
+  return { ...intent, ...encodeTransitionPayloadJSON(update, encoding) } as DerivableCandidateUpdateJSON<WireBytes<E>>;
 }
 
 function verifyCandidateObjects(candidate: TransitionPayload): void {

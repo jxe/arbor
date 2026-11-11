@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyPageOperations,
-  decodeAuthoredCandidateIntent,
+  decodeAuthoredCandidateIntent as decodeWireIntent,
+  encodeAuthoredCandidateIntent,
   decodeProtocolDirectory,
   decodeProtocolPage,
   encodeProtocolDirectory,
@@ -18,6 +19,8 @@ import {
 } from "@ovst/protocol";
 // Fixture entries are dated 0, so edits at 0 leave their times as they were.
 const TEST_AT = 0;
+/** Decode an in-memory intent as it would travel. */
+const decodeAuthoredCandidateIntent = (intent: any) => decodeWireIntent(encodeAuthoredCandidateIntent(intent));
 
 const objects = new Map<string, Uint8Array>();
 const put = (bytes: Uint8Array) => {

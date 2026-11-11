@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   checkPlainTrace,
-  decodeAuthoredCandidateIntent,
+  decodeAuthoredCandidateIntent as decodeWireIntent,
+  encodeAuthoredCandidateIntent,
   executeRowOperations,
   validateSourceTrace,
   type ObjectHash,
@@ -11,6 +12,8 @@ import {
 import { deriveRowOperations, replayCollectionRows } from "@ovst/collection-schema";
 import { collectionRows, collectionTree, idRow, T0, type CollectionTree } from "../../support/collection-trees.ts";
 const TEST_AT = Date.UTC(2026, 10, 11);
+/** Decode an in-memory intent as it would travel. */
+const decodeAuthoredCandidateIntent = (intent: any) => decodeWireIntent(encodeAuthoredCandidateIntent(intent));
 
 const SCHEMA = "model Item {\n  title Text\n  done  Bool?\n  tags  Text[]\n  notes Markdown?\n}\n";
 const HASH = `sha256:${"a".repeat(64)}`;

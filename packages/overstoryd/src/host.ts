@@ -24,6 +24,7 @@ import {
   decodeDerivableUpdateRequestJSON,
   isStatedUpdate,
   encodeAcceptedWatchChange,
+  encodeDecisionPage,
   type AcceptedTransition,
   type AcceptedUpdate,
   type ObjectHash,
@@ -814,13 +815,13 @@ export async function serveHost(options: {
         const conflicts = /^\/\.overstory\/trees\/([^/]+)\/conflicts$/.exec(url.pathname);
         if (conflicts && request.method === "GET") {
           const tree = readableTree(conflicts[1]!).tree.id;
-          const state = url.searchParams.get("state"), after = url.searchParams.get("after"), selected = url.searchParams.get("conflict");
-          if (!state || ["state", "after", "conflict"].some(k => url.searchParams.getAll(k).length > 1) ||
+          const state = url.searchParams.get("update"), after = url.searchParams.get("after"), selected = url.searchParams.get("conflict");
+          if (!state || ["update", "after", "conflict"].some(k => url.searchParams.getAll(k).length > 1) ||
               (after !== null && (!after || selected !== null)) || selected === "") {
             return protocolError("invalid-request", "Invalid conflict inspection query", 400);
           }
           const page = await overstoryd.conflictPage(tree, state, after ?? undefined, selected ?? undefined);
-          return page ? json(page) : notFound("Accepted state not found");
+          return page ? json(encodeDecisionPage(page)) : notFound("Accepted state not found");
         }
         const acceptedSnapshot = /^\/\.overstory\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
         if (acceptedSnapshot && request.method === "GET") {

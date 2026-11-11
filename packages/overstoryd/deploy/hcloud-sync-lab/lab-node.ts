@@ -273,7 +273,7 @@ async function resolveBinary(): Promise<void> {
   if (!decision) throw new Error(`No decision on ${value.tree} offers the requested bytes`);
   const candidate = withRootFile(snapshot, value.path, bytes);
   const result = await client.submitUpdate(value.tree, descriptor.update, candidate, {
-    resolves: [{ state: page.state, conflict: decision.id, alternatives: decision.alternatives.map((alternative) => alternative.id) }],
+    resolves: [{ state: page.update, conflict: decision.id, alternatives: decision.alternatives.map((alternative) => alternative.id) }],
   });
   if (result.outcome !== "accepted") throw new Error(`Resolution was ${result.outcome}`);
   const after = await client.descriptor(value.tree);

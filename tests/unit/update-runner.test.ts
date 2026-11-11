@@ -62,7 +62,7 @@ class VectorHost implements UpdateTransport {
       this.reachable(element.candidate);
       const receipt = this.receipts.get(digests[index]!);
       if (receipt) { results.push(receipt); continue; }
-      const update = this.head(`up_${++this.accepted}`, element.candidate, { id: this.update, root: this.root });
+      const update = this.head(`up_${++this.accepted}`, element.candidate, { update: this.update, root: this.root });
       const result: UpdateResult = { outcome: "accepted", update, requestDigest: digests[index]! as never };
       this.receipts.set(digests[index]!, result);
       results.push(result);
@@ -192,7 +192,7 @@ for (const lost of [false, true]) test(`watch acceptance reuses the in-flight PO
       kind: "tree.update", cursor: "up_1" as never, tree: TREE,
       access: "write", canonical: null,
       transition: {
-        update: { id: "up_1", tree: TREE, root: candidate, previous: { id: "up_0", root: candidate }, acceptedAt: 1, subject: null, conflicted: false },
+        update: { id: "up_1", tree: TREE, root: candidate, previous: { update: "up_0", root: candidate }, acceptedAt: 1, subject: null, conflicted: false },
         objects: [], deltas: [], requestDigest: updateRequestDigests(TREE, host.held).at(-1) as never,
       },
     });

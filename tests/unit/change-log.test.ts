@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeLocalUpdate, wireUpdate, prepareSourceChange, type SourceIntent, type LocalChange } from "@ovst/working-tree";
 import { ChangeLog } from "@ovst/working-tree/node";
-import { entryTimeOf, decodeProtocolDirectory, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type SourceOperation, type TreeSnapshot, applySourceEdits, type SourceEdit } from "@ovst/protocol";
+import { decodeAuthoredTrace, encodeAuthoredTrace, entryTimeOf, decodeProtocolDirectory, decodeTreeSnapshotJSON, encodeProtocolDirectory, hashObject, type SourceOperation, type TreeSnapshot, applySourceEdits, type SourceEdit } from "@ovst/protocol";
 import { executeExactSourceEdits } from "../support/source-edits.ts";
 import { singleStep } from "./overstoryd-merge/fixture.ts";
 import { evaluateIntent } from "../support/merge-engine.ts";
@@ -392,8 +392,10 @@ test.each(fixture.traces as TraceVector[])("shared trace vector $name: generatio
       edits: [{ offset: 0, length: Buffer.byteLength(fixture.source), replacement: source }], source, generations: chain };
     const base = { at: fixture.at, change: "trace", tree: fixture.tree, graph, sourcePath: fixture.sourcePath, basis: { kind: "accepted" as const, root: graph.root, update: "up_r1" }, intent };
     const plain = prepareSourceChange({ ...base, compact: false }), compact = prepareSourceChange(base);
-    expect(plain.update.trace).toEqual(value.frames);
-    expect(compact.update.trace).toEqual(value.compacted);
+    // The vector's frames are as they travel.
+    expect(encodeAuthoredTrace(plain.update.trace)).toEqual(value.frames);
+    expect(encodeAuthoredTrace(compact.update.trace)).toEqual(value.compacted);
+    value = { ...value, frames: decodeAuthoredTrace(value.frames) as TraceVector["frames"], compacted: value.compacted && decodeAuthoredTrace(value.compacted) as TraceVector["compacted"] };
     expect(compactTrace(value.frames)).toEqual(value.compacted ?? []);
     // Both forms name the same candidate and carry only its objects.
     expect(compact.candidate).toEqual(plain.candidate);

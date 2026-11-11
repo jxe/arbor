@@ -59,11 +59,8 @@
                   "kind": "editSource",
                   "key": "edit-0-0",
                   "source": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/nested/note.md",
-                      "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                    },
+                    "path": "/nested/note.md",
+                    "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                     "range": [
                       0,
                       6
@@ -74,7 +71,6 @@
               ]
             }
           ],
-          "resolves": [],
           "objects": [
             "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA",
             "QWZ0ZXIg8J+qtA0K",
@@ -99,11 +95,8 @@
                   "kind": "editSource",
                   "key": "edit-0-0",
                   "source": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/nested/note.md",
-                      "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                    },
+                    "path": "/nested/note.md",
+                    "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                     "range": [
                       0,
                       6
@@ -114,7 +107,6 @@
               ]
             }
           ],
-          "resolves": [],
           "objects": [
             "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA",
             "QWZ0ZXIg8J+qtA0K",
@@ -134,11 +126,8 @@
                   "kind": "editSource",
                   "key": "edit-0-0",
                   "source": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/nested/note.md",
-                      "object": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2"
-                    },
+                    "path": "/nested/note.md",
+                    "object": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2",
                     "range": [
                       0,
                       5
@@ -148,8 +137,7 @@
                 }
               ]
             }
-          ],
-          "resolves": []
+          ]
         }
       ]
     },
@@ -169,11 +157,8 @@
                   "kind": "editSource",
                   "key": "edit-0-0",
                   "source": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/nested/note.md",
-                      "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                    },
+                    "path": "/nested/note.md",
+                    "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                     "range": [
                       0,
                       6
@@ -184,7 +169,6 @@
               ]
             }
           ],
-          "resolves": [],
           "objects": [
             "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjFmYTY1YTkwNjJiMjViMmVjOTAxZDQ4ODY3YjI1YjhlOTJkMWIxZjI4Y2VkMjg3NGJjMTMyYTk4YzgxMzQzZTJkbmFtZWdub3RlLm1kZ2NyZWF0ZWQAaG1vZGlmaWVkGwAAAaHH54AA",
             "QWZ0ZXIg8J+qtA0K",
@@ -230,11 +214,8 @@
               "kind": "editSource",
               "key": "edit-0-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   0
@@ -252,11 +233,8 @@
               "kind": "editSource",
               "key": "edit-1-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:1a053fe762fae97202bcc373234ce2127f6cad70a18a4f6566755c91a6089d1a"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:1a053fe762fae97202bcc373234ce2127f6cad70a18a4f6566755c91a6089d1a",
                 "range": [
                   1,
                   1
@@ -274,11 +252,8 @@
               "kind": "editSource",
               "key": "edit-2-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:191c9a789f9694917f0c94521c5cda94248ddb69a11a446cc9c1f0ab1e23babd"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:191c9a789f9694917f0c94521c5cda94248ddb69a11a446cc9c1f0ab1e23babd",
                 "range": [
                   2,
                   8
@@ -298,11 +273,8 @@
               "kind": "editSource",
               "key": "edit-0-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   6
@@ -352,11 +324,8 @@
               "kind": "editSource",
               "key": "edit-0-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   6
@@ -368,11 +337,8 @@
               "kind": "editSource",
               "key": "edit-0-1",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   13,
                   13
@@ -390,11 +356,8 @@
               "kind": "editSource",
               "key": "edit-1-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:00d1ee0b32bd6b7a740bfba4fc686a718060a64fdb940bb596339ee4d31e0194"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:00d1ee0b32bd6b7a740bfba4fc686a718060a64fdb940bb596339ee4d31e0194",
                 "range": [
                   1,
                   3
@@ -406,11 +369,8 @@
               "kind": "editSource",
               "key": "edit-1-1",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:00d1ee0b32bd6b7a740bfba4fc686a718060a64fdb940bb596339ee4d31e0194"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:00d1ee0b32bd6b7a740bfba4fc686a718060a64fdb940bb596339ee4d31e0194",
                 "range": [
                   6,
                   10
@@ -430,11 +390,8 @@
               "kind": "editSource",
               "key": "edit-0-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   6
@@ -446,11 +403,8 @@
               "kind": "editSource",
               "key": "edit-0-1",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   7,
                   11
@@ -462,11 +416,8 @@
               "kind": "editSource",
               "key": "edit-0-2",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   13,
                   13
@@ -506,11 +457,8 @@
               "kind": "editSource",
               "key": "edit-0-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   0
@@ -528,11 +476,8 @@
               "kind": "editSource",
               "key": "edit-1-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:440390e20b75d9442b9bbdc099582fb8a72490e1c4d2160782d6697b2c29a849"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:440390e20b75d9442b9bbdc099582fb8a72490e1c4d2160782d6697b2c29a849",
                 "range": [
                   0,
                   1
@@ -552,11 +497,8 @@
               "kind": "editSource",
               "key": "edit-0-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   0
@@ -574,11 +516,8 @@
               "kind": "editSource",
               "key": "edit-1-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:440390e20b75d9442b9bbdc099582fb8a72490e1c4d2160782d6697b2c29a849"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:440390e20b75d9442b9bbdc099582fb8a72490e1c4d2160782d6697b2c29a849",
                 "range": [
                   0,
                   1
@@ -637,11 +576,8 @@
               "kind": "editSource",
               "key": "edit-0-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   6
@@ -659,11 +595,8 @@
               "kind": "editSource",
               "key": "edit-1-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:1fa65a9062b25b2ec901d48867b25b8e92d1b1f28ced2874bc132a98c81343e2",
                 "range": [
                   5,
                   5
@@ -681,11 +614,8 @@
               "kind": "editSource",
               "key": "edit-2-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81",
                 "range": [
                   0,
                   6
@@ -695,11 +625,8 @@
               "lineage": [
                 {
                   "source": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/nested/note.md",
-                      "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81"
-                    },
+                    "path": "/nested/note.md",
+                    "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81",
                     "range": [
                       5,
                       6
@@ -724,11 +651,8 @@
               "key": "edit-0-0",
               "kind": "editSource",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   6
@@ -746,11 +670,8 @@
               "kind": "editSource",
               "key": "edit-2-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81",
                 "range": [
                   0,
                   6
@@ -760,11 +681,8 @@
               "lineage": [
                 {
                   "source": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/nested/note.md",
-                      "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81"
-                    },
+                    "path": "/nested/note.md",
+                    "object": "sha256:8ee0ac63d6ba89803e1e1bb83757ad561e75ae2117fb2b0f629fcdff8fffbf81",
                     "range": [
                       5,
                       6
@@ -842,11 +760,8 @@
               "kind": "editSource",
               "key": "edit-0-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   6
@@ -864,11 +779,8 @@
               "kind": "editSource",
               "key": "edit-1-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:208280a017d5dc93a16cb812064916b0105d55924684c58cfde38f203169acf7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:208280a017d5dc93a16cb812064916b0105d55924684c58cfde38f203169acf7",
                 "range": [
                   3,
                   3
@@ -886,11 +798,8 @@
               "kind": "editSource",
               "key": "edit-2-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8",
                 "range": [
                   0,
                   7
@@ -900,11 +809,8 @@
               "lineage": [
                 {
                   "source": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/nested/note.md",
-                      "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8"
-                    },
+                    "path": "/nested/note.md",
+                    "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8",
                     "range": [
                       0,
                       7
@@ -927,11 +833,8 @@
               "kind": "editSource",
               "key": "edit-3-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:a57de3aadf8161d1ffd2eddb4de704e31b62f42b87302dc330072eace06c9184"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:a57de3aadf8161d1ffd2eddb4de704e31b62f42b87302dc330072eace06c9184",
                 "range": [
                   8,
                   8
@@ -949,11 +852,8 @@
               "kind": "editSource",
               "key": "edit-4-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:dec4312b35b38028b267adce227662a1347c2d3792e06c9f5504f2d80b90f2c1"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:dec4312b35b38028b267adce227662a1347c2d3792e06c9f5504f2d80b90f2c1",
                 "range": [
                   14,
                   14
@@ -973,11 +873,8 @@
               "key": "edit-0-0",
               "kind": "editSource",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:e265e33a0434e2338771111d6a2f9db2248cf62312bc646398ad9bdfc6673ef7",
                 "range": [
                   0,
                   6
@@ -995,11 +892,8 @@
               "kind": "editSource",
               "key": "edit-2-0",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8",
                 "range": [
                   0,
                   7
@@ -1009,11 +903,8 @@
               "lineage": [
                 {
                   "source": {
-                    "material": {
-                      "kind": "basis",
-                      "path": "/nested/note.md",
-                      "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8"
-                    },
+                    "path": "/nested/note.md",
+                    "object": "sha256:d80b4cf35afced4a4b99c4465cec90815310f74420753815db8ab6ce340400c8",
                     "range": [
                       0,
                       7
@@ -1036,11 +927,8 @@
               "key": "edit-3-0",
               "kind": "editSource",
               "source": {
-                "material": {
-                  "kind": "basis",
-                  "path": "/nested/note.md",
-                  "object": "sha256:a57de3aadf8161d1ffd2eddb4de704e31b62f42b87302dc330072eace06c9184"
-                },
+                "path": "/nested/note.md",
+                "object": "sha256:a57de3aadf8161d1ffd2eddb4de704e31b62f42b87302dc330072eace06c9184",
                 "range": [
                   8,
                   8

@@ -127,17 +127,72 @@ function json(v: unknown, max = 1048576) {
   const encoded = JSON.stringify(v); text(encoded, max);
 }
 function member(v: unknown) { require(typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v))); json(v, 4096); }
+/**
+ * A reference as it travels (tree operations §1.2.2): its kind is told by its
+ * keys, `{ path, object }`, `{ change, operation }` or
+ * `{ update, conflict, alternative }`, with `within` and `range` beside them.
+ * Decoding validates that form and returns the in-memory `MaterialRef`.
+ */
 function reference(raw: unknown, entry = false): MaterialRef {
-  const v = obj(raw); keys(v, ["material"], ["within", "range"]); const m = obj(v.material);
-  switch (m.kind) {
-    case "basis": keys(m, ["kind", "path", "object"]); path(m.path); hash(m.object); break;
-    case "operation": keys(m, ["kind", "change", "operation"]); id(m.change); id(m.operation); break;
-    case "alternative": keys(m, ["kind", "state", "conflict", "alternative"]); token(m.state); id(m.conflict); id(m.alternative); break;
-    default: require(false);
-  }
+  const v = obj(raw); let material: Material;
+  if (Object.hasOwn(v, "path")) { keys(v, ["path", "object"], ["within", "range"]); path(v.path); hash(v.object); material = { kind: "basis", path: v.path, object: v.object }; }
+  else if (Object.hasOwn(v, "change")) { keys(v, ["change", "operation"], ["within", "range"]); id(v.change); id(v.operation); material = { kind: "operation", change: v.change, operation: v.operation }; }
+  else if (Object.hasOwn(v, "update")) { keys(v, ["update", "conflict", "alternative"], ["within", "range"]); token(v.update); id(v.conflict); id(v.alternative); material = { kind: "alternative", state: v.update, conflict: v.conflict, alternative: v.alternative }; }
+  else require(false);
   if (Object.hasOwn(v, "within")) { require(Array.isArray(v.within) && v.within.length > 0 && v.within.length <= 256); v.within.forEach(component); require(new TextEncoder().encode(v.within.join("/")).length <= 4096); }
   if (Object.hasOwn(v, "range")) { require(!entry); range(v.range); }
-  return v as MaterialRef;
+  return { material, ...(Object.hasOwn(v, "within") ? { within: [...v.within] } : {}), ...(Object.hasOwn(v, "range") ? { range: [v.range[0], v.range[1]] as [number, number] } : {}) };
+}
+/** A reference in the form it travels in. */
+export type WireRef = (
+  | { path: string; object: string }
+  | { change: string; operation: string }
+  | { update: string; conflict: string; alternative: string }
+) & { within?: string[]; range?: [number, number] };
+export function encodeMaterialRef(ref: MaterialRef): WireRef {
+  const m = ref.material;
+  const kind = m.kind === "basis" ? { path: m.path, object: m.object }
+    : m.kind === "operation" ? { change: m.change, operation: m.operation }
+    : { update: m.state, conflict: m.conflict, alternative: m.alternative };
+  return { ...kind, ...(ref.within ? { within: ref.within } : {}), ...(ref.range ? { range: ref.range } : {}) };
+}
+const isEntryValue = (value: Obj) => Object.hasOwn(value, "file") || Object.hasOwn(value, "page") || Object.hasOwn(value, "directory");
+/** The operation with each of its references passed through `f`. */
+function mapOperationRefs(op: Obj, f: (ref: any, entry: boolean) => any): Obj {
+  const out: Obj = { ...op };
+  switch (op.kind) {
+    case "editSource": out.source = f(op.source, false); if (op.lineage) out.lineage = op.lineage.map((l: Obj) => ({ ...l, source: f(l.source, false) })); break;
+    case "moveSource": case "copySource": out.source = f(op.source, false); out.at = f(op.at, false); break;
+    case "moveEntry": case "copyEntry": out.source = f(op.source, true); out.destination = { ...op.destination, parent: f(op.destination.parent, true) }; break;
+    case "removeEntry": out.source = f(op.source, true); break;
+    case "replaceEntry": out.source = f(op.source, true); if (!isEntryValue(op.value)) out.value = f(op.value, true); break;
+    case "addEntry": out.destination = { ...op.destination, parent: f(op.destination.parent, true) }; break;
+    default:
+      if (Object.hasOwn(op, "page")) out.page = f(op.page, true);
+      else if (Object.hasOwn(op, "collection")) out.collection = f(op.collection, true);
+  }
+  return out;
+}
+/** An operation in the form it travels in. */
+export function encodeAuthoredOperation(op: AuthoredOperation): Obj {
+  return mapOperationRefs(op, (ref) => encodeMaterialRef(ref));
+}
+/** A frame list in the form it travels in. */
+export function encodeAuthoredTrace(trace: DerivableFrame[] | null): Obj[] | null {
+  return trace === null ? null : trace.map((frame) => ({ ...frame, operations: frame.operations.map(encodeAuthoredOperation) }));
+}
+export function encodeResolutionDeclarations(resolves: ResolutionDeclaration[]): Obj[] {
+  return resolves.map((r) => ({ update: r.state, conflict: r.conflict, alternatives: r.alternatives }));
+}
+/** A candidate's intent in the form it travels in: an absent trace or
+ * `resolves` is omitted, as a sender may (tree operations §2.1). */
+export function encodeAuthoredCandidateIntent(u: DerivableUpdateIntent): Obj {
+  return {
+    change: u.change, at: u.at, candidate: u.candidate,
+    ...(u.trace !== null ? { trace: encodeAuthoredTrace(u.trace) } : {}),
+    ...(u.resolves.length ? { resolves: encodeResolutionDeclarations(u.resolves) } : {}),
+    ...(u.ifCurrent !== undefined ? { ifCurrent: u.ifCurrent } : {}),
+  };
 }
 function operation(raw: unknown): AuthoredOperation {
   const v = obj(raw); id(v.key);
@@ -204,31 +259,39 @@ function operation(raw: unknown): AuthoredOperation {
     }
     default: require(false);
   }
-  return v as AuthoredOperation;
+  return mapOperationRefs(v, (ref, entry) => reference(ref, entry)) as AuthoredOperation;
 }
 export function decodeAuthoredRequestIntent(raw: unknown): DerivableRequestIntent {
   const v = obj(raw); keys(v, ["base", "updates"]); if (v.base !== null) token(v.base);
   require(Array.isArray(v.updates) && v.updates.length > 0); const changes = new Set();
   let previousAt = -Infinity;
-  for (const raw of v.updates) {
+  const updates = v.updates.map((raw: unknown) => {
     const u = decodeAuthoredCandidateIntent(raw);
     require(!changes.has(u.change)); changes.add(u.change);
     // Within one request each `at` is no earlier than the one before it.
     const at = Date.parse(u.at); require(at >= previousAt); previousAt = at;
-  }
-  if (v.base === null) { const first = v.updates[0]; require(!Object.hasOwn(first, "ifCurrent") && first.resolves.length === 0); }
-  return v as DerivableRequestIntent;
+    return u;
+  });
+  if (v.base === null) { const first = updates[0]!; require(first.ifCurrent === undefined && first.resolves.length === 0); }
+  return { base: v.base, updates };
 }
 /** A validated request's per-element identities; the chain itself is `updateRequestIdentities`. */
 export function authoredRequestIdentities(tree: string, request: DerivableRequestIntent) {
-  token(tree); decodeAuthoredRequestIntent(request);
+  token(tree); decodeAuthoredRequestIntent({ base: request.base, updates: request.updates.map(encodeAuthoredCandidateIntent) });
   return updateRequestIdentities(tree, request);
 }
 
-export { reference as decodeMaterialRef };
+export { reference as decodeMaterialRef, operation as decodeAuthoredOperation };
+/** A frame list as it travels, decoded to its in-memory form. */
+export function decodeAuthoredTrace(frames: Obj[]): DerivableFrame[] {
+  return frames.map((f) => ({ ...f, operations: obj(f).operations.map(operation) }));
+}
 
+/** Decode a candidate's intent as it travels, returning its in-memory form.
+ * An omitted `trace` is null and an omitted `resolves` empty. */
 export function decodeAuthoredCandidateIntent(raw: unknown): DerivableUpdateIntent {
-  const u = obj(raw); keys(u, ["change", "at", "candidate", "trace", "resolves"], ["ifCurrent"]);
+  const given = obj(raw); keys(given, ["change", "at", "candidate"], ["trace", "resolves", "ifCurrent"]);
+  const u: Obj = { trace: null, resolves: [], ...given };
   id(u.change);
   require(typeof u.at === "string" && ROW_TIME.test(u.at) && Number.isFinite(Date.parse(u.at)));
   // A derived candidate is an operation trace whose last frame omits `after`.
@@ -237,7 +300,7 @@ export function decodeAuthoredCandidateIntent(raw: unknown): DerivableUpdateInte
   if (Object.hasOwn(u, "ifCurrent")) token(u.ifCurrent);
   require(Array.isArray(u.resolves)); const decisions = new Set();
   for (const raw of u.resolves) {
-    const r = obj(raw); keys(r, ["state", "conflict", "alternatives"]); token(r.state); id(r.conflict);
+    const r = obj(raw); keys(r, ["update", "conflict", "alternatives"]); token(r.update); id(r.conflict);
     require(!decisions.has(r.conflict)); decisions.add(r.conflict);
     require(Array.isArray(r.alternatives) && r.alternatives.length > 0 && new Set(r.alternatives).size === r.alternatives.length); r.alternatives.forEach(id);
   }
@@ -247,6 +310,7 @@ export function decodeAuthoredCandidateIntent(raw: unknown): DerivableUpdateInte
     // stated `before` continues a stated previous `after`, and the last frame's
     // `after` is the candidate. The authority binds the rest to the basis it holds.
     const seen = new Set<string>(); let previous: string | undefined, total = 0;
+    const frames: DerivableFrame[] = [];
     for (const raw of u.trace) {
       const f = obj(raw); keys(f, ["operations"], ["before", "after"]);
       if (Object.hasOwn(f, "before")) hash(f.before);
@@ -256,9 +320,16 @@ export function decodeAuthoredCandidateIntent(raw: unknown): DerivableUpdateInte
       require(previous === undefined || f.before === undefined || previous === f.before); previous = f.after;
       // One key names one authored contribution of this change, so it is unique
       // across the whole trace and a later frame may reference an earlier one.
-      for (const op of f.operations.map(operation)) { require(!seen.has(op.key)); seen.add(op.key); }
+      const operations = f.operations.map(operation);
+      for (const op of operations) { require(!seen.has(op.key)); seen.add(op.key); }
+      frames.push({ ...(Object.hasOwn(f, "before") ? { before: f.before } : {}), ...(Object.hasOwn(f, "after") ? { after: f.after } : {}), operations });
     }
     require(u.trace.length === 0 || (previous ?? null) === u.candidate);
+    u.trace = frames;
   }
-  return u as DerivableUpdateIntent;
+  return {
+    change: u.change, at: u.at, candidate: u.candidate, trace: u.trace,
+    resolves: u.resolves.map((r: Obj) => ({ state: r.update, conflict: r.conflict, alternatives: [...r.alternatives] })),
+    ...(Object.hasOwn(u, "ifCurrent") ? { ifCurrent: u.ifCurrent } : {}),
+  };
 }
