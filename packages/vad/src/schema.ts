@@ -3,7 +3,7 @@
 // so the layout, relationships, records, setup SQL and fingerprints built on its result
 // are VAD's too. Defaults and state tables stay here: neither is part of the data layer.
 
-import { checkUsl, type CheckResult } from "@ovst/usl";
+import { checkUsl, compileUsl, type CheckResult } from "@ovst/usl";
 import type * as Usl from "@ovst/usl";
 import type { Diagnostic, EnumDecl, Expr, ReDecl, SchemaAttribute, Span, TableDecl, TableMember, ViewFile } from "./ast.ts";
 import { parseView } from "./parse.ts";
@@ -143,4 +143,19 @@ export function compileSchema(text: string): SchemaResult {
   const { usl, diagnostics, defaults } = uslFileOf(parsed.file, true);
   const result = checkUsl(usl);
   return { ...result, diagnostics: [...parsed.diagnostics, ...diagnostics, ...result.diagnostics], defaults };
+}
+
+/**
+ * True when `text` is a USL schema rather than VAD: a declaration in the first column that
+ * opens a `{ … }` body (`model List {`, `enum Status {`, `{ A.x, B.y }`), which VAD never
+ * writes. Until trees' schema.usl files are converted, readers accept both.
+ */
+export function isUslSource(text: string): boolean {
+  return /^(?:\{|(?:main\s+)?model\b|(?:enum|re)\s+[A-Za-z_][A-Za-z0-9_]*\s*\{)/m.test(text);
+}
+
+/** Checks a collection's schema, written in VAD (`schema.vad`) or, until converted, in USL. */
+export function compileSchemaSource(text: string): SchemaResult {
+  if (!isUslSource(text)) return compileSchema(text);
+  return { ...compileUsl(text), defaults: {} };
 }

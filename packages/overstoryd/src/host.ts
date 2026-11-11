@@ -4,7 +4,7 @@ import { EntryTimesBehind } from "./updates/entry-times.ts";
 import { AttemptLimiter } from "./attempt-limiter.ts";
 import { resolve } from "node:path";
 import { HOST_PROTOCOL, decodePresenceAgentLabel, decodePresenceDevice, decodePresenceUpdate, decodePresenceMessagePost, decodePresenceRunnerLabel, PRESENCE_LIMITS, PresenceDecodeError, treeConfigurationID, parseTreeReference, decodeCandidateUpdateJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResponseJSON, type UpdateHead, buildNetworkLocator, canonicalOverstoryLocator, encodeSSEFrame, markdownSourceDirectory, resolveLogicalURL, sha256, isTreeID, DOMAIN_PROFILE_PATH } from "@ovst/protocol";
-import { canonicalNodePath, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
+import { canonicalNodePath, isCollectionSchemaName, decodePathReadPath, encodePathReadPath, encodePathReadBundle, WIRE_CONTENT_TYPE, acceptsCBOR, decodeWireBody, encodeWireBody, wireEncodingOf, type TreeSnapshot, type WireEncoding } from "@ovst/protocol";
 import type { AccountChallenge, LocatorResolution, MutationCallRuntime, ViewsRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@ovst/protocol";
 import { treeMutationResponse, treeViewsResponse } from "./exec-routes.ts";
 import { HostCollections, type HostCollectionsOptions } from "./collections.ts";
@@ -1279,7 +1279,7 @@ export async function serveHost(options: {
           const collectionTables = await projection.collectionTables(logical.directory);
           const physicalChildren = (await Promise.all(logical.directory.entries
             // A collection's schema is its contract, not one of its children.
-            .filter((entry) => entry.name !== "_index.md" && !(logical.directory.collection && entry.name === "schema.usl"))
+            .filter((entry) => entry.name !== "_index.md" && !(logical.directory.collection && isCollectionSchemaName(entry.name)))
             .map(async (entry): Promise<PublicPageChild | null> => {
               if (entry.tree) {
                 const nested = overstoryd.get(entry.tree);

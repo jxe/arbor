@@ -80,6 +80,7 @@
       "dependencies": {
         "@ovst/protocol": "workspace:*",
         "@ovst/usl": "workspace:*",
+        "@ovst/vad": "workspace:*",
         "csv-parse": "6.1.0",
       },
     },

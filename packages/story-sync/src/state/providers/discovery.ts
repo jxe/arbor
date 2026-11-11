@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Diagnostic } from "@ovst/protocol";
+import { collectionSchemaName, type Diagnostic } from "@ovst/protocol";
 import type { ProjectionDefinition, ProjectionProviderKind } from "@ovst/apps-runtime/collections";
 const fixedStores = [
   ["_store.csv", "csv"],
@@ -9,13 +9,13 @@ const fixedStores = [
   ["_store.sqlite3", "sqlite"],
   ["_store.postgres", "postgres"],
 ] as const satisfies readonly (readonly [string, ProjectionProviderKind])[];
-/** The collection's schema. Any other file, including a `schema.ts`, is ordinary. */
-const SCHEMA = "schema.usl";
+/** The collection's schema is `schema.vad` (or, unconverted, `schema.usl`); any other file, including a `schema.ts`, is ordinary. */
 
 /** Inventory a directory once and select the single built-in provider that claims it. */
 export async function detectProjection(directory: string): Promise<ProjectionDefinition | null> {
   const names = await readdir(directory);
-  const schemaPath = names.includes(SCHEMA) ? join(directory, SCHEMA) : undefined;
+  const schemaName = collectionSchemaName(names);
+  const schemaPath = schemaName ? join(directory, schemaName) : undefined;
   const stores = fixedStores.filter(([name]) => names.includes(name));
   const markdownPaths = schemaPath
     ? names.filter((name) => name.endsWith(".md") && name !== "_index.md").map((name) => join(directory, name))

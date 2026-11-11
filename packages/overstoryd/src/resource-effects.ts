@@ -1,11 +1,11 @@
-import { canonicalNodePath, decodeProtocolPage, encodeProtocolPage, isPageName, parsePage, treeReader, walkTreeDiff, type AccessOperation, type LoadObject, type ObjectHash, type ProtocolPage, type TreeReader } from "@ovst/protocol";
+import { canonicalNodePath, isCollectionSchemaName, decodeProtocolPage, encodeProtocolPage, isPageName, parsePage, treeReader, walkTreeDiff, type AccessOperation, type LoadObject, type ObjectHash, type ProtocolPage, type TreeReader } from "@ovst/protocol";
 export interface ResourceEffect {
   path: string;
   operation: AccessOperation;
 }
 const BUDGET = 100000, MAX_DEPTH = 256;
 /** Reserved formats can conceal row/property/schema effects. Never infer narrow authority. */
-const opaque = (name: string) => name.startsWith("_") || name === "schema.usl";
+const opaque = (name: string) => name.startsWith("_") || isCollectionSchemaName(name);
 /** Conservative physical tree diff. Boundaries and opaque property stores require broad write. */
 export async function resourceEffects(
   before: ObjectHash,

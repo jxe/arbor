@@ -1,6 +1,7 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { writeAtomic, type WorkspaceDiscovery, type WorkspaceFS } from "@ovst/fs";
+import { collectionSchemaName } from "@ovst/protocol";
 import { collectionTypeDeclarations, compileCollectionSchema } from "@ovst/collection-schema";
 import type { NodeProviderRouter } from "./node-provider-router.ts";
 
@@ -26,12 +27,13 @@ export async function generateTreeTypes(options: GenerateTreeTypesOptions): Prom
   const snapshot = discovery ?? await fs.discoverRecursively();
   for (const directory of snapshot.directories) {
     if (directory.absolutePath === root) continue;
-    if (directory.childNames.has("schema.usl") || directory.childNames.has("_store.postgres")) {
+    const schemaName = collectionSchemaName(directory.childNames);
+    if (schemaName || directory.childNames.has("_store.postgres")) {
       const absolute = directory.absolutePath;
       const shape = await provider.schemaTypes(absolute).catch(() => { temporaryFailure = true; return null; });
       if (shape) {
         const treePath = directory.treePath;
-        const schemaPath = join(absolute, "schema.usl");
+        const schemaPath = join(absolute, schemaName ?? "schema.vad");
         if (shape.kind === "database") {
           if (!shape.tables) {
             temporaryFailure = true;

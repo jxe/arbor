@@ -15,7 +15,8 @@ import {
   type Hash,
   type LogicalRow,
 } from "@ovst/protocol";
-import { compileUsl, isPersonValue, logicalModels, modelLayer, type CheckResult, type LogicalField, type LogicalModel, type LogicalTables } from "@ovst/usl";
+import { isPersonValue, logicalModels, modelLayer, type CheckResult, type LogicalField, type LogicalModel, type LogicalTables } from "@ovst/usl";
+import { compileSchemaSource } from "@ovst/vad";
 import { COLLECTION_SCHEMA_LIMITS, CollectionSchemaError, pointer, type ValueDiagnostic } from "./diagnostics.ts";
 import { decodeSchemaSource } from "./compile.ts";
 
@@ -48,11 +49,11 @@ export class LogicalCollectionError extends Error {
   }
 }
 
-/** Compile a collection's `schema.usl` to its logical models. Throws {@link CollectionSchemaError}. */
+/** Compile a collection's `schema.vad` (or `schema.usl`) to its logical models. Throws {@link CollectionSchemaError}. */
 export function compileLogicalSchema(input: Uint8Array | string): LogicalSchema {
   const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
   const source = decodeSchemaSource(bytes);
-  const result = compileUsl(source);
+  const result: CheckResult = compileSchemaSource(source);
   if (result.diagnostics.length > 0) {
     throw new CollectionSchemaError(result.diagnostics.map((d) => ({ code: d.code, message: d.message, location: { line: d.line, column: d.column } })));
   }
@@ -280,7 +281,7 @@ export function encodeCollection(schema: LogicalSchema, tables: LogicalTables): 
 
 /**
  * Load and validate a `collection` reference against the folder's schema,
- * steps 1–4 of spec 06 §2.1, `schema` being the folder's compiled schema.usl. `load` returns an
+ * steps 1–4 of spec 06 §2.1, `schema` being the folder's compiled schema.vad. `load` returns an
  * object's verified bytes by hash. Throws a `TypeError` for a malformed
  * reference or object, and {@link LogicalCollectionError} for rows the
  * schema rejects.
@@ -291,7 +292,7 @@ export async function loadCollection(
   load: (hash: Hash) => Promise<Uint8Array>,
 ): Promise<{ reference: CollectionReference; logicalHash: Hash; tables: LogicalTables }> {
   const reference = decodeCollectionReference(value);
-  if (reference.modelFingerprint !== schema.fingerprint) throw new TypeError("collection.modelFingerprint doesn't match the folder's schema.usl");
+  if (reference.modelFingerprint !== schema.fingerprint) throw new TypeError("collection.modelFingerprint doesn't match the folder's schema.vad");
   const names = reference.tables.map((t) => t.model);
   const expected = schema.models.map((m) => m.name);
   if (names.length !== expected.length || names.some((n, i) => n !== expected[i])) {

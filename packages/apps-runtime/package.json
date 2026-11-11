@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ovst/protocol": "workspace:*",
-    "@ovst/usl": "workspace:*"
+    "@ovst/usl": "workspace:*",
+    "@ovst/vad": "workspace:*"
   }
 }

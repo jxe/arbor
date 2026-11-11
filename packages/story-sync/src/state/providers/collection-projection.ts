@@ -17,6 +17,7 @@ import {
   type LogicalRow,
   type ObjectHash,
   type ProtocolDirectory,
+  collectionSchemaName,
 } from "@ovst/protocol";
 import { writeAtomic } from "@ovst/protocol/file-ops";
 import {
@@ -256,7 +257,7 @@ export class CollectionProjections {
   /**
    * The folder's collection as its projection holds it, or null when the
    * folder is not a collection Story Sync can read, so its files sync as
-   * ordinary files. A folder with only `schema.usl` holds no rows yet.
+   * ordinary files. A folder with only `schema.vad` holds no rows yet.
    * `basis` stands in for the configured one, as for a first placement
    * whose rows should keep the host's times.
    */
@@ -264,7 +265,7 @@ export class CollectionProjections {
     let compiled;
     let schemaBytes: Uint8Array;
     try {
-      schemaBytes = new Uint8Array(await readFile(join(directory, "schema.usl")));
+      schemaBytes = new Uint8Array(await readFile(join(directory, collectionSchemaName(fileNames) ?? "schema.vad")));
       compiled = this.compile(schemaBytes);
     } catch {
       return null;
@@ -291,7 +292,7 @@ export class CollectionProjections {
       const layout = form?.kind === "sqlite" ? database : files;
       const rows = form ? await this.readRows(directory, form, layout, schemaBytes) : {};
       tables = this.stamp(logicalFromRows(logical.result, layout, rows, { now }), before, now);
-      if (checkLogicalTables(logical, tables).length) throw new UnreadableRow("The rows don't satisfy schema.usl");
+      if (checkLogicalTables(logical, tables).length) throw new UnreadableRow("The rows don't satisfy the collection's schema");
       const projected = new Set(form ? formFiles(form, layout) : []);
       checkCollectionNames(fileNames.filter((name) => !projected.has(name)), logical, tables);
     } catch {
@@ -320,7 +321,8 @@ export class CollectionProjections {
     const collection = await loadDirectoryCollection(object, load, this.schemas);
     if (!collection) return [];
     this.reads.delete(directory);
-    const schemaBytes = await load(object.entries.find((e) => e.name === "schema.usl")!.file!);
+    const schemaName = collectionSchemaName(object.entries.map((e) => e.name));
+    const schemaBytes = await load(object.entries.find((e) => e.name === schemaName)!.file!);
     const { files, database } = this.compile(schemaBytes);
     const detected = detectForm(existsSync(directory) ? await readdir(directory) : [], files);
     const form = detected && detected !== "mixed" ? detected : this.options.form?.(directory) ?? { kind: "files", format: "jsonl" } as const;

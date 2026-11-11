@@ -30,6 +30,7 @@ import {
   type ViewEvent,
   type ViewsRequest,
   type ViewsRuntime,
+  collectionSchemaName,
 } from "@ovst/protocol";
 import {
   loadDirectoryCollection,
@@ -77,7 +78,10 @@ async function locate(read: Read, root: ObjectHash, path: string): Promise<{ spi
   return { spine, hash };
 }
 
-const schemaEntry = (directory: ProtocolDirectory) => directory.entries.find((entry) => entry.name === "schema.usl")?.file;
+const schemaEntry = (directory: ProtocolDirectory) => {
+  const name = collectionSchemaName(directory.entries.map((entry) => entry.name));
+  return directory.entries.find((entry) => entry.name === name)?.file;
+};
 
 /** The rows of the database layout by table and stable key. */
 function keyed(schemas: readonly CollectionSchema[], rows: Record<string, Row[]>): Map<string, Map<string, Row>> {

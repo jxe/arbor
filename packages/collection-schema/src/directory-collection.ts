@@ -1,8 +1,9 @@
 // A directory's logical collection as the tree holds it (spec 06 §2.1): its
-// `schema.usl` entry, its `collection` reference, and the rows that reference
+// `schema.vad` entry, its `collection` reference, and the rows that reference
 // reaches, named as the folder's logical children.
 
 import {
+  collectionSchemaName,
   compareUTF8,
   logicalRowKey,
   type CollectionReference,
@@ -14,7 +15,7 @@ import {
 } from "@ovst/protocol";
 import type { LogicalModel, LogicalTables } from "@ovst/usl";
 import { sharedCollectionSchemaCache, type CollectionSchemaCache } from "./cache.ts";
-import { CollectionSchemaError, COLLECTION_SCHEMA_SOURCE } from "./diagnostics.ts";
+import { CollectionSchemaError } from "./diagnostics.ts";
 import { encodeCollection, loadCollection, LogicalCollectionError, type LogicalSchema } from "./logical.ts";
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
@@ -102,14 +103,15 @@ export function checkCollectionNames(entries: Iterable<string>, schema: LogicalS
 }
 
 function schemaFailure(error: unknown): never {
-  if (error instanceof CollectionSchemaError) throw new ProtocolCollectionError("schema", `Invalid schema.usl: ${error.message}`);
+  if (error instanceof CollectionSchemaError) throw new ProtocolCollectionError("schema", `Invalid schema.vad: ${error.message}`);
   throw error;
 }
 
-/** The compiled `schema.usl` entry of a collection directory. */
+/** The compiled schema entry of a collection directory: `schema.vad`, or an unconverted `schema.usl`. */
 export async function directoryCollectionSchema(directory: ProtocolDirectory, load: Load, schemas: CollectionSchemaCache = sharedCollectionSchemaCache): Promise<LogicalSchema> {
-  const entry = directory.entries.find((e) => e.name === COLLECTION_SCHEMA_SOURCE)?.file;
-  if (!entry) throw new ProtocolCollectionError("schema", "A collection's schema.usl must be a file entry");
+  const name = collectionSchemaName(directory.entries.map((e) => e.name));
+  const entry = directory.entries.find((e) => e.name === name)?.file;
+  if (!entry) throw new ProtocolCollectionError("schema", "A collection's schema.vad must be a file entry");
   try {
     return schemas.compileLogical(await load(entry));
   } catch (error) {
@@ -163,7 +165,7 @@ export async function loadDirectoryCollection(
 
 /**
  * The directory with its collection set to `tables`, and every object that
- * holds them. The directory's entries must already hold its `schema.usl`.
+ * holds them. The directory's entries must already hold its `schema.vad`.
  * Throws {@link ProtocolCollectionError} for rows the schema rejects.
  */
 export async function encodeDirectoryCollection(

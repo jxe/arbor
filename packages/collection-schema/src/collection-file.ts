@@ -178,7 +178,7 @@ export function collectionFileRows(
     const diagnostic = raw.diagnostics[0];
     if (diagnostic) {
       const kind = diagnostic.code === "invalid-json-row" || diagnostic.code === "invalid-jsonl" ? "source" : "constraint";
-      throw new ProtocolCollectionError(kind, `Collection-file row ${index + 1} does not satisfy schema.usl: ${diagnostic.code}${diagnostic.field ? ` at ${diagnostic.field}` : ""}`);
+      throw new ProtocolCollectionError(kind, `Collection-file row ${index + 1} does not satisfy its schema: ${diagnostic.code}${diagnostic.field ? ` at ${diagnostic.field}` : ""}`);
     }
     const properties = raw.values as Record<string, JSONValue>;
     const stableKey = stableKeyFromProperties(schema.primaryKey, properties);

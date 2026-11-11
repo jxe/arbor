@@ -17,6 +17,26 @@ export interface ProtocolDirectory {
   collection?: CollectionReference;
 }
 
+/**
+ * A collection folder's schema file entry (spec 1.4): `schema.vad`, or `schema.usl` in a
+ * tree not yet converted from USL. When a folder has both, `schema.vad` is its schema.
+ */
+export const COLLECTION_SCHEMA_NAMES = ["schema.vad", "schema.usl"] as const;
+
+export function isCollectionSchemaName(name: string): boolean {
+  return name === "schema.vad" || name === "schema.usl";
+}
+
+/** The name of a folder's schema entry among `names`, if it has one. */
+export function collectionSchemaName(names: Iterable<string>): "schema.vad" | "schema.usl" | undefined {
+  let found: "schema.vad" | "schema.usl" | undefined;
+  for (const name of names) {
+    if (name === "schema.vad") return name;
+    if (name === "schema.usl") found = name;
+  }
+  return found;
+}
+
 export function protocolEntryObject(entry: ProtocolDirectoryEntry): { kind: ProtocolEntryKind; hash: ObjectHash } | undefined {
   if (entry.file !== undefined) return { kind: "file", hash: entry.file };
   if (entry.page !== undefined) return { kind: "page", hash: entry.page };
@@ -291,7 +311,8 @@ export function decodeDirectoryValue(bytes: Uint8Array): ProtocolDirectory {
       } as ProtocolDirectoryEntry;
     });
     const collection = record.collection === undefined ? undefined : decodeCollectionReference(record.collection);
-    if (collection && !entries.find((entry) => entry.name === "schema.usl")?.file) throw new Error("A collection's schema.usl must be a file entry");
+    const schemaName = collectionSchemaName(entries.map((entry) => entry.name));
+    if (collection && !entries.find((entry) => entry.name === schemaName)?.file) throw new Error("A collection's schema.vad must be a file entry");
     const directory: ProtocolDirectory = { type: "directory", entries, ...(collection ? { collection } : {}) };
     const canonical = encodeCanonicalCBOR(directory);
     if (canonical.length !== bytes.length || canonical.some((byte, index) => byte !== bytes[index])) throw new Error("Directory object is not canonical CBOR");

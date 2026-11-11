@@ -18,6 +18,7 @@ import {
   type ProtocolDirectoryEntry,
   type ProtocolDirectory,
   type ProtocolObjectSource,
+  isCollectionSchemaName,
 } from "@ovst/protocol";
 import { toTreePath } from "@ovst/protocol/path";
 import { writeAtomic } from "@ovst/protocol/file-ops";
@@ -39,7 +40,7 @@ export interface SnapshotCollection {
   replaces: readonly string[];
 }
 
-/** The collection of a directory holding `schema.usl`, given the names of
+/** The collection of a directory holding `schema.vad` (or `schema.usl`), given the names of
  * its files, or null when it is not a collection, so its files are
  * ordinary entries. */
 export type DescribeSnapshotCollectionFile = (
@@ -210,7 +211,7 @@ export async function snapshotDirectory(
         seen.add(entry.name);
       }
     }
-    const described = describeCollectionFile && fileNames.includes("schema.usl")
+    const described = describeCollectionFile && fileNames.some(isCollectionSchemaName)
       ? await describeCollectionFile(directory, fileNames) ?? undefined
       : undefined;
     if (described) {

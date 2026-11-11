@@ -14,7 +14,7 @@ import {
   type ProtocolTable,
   type LogicalRow,
 } from "@ovst/protocol";
-import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@ovst/protocol";
+import { canonicalCBORHash, collectionSchemaName, decodeCBOR, encodeCanonicalCBOR } from "@ovst/protocol";
 import { ObjectIndex } from "@ovst/story-sync/state";
 import { CollectionProjections } from "../../packages/story-sync/src/state/providers/collection-projection.ts";
 import { loadDirectoryCollection } from "@ovst/collection-schema";
@@ -293,6 +293,30 @@ describe("canonical tree objects", () => {
     }
     // Three formats, one tree.
     expect(roots.size).toBe(1);
+  });
+
+  test("a schema.vad makes a collection as a schema.usl does, and wins over one", async () => {
+    const root = await mkdtemp(join(tmpdir(), "story-wire-vad-"));
+    const destination = await mkdtemp(join(tmpdir(), "story-wire-vad-materialized-"));
+    const collections = new CollectionProjections({ now: () => "2026-10-24T09:00:00.000Z" });
+    try {
+      await writeFile(join(root, "schema.vad"), "table Item:\n  title Text\n");
+      await writeFile(join(root, "_store.jsonl"), '{"id":"one","title":"One"}\n');
+      const snapshot = await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) => collections.read(directory, names)));
+      const object = decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!);
+      expect(object.entries.map((entry) => entry.name)).toEqual(["schema.vad"]);
+      const loaded = await loadDirectoryCollection(object, async (hash) => snapshot.objects.get(hash)!);
+      expect(loaded!.tables.Item!.map((row) => [row.key, row.fields])).toEqual([[[["id", "one"]], { title: "One" }]]);
+      await materializeTree(destination, snapshot.root, async (hash) => snapshot.objects.get(hash)!, undefined, [], undefined,
+        (directory, value, load) => new CollectionProjections().write(directory, value, load));
+      expect(await readFile(join(destination, "schema.vad"), "utf8")).toBe("table Item:\n  title Text\n");
+      expect(await readFile(join(destination, "_store.jsonl"), "utf8")).toContain('"title":"One"');
+      expect(collectionSchemaName(["_store.jsonl", "schema.usl", "schema.vad"])).toBe("schema.vad");
+      expect(collectionSchemaName(["schema.usl"])).toBe("schema.usl");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
   });
 
   test("treats a schema.ts as an ordinary file, never as a collection schema", async () => {

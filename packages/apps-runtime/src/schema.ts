@@ -1,6 +1,7 @@
-import { readFile, realpath } from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
 import { canonicalCBORHash } from "@ovst/protocol";
-import { columnType, compileUsl, formatDiagnostic, layoutOf, PERSON_RELATION, relationshipsOf } from "@ovst/usl";
+import { columnType, formatDiagnostic, layoutOf, PERSON_RELATION, relationshipsOf } from "@ovst/usl";
+import { compileSchemaSource } from "@ovst/vad";
 import { compareShapes, inspectSqlite, sqliteAffinity } from "@ovst/usl/verify";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
@@ -108,6 +109,13 @@ function logicalPath(root: string, candidate: string): string {
   return child === "" ? "/" : `/${child.split(sep).join("/")}`;
 }
 
+/** A collection directory's schema file: `schema.vad`, or `schema.usl` until the tree is converted. */
+async function schemaFileIn(directory: string): Promise<string> {
+  const vad = join(directory, "schema.vad");
+  const usl = join(directory, "schema.usl");
+  return access(vad).then(() => vad, () => access(usl).then(() => usl, () => vad));
+}
+
 /** Resolve an authored database path from its importing module, honoring the longest nested tree boundary. */
 export async function resolveDatabaseLocation(
   importingModulePath: string,
@@ -124,7 +132,7 @@ export async function resolveDatabaseLocation(
   return {
     directory,
     databasePath: join(directory, "_store.sqlite3"),
-    schemaPath: join(directory, "schema.usl"),
+    schemaPath: await schemaFileIn(directory),
     ...(boundary ? { tree: boundary.tree, path: logicalPath(boundary.root, directory) } : {}),
   };
 }
@@ -223,7 +231,7 @@ export function inspectSQLite(database: Database): Record<string, RelationMetada
  * Introspect a standalone SQLite database without requiring authored query
  * relationship metadata. Generic node providers use this for ordinary SQLite
  * files; executable-document databases normally use introspectStoreSchema,
- * which checks the database against its schema.usl and adds relationships.
+ * which checks the database against its schema.vad and adds relationships.
  */
 export function introspectSQLiteDatabase(source: string | Database): StoreSchema {
   const database = typeof source === "string"
@@ -302,7 +310,7 @@ function validateRelationship(relation: RelationshipMetadata, relations: Record<
 }
 
 /** Each stored column's schema type: its field's declared type, or what the column holds. */
-function fieldTypesOf(schema: ReturnType<typeof compileUsl>, tables: ReturnType<typeof layoutOf>): Record<string, Record<string, string>> {
+function fieldTypesOf(schema: ReturnType<typeof compileSchemaSource>, tables: ReturnType<typeof layoutOf>): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {};
   for (const table of tables) {
     const model = schema.models.find((candidate) => (candidate.table ?? candidate.name) === table.name);
@@ -321,7 +329,7 @@ function fieldTypesOf(schema: ReturnType<typeof compileUsl>, tables: ReturnType<
 }
 
 /**
- * Check a database against the schema.usl beside it and describe it: its
+ * Check a database against the schema.vad (or schema.usl) beside it and describe it: its
  * tables, the virtual `Person` relation when the schema refers to people, and
  * a relationship for each connection end.
  */
@@ -330,8 +338,8 @@ export async function introspectStoreSchema(
   fixtureDatabase?: Database,
 ): Promise<StoreSchema> {
   const source = await readFile(location.schemaPath, "utf8");
-  const schema = compileUsl(source);
-  if (schema.diagnostics.length > 0) throw new Error(`Invalid ${formatDiagnostic("schema.usl", schema.diagnostics[0]!)}`);
+  const schema = compileSchemaSource(source);
+  if (schema.diagnostics.length > 0) throw new Error(`Invalid ${formatDiagnostic(basename(location.schemaPath), schema.diagnostics[0]!)}`);
   const tables = layoutOf(schema, { store: "database" });
 
   const database = fixtureDatabase ?? new Database(location.databasePath, { readonly: true, strict: true });
@@ -344,7 +352,7 @@ export async function introspectStoreSchema(
       (expected, actual) => sqliteAffinity(expected) === sqliteAffinity(actual),
     ).filter((item) => item.severity === "error");
     if (problems.length > 0) {
-      throw new Error(`_store.sqlite3 does not implement schema.usl: ${problems.map((item) => item.message).join("; ")}`);
+      throw new Error(`_store.sqlite3 does not implement its schema: ${problems.map((item) => item.message).join("; ")}`);
     }
     relations = inspectSQLite(database);
   } finally {
