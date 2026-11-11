@@ -381,6 +381,8 @@ class Engine {
    * later frame that changes it back leave its times as they were. */
   private readonly stamps = new Map<string, { from: string; created: number; modified: number; stamped: string }>();
   private readonly stamped = new Set<string>();
+  /** Each textual node's object in base, set by `run` when current differs from base. */
+  private baseTimes?: Map<string, string>;
   private timesOf(node: Readonly<Node>, object: string): { created: number; modified: number } {
     if (node.stamped === object) return { created: node.created!, modified: node.modified! };
     // Keyed by identity and prior times, not by node object: fast paths
@@ -388,7 +390,11 @@ class Engine {
     const from = `${node.stamped}|${node.created}|${node.modified}`, key = `${node.id}\0${object}\0${from}`, known = this.stamps.get(key);
     if (known) return { created: known.created, modified: known.modified };
     const at = this.request.incoming.at ?? fail("An update that changes an entry states its time");
-    const stamp = { from, created: node.created === undefined ? at : Math.min(node.created, at), modified: at, stamped: object };
+    // When current changed the entry too, the merge keeps the later of the
+    // two times (data model §6): an edit is never dated before one it merged.
+    const currentChanged = node.modified !== undefined && this.baseTimes !== undefined && this.baseTimes.get(node.id) !== node.stamped;
+    const modified = currentChanged ? Math.max(at, node.modified!) : at;
+    const stamp = { from, created: node.created === undefined ? modified : Math.min(node.created, at), modified, stamped: object };
     this.stamps.set(key, stamp);
     this.stamped.add(node.id);
     return { created: stamp.created, modified: stamp.modified };
@@ -2026,6 +2032,9 @@ class Engine {
         ? (!base.decisions.length && !request.alternatives?.length ? base : this.cloneState(base))
         : await this.load(request.current);
     engineDiagnostics["load-ms"] = performance.now() - startedLoad;
+    // Base's own nodes, before any edit, to tell what current changed (timesOf).
+    if (!sameBasis) this.baseTimes = new Map(Object.entries(base.nodes).flatMap(([id, node]) =>
+      textual(node.kind) && node.stamped !== undefined ? [[id, node.stamped] as const] : []));
     // An editable base's nodes reflect every deletion in its effects, so only
     // newer effects are enforced.
     if (this.editable(request.base)) this.appliedDeletions = base.effects;

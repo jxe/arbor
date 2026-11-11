@@ -95,6 +95,13 @@ test.each(["binary", "delete-edit", "kind", "nested"])("snapshot %s overlap crea
   await running.overstoryd.verifyIntegrity();
 });
 
+test("an update dated more than five minutes ahead of the host is refused; one just ahead is accepted", async () => {
+  const candidate = change(root, { "note.md": { file: file("Later\n") } });
+  const ahead = (minutes: number) => ({ ...snapshot(candidate), at: new Date(Date.now() + minutes * 60_000).toISOString() });
+  await expect(submit(ahead(6))).rejects.toThrow("dated in the future");
+  expect((await submit(ahead(1))).root).toBe(candidate);
+});
+
 test("an unresolved binary choice preserves successful Markdown rule output and its objects", async () => {
   const left = snapshot(change(root, { "asset.bin": { file: file("left") }, "note.md": { file: file("Base\nLeft\n") } }));
   const right = snapshot(change(root, { "asset.bin": { file: file("right") }, "note.md": { file: file("Base\nRight\n") } }));

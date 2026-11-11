@@ -2409,8 +2409,10 @@ export class HostDaemon implements AsyncDisposable {
     if (this.acceptedStore.acceptedChange(treeID, request.change)) {
       throw new Error("Authored change identity is already bound to a different accepted request");
     }
-    // A row operation's time may not run ahead of this host's clock.
+    // An update's time, and a row operation's, may not run more than five
+    // minutes ahead of this host's clock (data model §6).
     const latest = Date.now() + 5 * 60_000;
+    if (entryTimeOf(request.at) > latest) throw new Error(`Update ${request.change} is dated in the future`);
     for (const frame of request.trace ?? [])
       for (const operation of frame.operations)
         if (isRowOperation(operation) && operation.at !== undefined && Date.parse(operation.at) > latest)
