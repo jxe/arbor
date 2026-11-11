@@ -171,6 +171,9 @@ milestone 5.
 written in code that write only session tables, run by `every` and `on key` lines, with
 views drawing the rows (a built-in `Canvas` for games). After Apps 015.
 
+**[Apps 018: shaders](later/apps-018-shaders.md).** A sketch: WGSL shaders as values an
+element draws with (`fill`, `distort`, `effect`), fed by Beetle values. With Apps 014.
+
 **[Apps 016: pure plugins](later/apps-016-pure-plugins.md).** A sketch: value types,
 two-way relations and derived fields that run the same on host and device.
 

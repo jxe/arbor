@@ -95,6 +95,7 @@ Two jobs, in two places (proposed to Joe 2026-11-11):
   time; no network, no other tables.
 - **Sensors and device input** (motion, microphone level): plugin-fed session tables, or
   built-in event lines like `on pointer`?
+- **Shaders** are their own plan, [Apps 018](apps-018-shaders.md).
 - **Out of scope for now** (Joe, 2026-11-11): platform views (maps, video, camera, AR) and
   custom text editing (IME, selection).
 - **Canvas vocabulary**: which shapes, text, images and transforms.
