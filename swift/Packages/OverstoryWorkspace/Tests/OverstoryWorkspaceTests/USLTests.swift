@@ -100,7 +100,8 @@ struct USLTests {
               name ~label("Title")
             """
         let usl = uslSourceOfVAD(source)
-        let result = compileUSL(usl)
+        // Read as Story reads it: a seed row may leave out a defaulted field.
+        let result = compileCollectionSchema(source)
         #expect(result.diagnostics == [], "\(usl)")
         #expect(result.models.map(\.name).contains("List"))
         #expect(!result.models.map(\.name).contains("Draft"))
@@ -114,7 +115,7 @@ struct USLTests {
         let schemas = try #require(fixture["schemas"] as? [[String: Any]])
         for schema in schemas {
             let name = schema["name"] as? String ?? ""
-            let result = compileUSL(try #require(schema["source"] as? String))
+            let result = compileCollectionSchema(try #require(schema["source"] as? String))
             if let accept = schema["accept"] as? [String: Any] {
                 #expect(result.diagnostics == [], "\(name)")
                 let tables = try uslLayout(result, store: .files)
@@ -142,7 +143,7 @@ struct USLTests {
         let schemas = try #require(fixture["schemas"] as? [[String: Any]])
         var checked = 0
         for schema in schemas {
-            let result = compileUSL(try #require(schema["source"] as? String))
+            let result = compileCollectionSchema(try #require(schema["source"] as? String))
             guard schema["accept"] != nil, let table = try uslLayout(result, store: .files).first else { continue }
             let people = table.columns.filter(\.profile)
             guard !people.isEmpty else { continue }
