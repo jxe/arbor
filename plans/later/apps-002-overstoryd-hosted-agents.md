@@ -208,7 +208,7 @@ Every runtime may expose Overstory's built-in read, navigate, search, backlinks,
 node-query, and mutation operations. The node-query surface includes schema-
 governed collection and relational capabilities when the addressed source
 provides them. An agent may additionally name compiled
-[app](../../docs/overstory-spec/4.1-apps.md#41-handles-and-code-versions) query and mutation handles. Each
+[app](../../docs/overstory-spec/4.1-apps.md#1-handles-and-code-versions) query and mutation handles. Each
 tool has a typed input/output boundary and retains tree/path provenance in its
 results.
 
@@ -229,7 +229,7 @@ This specification does not prescribe isolation technology, worker language, or 
 
 #### 13.4 Consent and effects
 
-Before an effectful run, the client presents the [consent statement](../../docs/overstory-spec/4.1-apps.md#23-authority-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
+Before an effectful run, the client presents the [consent statement](../../docs/overstory-spec/3.2-access-control.md#43-authority-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
 
 All tree effects pass through ordinary Overstory or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Overstory mutation. Ambiguous mutation retries reuse the original mutation identity.
 

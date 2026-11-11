@@ -83,7 +83,7 @@ discussion. Where it says *query* or *endpoint*, read *view*
   - Story waits up to about 100 ms so all of an evaluation's streams are at one tree version.
 - Views on a placed tree are evaluated against Story Sync's local SQLite. Otherwise
   Story asks the host for the view's `rows` answer
-  ([apps §5.1](../../docs/overstory-spec/4.1-apps.md#51-evaluate-and-stream-views))
+  ([apps §2](../../docs/overstory-spec/4.1-apps.md#2-evaluate-and-stream-views))
   and evaluates the view itself, so state changes stay on the device.
 
 ## 3. The SwiftUI renderer
@@ -124,7 +124,7 @@ site, served by overstoryd and later from a host such as Vercel.
 ## Code to bring in line with the spec (Joe, 2026-11-11)
 
 The spec addresses views by file path with the extension
-([apps](../../docs/overstory-spec/4.1-apps.md#1-addresses)),
+([locators §7](../../docs/overstory-spec/1.6-locators.md#7-view-addresses)),
 now `views/list.view`, the view at `views/list` (a `.view` file is a node's body, like a
 `.md` file). `.mdx` is gone. Still to do in code:
 
