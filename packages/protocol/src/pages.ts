@@ -35,7 +35,7 @@ const encoder = new TextEncoder();
 /** Whether a directory entry with this name is a page when its file parses. */
 export function isPageName(name: string): boolean {
   const lower = name.toLowerCase();
-  return lower.endsWith(".md") || lower.endsWith(".mdx");
+  return lower.endsWith(".md");
 }
 
 function validDate(year: number, month: number, day: number): boolean {
@@ -428,7 +428,7 @@ export function parsePageFrontmatter(yaml: string): { id?: string; properties: P
 }
 
 /**
- * The page a `.md` or `.mdx` file holds, or null when it is not one: its
+ * The page a `.md` file holds, or null when it is not one: its
  * bytes are not UTF-8, or its frontmatter does not read as YAML 1.2. Such a
  * file stays a file entry, with the `unparsed-front-matter` diagnostic.
  */

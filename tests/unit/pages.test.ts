@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalPageFile, decodeProtocolPage, encodeProtocolPage, hashObject, parsePage, samePage, writePageFile } from "@ovst/protocol";
+import { canonicalPageFile, decodeProtocolPage, encodeProtocolPage, hashObject, isPageName, parsePage, samePage, writePageFile } from "@ovst/protocol";
 import vectors from "../../docs/overstory-spec/conformance/pages.json";
 import { pageFromJSON, pageJSON, type PageJSON } from "../support/page-json.ts";
 
@@ -33,5 +33,14 @@ describe("page vectors", () => {
   });
   for (const item of vectors.invalidObjects) test(`invalid object: ${item.name}`, () => {
     expect(() => decodeProtocolPage(Buffer.from(item.object, "base64"))).toThrow();
+  });
+});
+
+describe("page names", () => {
+  test("only .md names a page; .mdx is a plain file", () => {
+    expect(isPageName("Home.md")).toBe(true);
+    expect(isPageName("_index.MD")).toBe(true);
+    expect(isPageName("Home.mdx")).toBe(false);
+    expect(isPageName("_index.mdx")).toBe(false);
   });
 });

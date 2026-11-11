@@ -30,7 +30,7 @@ export interface NodeCapabilities {
   content?: {
     revision: string;
     mediaType: string;
-    format?: "markdown" | "mdx" | "tsx" | "json";
+    format?: "markdown" | "tsx" | "json";
     writable: boolean;
   };
   children?: {
@@ -201,11 +201,11 @@ export function decodeNodeCapabilities(value: unknown): NodeCapabilities {
   if (source.content !== undefined) {
     const capability = object(source.content, "capabilities.content");
     const format = optionalString(capability.format, "capabilities.content.format");
-    if (format && !["markdown", "mdx", "tsx", "json"].includes(format)) throw new TypeError("content format is invalid");
+    if (format && !["markdown", "tsx", "json"].includes(format)) throw new TypeError("content format is invalid");
     result.content = {
       revision: string(capability.revision, "capabilities.content.revision"),
       mediaType: string(capability.mediaType, "capabilities.content.mediaType"),
-      ...(format ? { format: format as "markdown" | "mdx" | "tsx" | "json" } : {}),
+      ...(format ? { format: format as "markdown" | "tsx" | "json" } : {}),
       writable: boolean(capability.writable, "capabilities.content.writable"),
     };
   }
