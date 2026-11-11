@@ -79,7 +79,7 @@ public actor HostPresence {
     /// Send a message to another of this person's streams, from this one
     /// (spec 12 §6). Throws when the stream isn't open yet, or the host refuses.
     public func send(_ body: ProtocolPresenceMessageBody, to peer: String) async throws {
-        guard let from = roster.streamID else { throw HostPresenceError.notConnected }
+        guard let from = roster.selfID else { throw HostPresenceError.notConnected }
         try await client.sendPresenceMessage(tree: tree, from: from, to: peer, body: body)
     }
 
@@ -126,7 +126,8 @@ public actor HostPresence {
         defer { flushTask = nil }
         let interval = Duration.milliseconds(1000 / ProtocolPresenceLimits.cursorsPerSecond)
         while !Task.isCancelled {
-            guard let id = roster.selfID else { return }
+            // A hidden stream has an entry of its own too, but tells nobody where it is.
+            guard visible, let id = roster.selfID else { return }
             let wanted = page.map { roster.anyoneElse(onPage: $0.path) } == true ? selection : nil
             let pageDue = sentPage != .some(page)
             // The host clears the caret when the page changes.

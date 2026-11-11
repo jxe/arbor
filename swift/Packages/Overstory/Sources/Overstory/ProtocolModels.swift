@@ -200,11 +200,16 @@ public struct ProtocolAccountSnapshot: Codable, Sendable, Equatable {
     public var account: ProtocolAccountDescriptor
 }
 
-/// A host list read, `/.overstory/trees` or `/.overstory/account/directory`: no observation
-/// cursor, unlike Story Sync's local `ProtocolSnapshotEnvelope`.
-public struct ProtocolRemoteSnapshot<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
-    public var snapshot: Value
-    public init(snapshot: Value) { self.snapshot = snapshot }
+/// `GET /.overstory/trees` (locators §5): the trees, named as what it lists.
+public struct ProtocolTreeList: Codable, Sendable, Equatable {
+    public var trees: [ProtocolTreeDescriptor]
+    public init(trees: [ProtocolTreeDescriptor]) { self.trees = trees }
+}
+
+/// `GET /.overstory/account/directory` (locators §5): the people.
+public struct ProtocolPeopleList: Codable, Sendable, Equatable {
+    public var people: [ProtocolProfileDirectoryEntry]
+    public init(people: [ProtocolProfileDirectoryEntry]) { self.people = people }
 }
 
 public struct ProtocolResolvedNodeRef: Codable, Sendable, Equatable {

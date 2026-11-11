@@ -79,4 +79,22 @@ struct EntryTimesTests {
             try ProtocolAuthoredRequestIntent(["base": .string("u1"), "updates": .array([element("c1", "yesterday")])])
         }
     }
+
+    @Test("A page property operation may state its own at, never later than its update's")
+    func pageOperationTimes() throws {
+        func element(opAt: String?) -> ProtocolSemanticValue {
+            var op: [String: ProtocolSemanticValue] = ["key": .string("p"), "kind": .string("set"), "field": .string("title"),
+                "before": .null, "value": .string("New"),
+                "page": .object(["path": .string("/a.md"), "object": .string("sha256:" + String(repeating: "2", count: 64))])]
+            if let opAt { op["at"] = .string(opAt) }
+            return .object(["change": .string("c1"), "at": .string("2026-11-11T12:00:00.000Z"), "candidate": .null,
+                            "trace": .array([.object(["operations": .array([.object(op)])])])])
+        }
+        for at in [nil, "2026-11-11T11:59:00.000Z", "2026-11-11T12:00:00.000Z"] {
+            _ = try ProtocolAuthoredRequestIntent(["base": .string("u1"), "updates": .array([element(opAt: at)])])
+        }
+        for at in ["2026-11-11T12:00:01.000Z", "noon"] {
+            #expect(throws: (any Error).self) { try ProtocolAuthoredRequestIntent(["base": .string("u1"), "updates": .array([element(opAt: at)])]) }
+        }
+    }
 }

@@ -2133,8 +2133,8 @@ final class StoryWorkspaceState {
                     let client = try await self.accountService.client(for: account)
                     async let directory = client.directory()
                     async let trees = client.trees()
-                    try await self.directoryStore.save(origin: origin, entries: directory.snapshot)
-                    self.writableTreesByOrigin[origin.absoluteString] = Set(try await trees.snapshot.filter(\.grantsWrite).map(\.id))
+                    try await self.directoryStore.save(origin: origin, entries: directory.people)
+                    self.writableTreesByOrigin[origin.absoluteString] = Set(try await trees.trees.filter(\.grantsWrite).map(\.id))
                 } catch { failures.append("\(origin.host() ?? origin.absoluteString): \(error.localizedDescription)") }
             }
             self.directory = (try? await self.directoryStore.load()) ?? self.directory
@@ -2172,7 +2172,7 @@ final class StoryWorkspaceState {
         guard let account = await connectedAccount(at: person.origin) else {
             throw ProtocolValidationError.invalidValue("No account is connected to this host")
         }
-        guard let tree = try await accountService.client(for: account).trees().snapshot.first(where: { $0.id == person.entry.profile }) else {
+        guard let tree = try await accountService.client(for: account).trees().trees.first(where: { $0.id == person.entry.profile }) else {
             throw ProtocolValidationError.invalidValue("Profile is not on this host")
         }
         try await place(tree: tree, from: person.origin, configurationTree: account.configurationTree)

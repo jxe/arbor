@@ -149,7 +149,9 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
             // A page target (spec 10 §4.1): any property but `id`, values in the page JSON spelling.
             let fields: [String: [String]] = ["set": ["field", "before", "value"], "connect": ["field", "member"],
                 "disconnect": ["field", "member"], "move": ["field", "member", "after"]]
-            try keys(v, ["key", "kind", "page"] + fields[kind]!); try reference(v["page"], entry: true)
+            try keys(v, ["key", "kind", "page"] + fields[kind]!, ["at"]); try reference(v["page"], entry: true)
+            // Allowed as on any property operation, though a page keeps no time of its own (§4.1).
+            if let at = v["at"] { try check(at.text.map(ProtocolEntryTime.isValid) == true) }
             let field = try text(v["field"], 4096); try check(!field.isEmpty && field != "id" && !field.contains("\0"))
             for value in [v["before"], v["value"], v["member"], v["after"]] { if let value { try json(value) } }
             if kind == "move", v["after"] != .null { try check(v["after"] != v["member"]) }
@@ -228,7 +230,13 @@ public struct ProtocolAuthoredRequestIntent: Codable, Sendable, Equatable {
                 try check(previous == nil || f["before"] == nil || previous == f["before"]!.text!); previous = f["after"]?.text
                 // One key names one authored contribution of this change, so it
                 // is unique across the whole trace, not merely within a frame.
-                for id in try ops.map(validateOperation) { try check(keyed.insert(id).inserted) }
+                for op in ops {
+                    try check(keyed.insert(try validateOperation(op)).inserted)
+                    // A property operation's own `at` is never later than its update's.
+                    if let at = op.fields?["at"]?.text, op.fields?["kind"]?.text.map(["rowCreate", "set", "connect", "disconnect", "move"].contains) == true {
+                        try check(ProtocolEntryTime.milliseconds(at)! <= ProtocolEntryTime.milliseconds(u["at"]!.text!)!)
+                    }
+                }
             }
             try check(frames.isEmpty || previous == u["candidate"]!.text)
         }

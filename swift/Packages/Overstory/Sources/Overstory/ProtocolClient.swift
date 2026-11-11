@@ -124,9 +124,9 @@ public actor ProtocolClient {
         return value
     }
 
-    public func trees() async throws -> ProtocolRemoteSnapshot<[ProtocolTreeDescriptor]> {
-        let value: ProtocolRemoteSnapshot<[ProtocolTreeDescriptor]> = try await get(path: "/.overstory/trees")
-        return ProtocolRemoteSnapshot(snapshot: try value.snapshot.map { try $0.validated() })
+    public func trees() async throws -> ProtocolTreeList {
+        let value: ProtocolTreeList = try await get(path: "/.overstory/trees")
+        return ProtocolTreeList(trees: try value.trees.map { try $0.validated() })
     }
 
     /// The tree resource itself: its current descriptor and the cursor to watch after.
@@ -432,7 +432,7 @@ public actor ProtocolClient {
         try await get(path: "/.overstory/trees/\(component(tree))/access")
     }
 
-    public func directory() async throws -> ProtocolRemoteSnapshot<[ProtocolProfileDirectoryEntry]> {
+    public func directory() async throws -> ProtocolPeopleList {
         try await get(path: "/.overstory/account/directory")
     }
 

@@ -703,8 +703,8 @@ public actor NativeAccountService {
     }
 
     public func account() async throws -> ProtocolAccountSnapshot { try await client().account() }
-    public func trees() async throws -> ProtocolRemoteSnapshot<[ProtocolTreeDescriptor]> { try await client().trees() }
-    public func directory() async throws -> ProtocolRemoteSnapshot<[ProtocolProfileDirectoryEntry]> { try await client().directory() }
+    public func trees() async throws -> ProtocolTreeList { try await client().trees() }
+    public func directory() async throws -> ProtocolPeopleList { try await client().directory() }
     public func object(tree: String, hash: String) async throws -> Data { try await client().object(tree: tree, hash: hash) }
     public func access(tree: String) async throws -> NativeTreeAccessPresentation {
         try await TreeConfigurationClient(wire: client()).access(tree: tree)

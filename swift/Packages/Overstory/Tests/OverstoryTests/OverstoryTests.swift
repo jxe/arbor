@@ -1000,7 +1000,7 @@ struct LiveProtocolTests {
         let pairedSession = try await ProtocolClient(origin: origin, retryDelay: { _ in })
             .openDeviceSession(profileTree: try #require(account.account.profileTree), device: deviceID, key: pairedKey)
         let paired = ProtocolClient(origin: origin, credential: pairedSession.token, retryDelay: { _ in })
-        #expect(try await paired.trees().snapshot.contains { $0.id == configuration.id })
+        #expect(try await paired.trees().trees.contains { $0.id == configuration.id })
 
         let historyURL = origin.appending(path: ".overstory/trees/\(configuration.id)/updates")
         var request = URLRequest(url: historyURL)
@@ -1266,10 +1266,11 @@ struct ProtocolValueVectorTests {
     @Test("a roster keeps runners apart, newest last, and the results of the runs it sent")
     func presenceRosterRunners() {
         var roster = ProtocolPresenceRoster()
-        roster.apply(.ready(ProtocolPresenceReady(selfID: nil, stream: "pr_hidden", peers: [
+        // A hidden stream still names its own entry.
+        roster.apply(.ready(ProtocolPresenceReady(selfID: "pr_hidden", peers: [
             ProtocolPresencePeer(id: "pr_air", profile: "tr_me", name: "Joe", runner: "Joe's Air"),
         ])))
-        #expect(roster.streamID == "pr_hidden")
+        #expect(roster.selfID == "pr_hidden")
         #expect(roster.peers.isEmpty)
         roster.apply(.peer(ProtocolPresencePeer(id: "pr_studio", profile: "tr_me", name: "Joe", runner: "Studio")))
         #expect(roster.runners.map(\.id) == ["pr_air", "pr_studio"])

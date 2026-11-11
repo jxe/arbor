@@ -127,36 +127,32 @@ public struct ProtocolPresencePeer: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// `presence.ready`: `{ self, peers }`.
 public struct ProtocolPresenceReady: Codable, Hashable, Sendable {
-    /// This stream's own entry; nil when the subscriber is not visible.
+    /// The stream's own entry, listed or hidden: what it updates and sends
+    /// messages from (spec 12 §6). Nil only for a caller without an account.
     public var selfID: String?
-    /// This stream's own entry, listed or not, for messages (spec 12 §6).
-    public var stream: String?
     public var peers: [ProtocolPresencePeer]
 
-    public init(selfID: String?, stream: String? = nil, peers: [ProtocolPresencePeer]) {
+    public init(selfID: String?, peers: [ProtocolPresencePeer]) {
         self.selfID = selfID
-        self.stream = stream ?? selfID
         self.peers = peers
     }
 
     private enum CodingKeys: String, CodingKey {
         case selfID = "self"
-        case stream
         case peers
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selfID = try container.decodeIfPresent(String.self, forKey: .selfID)
-        stream = try container.decodeIfPresent(String.self, forKey: .stream) ?? selfID
         peers = try container.decode([ProtocolPresencePeer].self, forKey: .peers)
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(selfID, forKey: .selfID)
-        try container.encodeIfPresent(stream, forKey: .stream)
         try container.encode(peers, forKey: .peers)
     }
 }
@@ -360,10 +356,9 @@ public enum ProtocolPresence {
 /// Runner entries (spec 12 §6) are kept apart from people and agents: a
 /// runner is something to send tasks to, not someone on a page.
 public struct ProtocolPresenceRoster: Hashable, Sendable {
-    /// This stream's own entry, which `peers` never lists.
+    /// This stream's own entry, listed or hidden, which `peers` never lists:
+    /// what it updates and sends messages from.
     public private(set) var selfID: String?
-    /// This stream's own entry, listed or not: what it sends messages from.
-    public private(set) var streamID: String?
     public private(set) var peers: [String: ProtocolPresencePeer] = [:]
     /// Runner entries, in the order they joined: the last is the newest.
     public private(set) var runners: [ProtocolPresencePeer] = []
@@ -378,7 +373,6 @@ public struct ProtocolPresenceRoster: Hashable, Sendable {
         switch event {
         case .ready(let ready):
             selfID = ready.selfID
-            streamID = ready.stream
             let others = ready.peers.filter { $0.id != ready.selfID }
             peers = Dictionary(others.filter { $0.runner == nil }.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
             runners = others.filter { $0.runner != nil }
