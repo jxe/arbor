@@ -10,7 +10,7 @@ files that the watcher then observes.
 
 - A node has one extensionless logical path plus optional `bodyPath` and `directoryPath`.
 - `x.md` is `/x`'s preferred body. A sibling `x/` supplies children.
-- `x/_index.md` is the body only when `x.md` is absent. Having both body files produces a `duplicate-body-representation` diagnostic.
+- `x/_index.md` takes precedence; a sibling `x.md` beside it is reported as `shadowed-body` and ignored.
 - Every physical directory has complete operational Markdown. Reads append ordinary links for otherwise-unmentioned immediate children without materializing a body.
 - Directory content revisions cover exact stored body bytes plus canonically ordered immediate-child descriptors. Child-set changes change the revision; filesystem enumeration order does not.
 - Every physical path is containment-checked against the real workspace root. Atomic-write staging names (`.overstory-txn-`, `.overstory-write-`) are ignored by listing and the watcher.
