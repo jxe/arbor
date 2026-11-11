@@ -1401,22 +1401,13 @@ them, so a client may treat a longer silence as a lost connection. The `event` f
 one canonical JSON value. Producers share escaping, cancellation,
 bounded-buffer, and terminal-close behavior.
 
-```ts
-type ObservationEvent<TKind extends string, TChange> = {
-  cursor: string;
-  tree: TreeID;
-  kind: TKind;
-  change: TChange;
-};
-```
-
-This shared transport does not imply shared cursor semantics. A tree watch
-carries the accepted update in the SSE `id` and the kind in `event`, sends only
-`change` as `data` (its tree is the URL's), resumes from `after`, and ends with
-`resync-required` when retained history cannot serve it
-([watching](#113-watching)). A query stream omits `id`, sends the remaining
-event members after `type`, and establishes fresh derived state with `ready`;
-reconnection repeats the complete query.
+Each stream defines its own events: a tree watch in [watching](#113-watching)
+(the accepted update in the SSE `id`, the kind in `event`, the change as
+`data`, resuming from `after`), a query stream in
+[executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-views) (no `id`; fresh derived
+state is established with `ready`, and reconnection repeats the complete
+query), and presence in [presence](12-presence.md). The shared framing implies
+no shared cursor semantics.
 
 The shared error envelope and common codes are normative. Narrow server-only
 codes include `already-claimed`. Base/update mismatch,
@@ -1438,8 +1429,7 @@ chosen by ordinary HTTP content negotiation, never required:
 
 - A client sends `Content-Type: application/cbor` for a CBOR request body and
   `Accept: application/cbor` for a CBOR success response. Without them the
-  body and the response are JSON (`application/json`), as before CBOR joined
-  it. A host accepts and produces both; a client may use either, and may mix
+  body and the response are JSON (`application/json`). A host accepts and produces both; a client may use either, and may mix
   them (a CBOR request with a JSON response, or the reverse).
 - A CBOR body is the canonical CBOR (§4.1) of exactly the value the JSON body
   would carry, with a byte string wherever JSON carries padded base64: each
