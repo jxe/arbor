@@ -397,12 +397,12 @@ export class UpdateCoordinator {
     }
     if (response.results.some(result => result.update.tree !== attempt.tree)) throw new UpdateValidationError("The host answered for another tree");
     const head = response.head;
-    return { update: head.update, root: head.root, conflicted: head.conflicted, cursor: head.observedThrough };
+    return { update: head.update, root: head.root, conflicted: head.conflicted, cursor: head.update };
   }
 
   private current(descriptor: CurrentTree): Current {
     if (descriptor.tree.id !== this.tree || !descriptor.tree.update) throw new UpdateValidationError("The host described another tree");
-    return { update: descriptor.tree.update, root: descriptor.tree.root, conflicted: descriptor.tree.conflicted, cursor: descriptor.observedThrough };
+    return { update: descriptor.tree.update, root: descriptor.tree.root, conflicted: descriptor.tree.conflicted, cursor: descriptor.tree.update };
   }
 
   /** Install an accepted decision for the persisted attempt, settle the changes it carried, and report the installed state. */

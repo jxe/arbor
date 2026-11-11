@@ -54,9 +54,9 @@ import { decodePathReadBundle, decodeTimedPathReadBundle, encodePathReadPath } f
 /** Three missed keepalives. */
 const WATCH_IDLE_TIMEOUT_MS = 60_000;
 
+/** The current tree; its `update` is also where a watch resumes. */
 export interface CurrentTree {
   tree: RemoteTreeDescriptor;
-  observedThrough: EventCursor;
 }
 
 export class ProtocolUpdateConflict extends Error {
@@ -455,9 +455,9 @@ export class ProtocolClient {
   /** The tree resource itself: its current descriptor and the cursor to watch after. */
   async descriptor(tree: string): Promise<CurrentTree> {
     const response = await this.checked(await this.request(`/.overstory/trees/${encodeURIComponent(tree)}`, { headers: this.headers() }));
-    const value = await response.json() as { tree: RemoteTreeDescriptor; observedThrough: EventCursor };
-    if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update || typeof value.tree.conflicted !== "boolean" || typeof value.observedThrough !== "string" || !value.observedThrough) throw new Error("Tree descriptor does not match its tree");
-    return { tree: value.tree, observedThrough: value.observedThrough };
+    const value = await response.json() as { tree: RemoteTreeDescriptor };
+    if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update || typeof value.tree.conflicted !== "boolean") throw new Error("Tree descriptor does not match its tree");
+    return { tree: value.tree };
   }
 
   async conflicts(tree: string, state: string, root: string, options: { after?: string; conflict?: string } = {}): Promise<DecisionPage> {

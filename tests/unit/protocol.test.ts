@@ -220,7 +220,7 @@ describe("REST v1 protocol fixtures", () => {
       }>;
     }>("protocol-endpoints.json");
     const wireErrors = await conformanceJSON<OverstoryError[]>("errors.json");
-    expect(decodeUpdateConflictJSON(wireErrors.find((value) => value.error === "conflict")).details.current.id).toBe("up_current");
+    expect(decodeUpdateConflictJSON(wireErrors.find((value) => value.error === "conflict")).details.head.update).toBe("up_current");
     const merges = JSON.parse(await readFile(join(overstorydFixtures, "merge.json"), "utf8")) as {
       version: number;
       markdownCases: Array<{ name: string }>;
@@ -257,7 +257,7 @@ describe("REST v1 protocol fixtures", () => {
     for (const name of ["read-ref", "link-read"]) {
       const snapshot = validateTreeDescriptor(byName.get(name)!.response.body!.tree) as RemoteTreeDescriptor;
       expect(snapshot.canonical).toEqual(tree.canonical);
-      expect(byName.get(name)!.response.body!.observedThrough).toBe(snapshot.update);
+      expect(byName.get(name)!.response.body).not.toHaveProperty("observedThrough");
     }
     const snapshotCase = byName.get("read-accepted-snapshot")!;
     const snapshotBody = new Uint8Array(Buffer.from(snapshotCase.response.bodyBase64!, "base64"));

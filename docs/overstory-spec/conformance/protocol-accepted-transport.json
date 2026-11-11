@@ -262,8 +262,7 @@
         "head": {
           "update": "opaque-final",
           "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-          "conflicted": true,
-          "observedThrough": "cursor-independent-of-accepted-ids"
+          "conflicted": true
         }
       },
       "valid": true
@@ -299,8 +298,7 @@
         "head": {
           "update": "opaque-final",
           "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-          "conflicted": true,
-          "observedThrough": "cursor-independent-of-accepted-ids"
+          "conflicted": true
         }
       },
       "valid": true
@@ -336,8 +334,7 @@
         "head": {
           "update": "opaque-final",
           "root": "not-a-hash",
-          "conflicted": true,
-          "observedThrough": "cursor-independent-of-accepted-ids"
+          "conflicted": true
         }
       },
       "valid": false
@@ -420,8 +417,7 @@
         "head": {
           "update": "opaque-final",
           "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-          "conflicted": true,
-          "observedThrough": "cursor-independent-of-accepted-ids"
+          "conflicted": true
         }
       },
       "valid": true
@@ -924,8 +920,7 @@
         "head": {
           "update": "opaque-final",
           "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-          "conflicted": true,
-          "observedThrough": "cursor-independent-of-accepted-ids"
+          "conflicted": true
         }
       },
       "valid": false
@@ -956,8 +951,7 @@
         "head": {
           "update": "opaque-final",
           "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-          "conflicted": true,
-          "observedThrough": "cursor-independent-of-accepted-ids"
+          "conflicted": true
         }
       },
       "valid": false
@@ -993,8 +987,7 @@
         "head": {
           "update": "opaque-final",
           "root": "sha256:b6d3db947270c2da7867ba31e25b322afecaae921d3c3fc3e69262cc0aab0b00",
-          "conflicted": true,
-          "observedThrough": "cursor-independent-of-accepted-ids"
+          "conflicted": true
         }
       },
       "valid": false

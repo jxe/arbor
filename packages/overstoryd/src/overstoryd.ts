@@ -2436,7 +2436,7 @@ export class HostDaemon implements AsyncDisposable {
   ): { status: number; result: UpdateConflictResult } {
     return {
       status: 409,
-      result: { error: "conflict", message, retryable: false, tree: treeID, details: { kind, completed: [], failedIndex: 0, current, conflicts } },
+      result: { error: "conflict", message, retryable: false, tree: treeID, details: { kind, completed: [], failedIndex: 0, head: { update: current.id, root: current.root as ObjectHash, conflicted: current.conflicted }, conflicts } },
     };
   }
 

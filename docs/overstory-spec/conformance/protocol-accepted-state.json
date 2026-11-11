@@ -515,8 +515,7 @@
         "head": {
           "update": "state-next",
           "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-          "conflicted": true,
-          "observedThrough": "batch-cursor-900"
+          "conflicted": true
         }
       },
       "valid": true
@@ -543,8 +542,7 @@
         "head": {
           "update": "state-initial",
           "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-          "conflicted": false,
-          "observedThrough": "batch-cursor-900"
+          "conflicted": false
         }
       },
       "valid": true
@@ -653,8 +651,7 @@
         "head": {
           "update": "state-next",
           "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-          "conflicted": true,
-          "observedThrough": "batch-cursor-900"
+          "conflicted": true
         }
       },
       "valid": false
@@ -697,8 +694,7 @@
         "head": {
           "update": "state-next",
           "root": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-          "conflicted": true,
-          "observedThrough": "batch-cursor-900"
+          "conflicted": true
         }
       },
       "valid": false

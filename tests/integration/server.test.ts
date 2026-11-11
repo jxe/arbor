@@ -390,7 +390,7 @@ describe("story-sync standard reads", () => {
     expect(current.tree).toMatchObject({ id: tree, root: descriptor.root!, update: descriptor.update!, access: "write", conflicted: false });
     expect(current.tree.canonical?.endpoint).toBe(new URL(overstoryd.url).origin);
     // The cursor seeds a watch on the host itself.
-    expect(typeof current.observedThrough).toBe("string");
+    expect(typeof current.tree.update).toBe("string");
   });
 
   test("serves the snapshot, path reads and objects of a placed tree, all verified", async () => {
@@ -437,7 +437,7 @@ describe("story-sync standard reads", () => {
 
   test("passes the host's watch through, with or without objects", async () => {
     const reads = await loopbackReads(placedBase);
-    const { observedThrough } = await reads.descriptor(tree);
+    const observedThrough = (await reads.descriptor(tree)).tree.update;
     const abort = new AbortController();
     let opened = false;
     const events = reads.watch(tree, observedThrough, { signal: abort.signal, objects: "none", onOpen: () => { opened = true; } });

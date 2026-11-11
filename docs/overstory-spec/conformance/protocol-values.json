@@ -89,9 +89,7 @@
           "endpoint": "https://community.example/.overstory/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
           "parentTree": null
         }
-      },
-      "historical": false,
-      "observedThrough": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
     }
   },
   "invalid": [
@@ -133,9 +131,7 @@
       "value": {
         "ref": {
           "path": "/notes"
-        },
-        "historical": false,
-        "observedThrough": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
       }
     }
   ]

@@ -198,7 +198,6 @@ export class StorySyncDaemon implements AsyncDisposable {
         conflicted: placement.conflicted === true,
         canonical: descriptor.canonical ?? null,
       },
-      observedThrough: placement.cursor,
     };
   }
 
@@ -345,7 +344,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       const scope = await this.files.resolveScope(absolute);
       if (!scope) throw new ProtocolError("not-found", `Path is not inside a placed tree: ${absolute}`, 404, { path: absolute });
       const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === scope.workspace.tree);
-      return { ref: scope.ref, ...(enclosingTree ? { enclosingTree } : {}), historical: false, observedThrough: this.events.currentCursor() };
+      return { ref: scope.ref, ...(enclosingTree ? { enclosingTree } : {}) };
     }
     if (/;overstory-config$/.test(locator)) return this.resolveConfigurationLocator(locator);
     const parsed = new URL(locator);
@@ -355,7 +354,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       if (!tree) throw new ProtocolError("invalid-request", "Raw tree locator requires a TreeID", 400);
       const descriptor = (await this.trees.descriptors()).find((candidate) => candidate.id === tree);
       if (!descriptor) throw new ProtocolError("not-found", `Unknown tree scope: ${tree}`, 404);
-      return { ref: { tree, path: canonicalNodePath(decodeRequestPath(`/${segments.join("/")}`)), stableKey: null }, enclosingTree: descriptor, historical: false, observedThrough: this.events.currentCursor() };
+      return { ref: { tree, path: canonicalNodePath(decodeRequestPath(`/${segments.join("/")}`)), stableKey: null }, enclosingTree: descriptor };
     }
     const origin = overstoryScheme
       ? `${parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "http" : "https"}://${parsed.host}`
@@ -384,7 +383,7 @@ export class StorySyncDaemon implements AsyncDisposable {
       const configuration = treeConfigurationID(governed);
       const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === configuration);
       if (!enclosingTree) throw new ProtocolError("not-found", `This device holds no configuration for ${governed}`, 404);
-      return { ref: { tree: configuration, path: "/", stableKey: null }, enclosingTree, historical: false, observedThrough: this.events.currentCursor() };
+      return { ref: { tree: configuration, path: "/", stableKey: null }, enclosingTree };
     }
     if (!("dns" in resolved.authority)) throw new ProtocolError("invalid-request", `Invalid configuration locator: ${locator}`, 400);
     const host = resolved.authority.dns;

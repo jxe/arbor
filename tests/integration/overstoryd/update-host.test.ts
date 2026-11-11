@@ -178,7 +178,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       });
       expect(response.results.map(({ outcome }) => outcome)).toEqual(["accepted", "accepted"]);
       expect(response.results[1]!.update.previous?.root).toBe(response.results[0]!.update.root);
-      expect(response.head.observedThrough).toBe(response.results[1]!.update.id);
+      expect(response.head.update).toBe(response.results[1]!.update.id);
       expect(response.head.update).toBe(response.results[1]!.update.id);
       expect(running.overstoryd.acceptedUpdates(baseline.current.tree.id)).toHaveLength(before + 2);
 
@@ -329,7 +329,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect((await client.object(account.account.configuration.id, otherTree)).byteLength).toBeGreaterThan(0);
       const unknown = `sha256:${sha256(new TextEncoder().encode(`never stored ${crypto.randomUUID()}`))}`;
       await expect(client.object(account.account.configuration.id, unknown)).rejects.toThrow("not-found");
-      expect((await client.descriptor(account.account.configuration.id)).observedThrough).toBeTruthy();
+      expect((await client.descriptor(account.account.configuration.id)).tree.update).toBeTruthy();
     });
 
     test("serves deterministic current and historical snapshots and retained-root objects", async () => {
@@ -362,7 +362,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect((await client.snapshot(treeID, baseline.snapshot.root)).objects).toEqual(baseline.snapshot.objects);
 
       const frames = await readWatchFrames(
-        `${running.url}/.overstory/trees/${treeID}/watch?after=${baseline.current.observedThrough}`,
+        `${running.url}/.overstory/trees/${treeID}/watch?after=${baseline.current.tree.update}`,
         1,
       );
       expect(frames[0]!.data.update.id).toBe(advanced.update.id);
@@ -460,7 +460,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const batchCursor = second.update.id;
       const abort = new AbortController();
       const response = await fetch(
-        `${running.url}/.overstory/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
+        `${running.url}/.overstory/trees/${baseline.current.tree.id}/watch?after=${baseline.current.tree.update}`,
         { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}` }, signal: abort.signal },
       );
       expect(response.status).toBe(200);
@@ -490,7 +490,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       expect(event.from).toEqual({id: baseline.current.tree.update, root: baseline.current.tree.root});
       expect(event.update.previous).toEqual({id: first.update.id, root: first.update.root});
       const replayAbort = new AbortController();
-      for await (const decoded of client.watch(baseline.current.tree.id, baseline.current.observedThrough, { signal: replayAbort.signal })) {
+      for await (const decoded of client.watch(baseline.current.tree.id, baseline.current.tree.update, { signal: replayAbort.signal })) {
         if (decoded.kind !== "tree.update") throw new Error("Expected accepted transition replay");
         expect(decoded.cursor).toBe(batchCursor);
         expect(decoded.transition.update).toMatchObject({ id: second.update.id, root: second.update.root });
@@ -672,7 +672,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const latestBeforeExact = await client.descriptor(treeID);
       const rejected = await client.submitUpdate(treeID, mergeBase.tree.update, exact, { ifCurrent: mergeBase.tree.update }).catch((error) => error);
       expect(rejected).toBeInstanceOf(ProtocolUpdateConflict);
-      expect((rejected as ProtocolUpdateConflict).result.details.current.id).toBe(latestBeforeExact.tree.update);
+      expect((rejected as ProtocolUpdateConflict).result.details.head.update).toBe(latestBeforeExact.tree.update);
       expect((rejected as ProtocolUpdateConflict).result.details.conflicts).toEqual([{ path: "/", reason: "node-conflict" }]);
       // Resubmitted against the current update it is a plain acceptance.
       const latest = await client.descriptor(treeID);
@@ -709,7 +709,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       if (third.outcome !== "accepted") throw new Error("Expected an accepted update");
 
       const frames = await readWatchFrames(
-        `${running.url}/.overstory/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
+        `${running.url}/.overstory/trees/${baseline.current.tree.id}/watch?after=${baseline.current.tree.update}`,
         1,
       );
       expect(frames.map((frame) => frame.event)).toEqual(["tree.update"]);
@@ -731,7 +731,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const peerConfiguration = await peer.descriptor(peerAccount.account.configuration.id);
       expect((await peer.snapshot(peerConfiguration.tree.id, peerConfiguration.tree.root)).root).toBe(peerConfiguration.tree.root);
       const peerWatchPromise = fetch(
-        `${running.url}/.overstory/trees/${peerConfiguration.tree.id}/watch?after=${peerConfiguration.observedThrough}`,
+        `${running.url}/.overstory/trees/${peerConfiguration.tree.id}/watch?after=${peerConfiguration.tree.update}`,
         { headers: { authorization: `Bearer ${peerCredential}` } },
       );
       await Bun.sleep(25);
@@ -781,7 +781,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       const baseline = await currentConfig();
       const abort = new AbortController();
       const response = await fetch(
-        `${running.url}/.overstory/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
+        `${running.url}/.overstory/trees/${baseline.current.tree.id}/watch?after=${baseline.current.tree.update}`,
         { headers: { authorization: `Bearer ${await deviceSession(running.url, token)}`, "last-event-id": "not-a-cursor" }, signal: abort.signal },
       );
       expect(response.status).toBe(200);
@@ -810,7 +810,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         return page;
       };
       try {
-        const frames=await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.observedThrough}`,1);
+        const frames=await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.tree.update}`,1);
         expect(frames.map(frame=>frame.data.update.id)).toEqual([ids.at(-1)!]);
         expect(frames[0]!.data.from?.id).toBe(baseline.current.tree.update);
         expect(sizes.every(size=>size<=64)).toBe(true);
@@ -830,7 +830,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       }
       const abort = new AbortController();
       try {
-        const iterator = client.watch(tree, baseline.current.observedThrough, {signal: abort.signal});
+        const iterator = client.watch(tree, baseline.current.tree.update, {signal: abort.signal});
         const event = (await iterator.next()).value!;
         if (event.kind !== "tree.update") throw new Error("Expected net update");
         const transition = event.transition;
@@ -839,7 +839,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         const result = applyTransitionPayload(baseline.snapshot.objects, transition);
         expect(result.get(current.snapshot.root)).toEqual(current.snapshot.objects.get(current.snapshot.root));
         for (const [hash, bytes] of current.snapshot.objects) expect(result.get(hash)).toEqual(bytes);
-        expect(event.cursor).toBe(current.current.observedThrough);
+        expect(event.cursor).toBe(current.current.tree.update);
         expect(transition.requestDigest).toBeDefined();
       } finally { abort.abort(); }
     });
@@ -856,7 +856,7 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
         return net;
       };
       try {
-        const frames = await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.observedThrough}`,2);
+        const frames = await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.tree.update}`,2);
         const first = decodeAcceptedTransitionJSON(frames[0]!.data);
         const second = decodeAcceptedTransitionJSON(frames[1]!.data);
         expect(first.from?.id).toBe(baseline.current.tree.update);
@@ -874,12 +874,12 @@ for (const encoding of ["cbor", "json"] as const) describe(`update host over ${e
       let loaded=0;
       running.overstoryd.acceptedTransition=(...args)=>{loaded++;return original(...args);};
       try {
-        const [frame]=await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.observedThrough}`,1);
+        const [frame]=await readWatchFrames(`${running.url}/.overstory/trees/${tree}/watch?after=${baseline.current.tree.update}`,1);
         expect(frame!.event).toBe("tree.update");
         expect(frame!.data.update.previous!.id).not.toBe(baseline.current.tree.update);
         expect(loaded).toBe(0);
         const current=await client.descriptor(tree);
-        expect(frame!.id).toBe(current.observedThrough);
+        expect(frame!.id).toBe(current.tree.update);
         expect((await client.snapshot(tree,current.tree.root)).root).toBe(root);
         expect(store.list(tree).length).toBeGreaterThanOrEqual(514);
       } finally {running.overstoryd.acceptedTransition=original;db.close();}

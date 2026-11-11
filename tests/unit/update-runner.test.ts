@@ -52,7 +52,7 @@ class VectorHost implements UpdateTransport {
     if (action === "reject") {
       const current = this.head(this.update, this.root, null);
       throw new ProtocolUpdateConflict({ error: "conflict", message: "refused", retryable: false, details: { kind: "server-update", completed: [], failedIndex: 0,
-        current, conflicts: [] } });
+        head: { update: current.id, root: current.root as never, conflicted: current.conflicted }, conflicts: [] } });
     }
     if (action === "unsupported") throw new ProtocolUnsupportedOperation({ error: "unsupported-operation" as never, message: "moveSource", retryable: false });
     const results: UpdateResult[] = [];
@@ -70,11 +70,11 @@ class VectorHost implements UpdateTransport {
       this.update = update.id;
     }
     if (action === "acceptThenFail") throw new ProtocolTransportError("response lost", undefined);
-    return { results, head: { update: this.update, root: this.root as never, conflicted: false, observedThrough: this.update } };
+    return { results, head: { update: this.update, root: this.root as never, conflicted: false } };
   }
 
   async descriptor(tree: string): Promise<CurrentTree> {
-    return { tree: { id: tree, kind: "ordinary", access: "write", canonical: null, root: this.root, update: this.update, conflicted: false } as never, observedThrough: this.update };
+    return { tree: { id: tree, kind: "ordinary", access: "write", canonical: null, root: this.root, update: this.update, conflicted: false } as never };
   }
 
   async object(_tree: string, hash: string): Promise<Uint8Array> {
@@ -251,7 +251,8 @@ for (const frozen of [false, true]) test(`branched publication ${frozen ? "recov
   const working = new MemoryWorkingTree({base: {root, update: "up_initial"}, snapshot: initial});
   const log = new ChangeLog(TREE, stateRoot), store = new FileControlStore(stateRoot);
   function edit(change: string, parent: LocalChange | undefined, path: string, source: string): LocalChange {
-    return prepareSourceChange({change, tree: TREE, basis: parent ? {kind: "authored", change: parent.change} : {kind: "accepted", root, update: "up_initial"},
+    // One time for every record: the test publishes the group itself, unrestamped.
+    return prepareSourceChange({at: TEST_TIME, change, tree: TREE, basis: parent ? {kind: "authored", change: parent.change} : {kind: "accepted", root, update: "up_initial"},
       graph: parent ? decodeTreeSnapshotJSON(parent.candidate) : initial, sourcePath: path,
       intent: {basis: {tree: TREE, path, revision: change, source}, edits: [{offset: 0, length: 1, replacement: source.toUpperCase()}], source: source.toUpperCase()}});
   }

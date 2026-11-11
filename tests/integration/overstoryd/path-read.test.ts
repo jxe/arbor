@@ -63,7 +63,7 @@ beforeAll(async () => {
   const current = await client.descriptor(community);
   expect(current.tree.root as string).toBe(root);
   update = current.tree.update;
-  observedThrough = current.observedThrough;
+  observedThrough = current.tree.update;
 });
 
 afterAll(async () => {
@@ -160,7 +160,7 @@ describe("a Browse session", () => {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-    const session = await TreeSession.open(community, counting, browseSettings(), { tree: { ...(await client.descriptor(community)).tree, root: root as never }, observedThrough });
+    const session = await TreeSession.open(community, counting, browseSettings(), { tree: { ...(await client.descriptor(community)).tree, root: root as never } });
     const objects = await session.openPage("/Trips/Paris");
     expect(new Set(objects.keys())).toEqual(new Set([root, hashes.trips!, hashes.paris!]));
     expect((await session.index.entry("/Trips/Paris.md"))?.file).toBe(hashes.paris!);

@@ -694,7 +694,7 @@ export class FolderSync implements AcceptedTree {
         }
         await this.write(current.tree.root, (hash) => load(hash as ObjectHash), null);
       }
-      await this.host.updateSyncMetadata({ ...placement, ref: current.tree.root, update: current.tree.update, cursor: current.observedThrough,
+      await this.host.updateSyncMetadata({ ...placement, ref: current.tree.root, update: current.tree.update, cursor: current.tree.update,
         conflicted: current.tree.conflicted, access: current.tree.access });
       await this.saveKnown({ root: current.tree.root, basis: { kind: "accepted", root: current.tree.root, update: current.tree.update } });
     });
@@ -724,7 +724,7 @@ export class FolderSync implements AcceptedTree {
       if (!placement?.update || `${placement.configurationTree}:${placement.endpoint}` !== key) throw moved;
       const watch = async function* (this: FolderSync): AsyncGenerator<WatchEvent> {
         const client = await this.host.client(placement);
-        const cursor = await this.coordinator.watchCursor() ?? (await client.descriptor(this.tree)).observedThrough;
+        const cursor = await this.coordinator.watchCursor() ?? (await client.descriptor(this.tree)).tree.update;
         try {
           for await (const event of client.watch(this.tree, cursor, { signal, onOpen: () => this.coordinator.setWatching(true) })) {
             // Observed inside the attempt, so a failure here reconnects like a lost stream.

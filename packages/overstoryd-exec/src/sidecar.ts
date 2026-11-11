@@ -394,7 +394,7 @@ export class ExecSidecar implements AsyncDisposable {
         const operations = trial.changes.length ? this.operations(opened, collection, trial.changes, trial.mutationNow) : [];
         if (operations?.length === 0) {
           const current = await client.descriptor(tree);
-          return { id, receipt: this.settle(tree, subject, question.mutationID, prepared.requestDigest, current.observedThrough, trial.result) };
+          return { id, receipt: this.settle(tree, subject, question.mutationID, prepared.requestDigest, current.tree.update, trial.result) };
         }
         if (!operations) return { id, refusal: { code: "internal-error", message: "The mutation's changes can't be stated as row operations", retryable: false } };
         const change = `mutation-${sha256(`${tree}\0${subject}\0${question.mutationID}\0${prepared.requestDigest}`).slice(0, 32)}`;
@@ -460,7 +460,7 @@ export class ExecSidecar implements AsyncDisposable {
   private async submit(client: ProtocolClient, tree: string, collection: ExecCollection, request: DerivableUpdateRequest, subject: string, mutationID: string): Promise<string | null> {
     for (let rebases = 0; rebases <= MUTATION_REBASES; rebases++) {
       try {
-        return (await client.submitUpdates(tree, request)).head.observedThrough;
+        return (await client.submitUpdates(tree, request)).head.update;
       } catch (error) {
         // A guard the head moved past: refused as a conflict, or as a stale execution guard.
         const stale = error instanceof ProtocolUpdateConflict || (error instanceof ProtocolHTTPError && error.status === 409);

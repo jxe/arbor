@@ -268,11 +268,10 @@ export interface BacklinkEntry {
   context: string;
 }
 
+/** Its `enclosingTree.update` is where a watch starts (locators §5). */
 export interface LocatorResolution {
   ref: NodeRef;
   enclosingTree?: TreeDescriptor;
-  historical: boolean;
-  observedThrough: EventCursor;
 }
 
 export interface SnapshotEnvelope<T> {

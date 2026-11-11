@@ -457,7 +457,7 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
       kind: details.kind as UpdateConflictResult["details"]["kind"],
       completed: completed.map(result => decodeUpdateResultJSON(result)),
       failedIndex: failedIndex as number,
-      current: decodeAcceptedUpdateJSON(details.current),
+      head: decodeUpdateHead(details.head),
       conflicts: details.conflicts as UpdateConflict[],
     },
   };
@@ -499,12 +499,10 @@ export function encodeUpdateResponseJSON<E extends WireEncoding = "json">(respon
 function decodeUpdateHead(value: unknown): UpdateHead {
   const head = value as Partial<UpdateHead> | null;
   if (!head || typeof head !== "object" || typeof head.update !== "string" || !head.update
-    || typeof head.root !== "string" || !HASH.test(head.root) || typeof head.conflicted !== "boolean"
-    || typeof head.observedThrough !== "string" || !head.observedThrough
-    || new TextEncoder().encode(head.observedThrough).length > 1024) {
+    || typeof head.root !== "string" || !HASH.test(head.root) || typeof head.conflicted !== "boolean") {
     throw new Error("Invalid update head");
   }
-  return { update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.observedThrough };
+  return { update: head.update, root: head.root, conflicted: head.conflicted };
 }
 
 export function decodeUpdateResponseJSON(value: unknown, encoding: WireEncoding = "json"): UpdateResponse {

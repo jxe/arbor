@@ -210,7 +210,7 @@ function updateResponse(overstoryd: HostDaemon, treeID: string, value: StoredUpd
   if ("error" in value) return json(encodeUpdateConflictJSON(value), status, headers);
   const tree = overstoryd.get(treeID), update = tree ? overstoryd.currentUpdate(treeID) : null;
   if (!tree || !update) throw new Error(`An accepted update left no head for ${treeID}`);
-  const head: UpdateHead = { update: update.id, root: tree.ref as ObjectHash, conflicted: update.conflicted, observedThrough: overstoryd.observedThrough(treeID) };
+  const head: UpdateHead = { update: update.id, root: tree.ref as ObjectHash, conflicted: update.conflicted };
   return wire(encodeUpdateResponseJSON({ ...value, head }, encoding), encoding, status, headers);
 }
 
@@ -793,8 +793,6 @@ export async function serveHost(options: {
           return json({
             ref: { tree: configuration.id, path: "/", stableKey: null },
             enclosingTree: descriptorWithUpdate(publicOrigin, overstoryd, configuration, level),
-            historical: false,
-            observedThrough: overstoryd.observedThrough(configuration.id),
           } satisfies LocatorResolution);
         }
         if (wellKnown !== null && request.method === "GET") {
@@ -805,15 +803,13 @@ export async function serveHost(options: {
           return json({
             ref: { tree: resolved.tree.id, path: resolved.path, stableKey: null },
             enclosingTree,
-            historical: false,
-            observedThrough: overstoryd.observedThrough(resolved.tree.id),
           } satisfies LocatorResolution);
         }
         const ref = /^\/\.overstory\/trees\/([^/]+)$/.exec(url.pathname);
         if (ref && request.method === "GET") {
           const { tree, level } = readableTree(ref[1]!);
           const current = descriptorWithUpdate(publicOrigin, overstoryd, tree, level);
-          return json({ tree: current, observedThrough: overstoryd.observedThrough(tree.id) });
+          return json({ tree: current });
         }
         const conflicts = /^\/\.overstory\/trees\/([^/]+)\/conflicts$/.exec(url.pathname);
         if (conflicts && request.method === "GET") {

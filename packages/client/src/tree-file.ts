@@ -103,7 +103,7 @@ export async function editTreeFile(
       return { changed: true, update: result.update.id };
     } catch (error) {
       // Another update was accepted since the read: read it and try again.
-      if (error instanceof ProtocolUpdateConflict && error.result.details.current?.id !== head.update && attempt < RETRIES) continue;
+      if (error instanceof ProtocolUpdateConflict && error.result.details.head.update !== head.update && attempt < RETRIES) continue;
       throw error;
     }
   }

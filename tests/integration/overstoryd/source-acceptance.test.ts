@@ -319,7 +319,7 @@ test("guard failure preserves a completed prefix and exact retries do not duplic
       const conflict = (error as ProtocolUpdateConflict).result;
       expect(conflict.details.completed).toHaveLength(1);
       expect(conflict.details.failedIndex).toBe(1);
-      expect(conflict.details.current.root).toBe(first.candidate);
+      expect(conflict.details.head.root).toBe(first.candidate);
     }
     expect(records()).toHaveLength(1);
   }
@@ -640,7 +640,7 @@ test("the TS runner publishes a stale local change after restart, continues it, 
   const { ChangeLog, FileControlStore } = await import("@ovst/working-tree/node");
   const stateRoot = `${dir}/ts-client`;
   const r1 = await client.descriptor(tree);
-  const working = new MemoryWorkingTree({ base: { root: r1.tree.root, update: r1.tree.update, cursor: r1.observedThrough },
+  const working = new MemoryWorkingTree({ base: { root: r1.tree.root, update: r1.tree.update, cursor: r1.tree.update },
     snapshot: await client.snapshot(tree, r1.tree.root) });
   const log = new ChangeLog(tree, stateRoot);
   const open = () => new UpdateCoordinator(tree, log, new FileControlStore(stateRoot), client, working,
@@ -682,7 +682,7 @@ test("queued edits made at different times publish as one update under the last 
   const { ChangeLog, FileControlStore } = await import("@ovst/working-tree/node");
   const stateRoot = `${dir}/ts-batch`;
   const r1 = await client.descriptor(tree);
-  const working = new MemoryWorkingTree({ base: { root: r1.tree.root, update: r1.tree.update, cursor: r1.observedThrough },
+  const working = new MemoryWorkingTree({ base: { root: r1.tree.root, update: r1.tree.update, cursor: r1.tree.update },
     snapshot: await client.snapshot(tree, r1.tree.root) });
   const log = new ChangeLog(tree, stateRoot);
   const coordinator = new UpdateCoordinator(tree, log, new FileControlStore(stateRoot), client, working,

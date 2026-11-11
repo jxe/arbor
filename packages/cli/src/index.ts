@@ -1782,7 +1782,6 @@ async function statusCommand(args: string[]): Promise<void> {
     selection = {
       input: options.locator,
       ref: resolved.ref,
-      historical: resolved.historical,
       ...(tree ? { tree, condition: tree.condition } : { condition: CANONICAL_INPUT.test(options.locator) ? "not-placed" : "not-applicable" }),
     };
   }
