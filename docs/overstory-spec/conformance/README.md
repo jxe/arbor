@@ -154,7 +154,7 @@ authority for the implemented subset; the request grammar itself is in
 | `source-moves.json` | Moves beside edits in basis coordinates, their refusals, and their frames |
 | `tree-configuration.json` | Tree configuration derivation, graph, validation, invariants and merge |
 | `url-resolution.json` | Locator resolution (spec 03) |
-| `view-language.json` | Views and mutations, still in the older `.view` syntax until regenerated in [VAD](../1.5-vad.md): a tree of `.view` files, pages and a schema, and for each source its diagnostics (line, column, code), its views' plans and its mutations' write sets |
+| `vad.json` | [VAD](../1.5-vad.md) views, rules, state tables and mutations: a tree of `.vad` files, pages and a `schema.vad`, and for each file its diagnostics (line, column, code), its views' plans and its mutations' writes, `let` names and public errors |
 | `protocol-accepted-state.json`, `protocol-accepted-transport.json` | Accepted states, receipts, inspection, and catch-up transport |
 | `protocol-authored-updates.json`, `protocol-authored-transport.json` | The authored request grammar, digests, and transport encodings |
 | `protocol-endpoints.json` | Route shapes |

@@ -1,5 +1,0 @@
-// Rules may not refer to themselves.
-use "../supplies/data/schema.usl"
-
-// expect: rule-recursion
-above(a, b): a == b or above(a, b)

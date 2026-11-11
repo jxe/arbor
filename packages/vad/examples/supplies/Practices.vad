@@ -1,0 +1,22 @@
+// Search and sort practices. The search text is state, so it never leaves the device:
+// the host returns every practice and the client filters them.
+use "data/schema.vad"
+use "parts/cards.vad"
+
+view():
+  state q = ""
+  keep sortBy = "name"
+
+  <Shell title="Practices">
+    <Row slot="actions">
+      <TextField value={q} placeholder="Search" />
+      <Button action={set(sortBy, "name")} selected={sortBy == "name"}>A–Z</Button>
+      <Button action={set(sortBy, "authors")} selected={sortBy == "authors"}>Most authors</Button>
+    </Row>
+    <Grid columns={3}>
+      <PracticeCard p={p}
+        for={p in Practice} where={q == "" or q in p.name}
+        orderBy={sortBy == "name" ? p.name : count(p.authors) desc}
+        fallback={<Text style="secondary">No practices match “{q}”.</Text>} />
+    </Grid>
+  </Shell>

@@ -1,0 +1,22 @@
+// A widget with its own tables, declared beside the view that uses them.
+
+my table Lap:  // one viewer's rows, across the whole app
+  at    Date
+  label Text
+
+mutation lap(label Text):
+  Lap(at: now, label: label)
+
+view(minutes Int?):  // configuration is the view block's attributes
+  state running = false  // state x = v is a one-row session table
+  state elapsed = 0
+  every 1s → set(elapsed, running ? elapsed + 1 : elapsed)
+
+  <Column>
+    <Text style="heading">{elapsed} s of {(minutes ?? 25) * 60}</Text>
+    <Row>
+      <Button action={set(running, not running)}>{running ? "Stop" : "Start"}</Button>
+      <Button action={lap(label: "Lap " + (count(Lap) + 1))}>Lap</Button>
+    </Row>
+    <Text for={l in Lap} orderBy={l.at desc}>{l.label}</Text>
+  </Column>

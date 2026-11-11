@@ -1,5 +1,0 @@
-// Used by uses.view, to make Avatar ambiguous there.
-use "../supplies/data/schema.usl"
-
-view Avatar(person: Person):
-  <Text>{person.name}</Text>

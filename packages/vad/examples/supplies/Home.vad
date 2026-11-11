@@ -1,0 +1,14 @@
+// Supplies' home page: the most liked public lists.
+use "data/schema.vad"
+use "parts/cards.vad"
+
+view():
+  <Shell title="Meaning Supplies" subtitle="a directory of social practices">
+    <Section title="Popular lists">
+      <Grid columns={2}>
+        <ListCard list={l}
+          for={l in List} where={l.visibility == Public}
+          orderBy={count(l.reactions) desc} limit={12} />
+      </Grid>
+    </Section>
+  </Shell>

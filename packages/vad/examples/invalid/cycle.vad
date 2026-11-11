@@ -1,0 +1,2 @@
+// expect: use-cycle
+use "uses.vad"

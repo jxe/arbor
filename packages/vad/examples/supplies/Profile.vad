@@ -1,0 +1,47 @@
+// A person's page. There are no per-table read rules: what a view may read is what its
+// caller may read.
+use "data/schema.vad"
+use "parts/cards.vad"
+
+rule curatedBy(l List, person Person):
+  l.owner == person
+rule curatedBy(l List, person Person):
+  person in l.contributors.person
+
+view(id):
+  <Shell title={person.name} subtitle="@{person.handle}"
+    for={person in Person} where={person.id == id}
+    fallback={<Shell title="Profile not found" />}>
+
+    <Section title="Practices">
+      <Grid columns={3}>
+        <PracticeCard p={p} for={p in Practice} where={person in p.authors} orderBy={p.name} />
+      </Grid>
+    </Section>
+
+    <Section title="Lists featuring their practices">
+      <Grid columns={2}>
+        <ListCard list={l} for={l in List} where={person in l.items.practice.authors} />
+      </Grid>
+    </Section>
+
+    <Section title="Lists they curate">
+      <Grid columns={2}>
+        <ListCard list={l} for={l in List} where={curatedBy(l, person)} orderBy={l.name} />
+      </Grid>
+    </Section>
+
+    <Section title="Collaborators">
+      <Row>
+        <Avatar person={other}
+          for={p in Practice, other in p.authors} where={person in p.authors, other != person}
+          orderBy={other.name} />
+      </Row>
+    </Section>
+
+    <Section title="Who wrote what with them">
+      <Text for={p in Practice, other in p.authors} where={person in p.authors, other != person}>
+        {other.name} on {p.name}
+      </Text>
+    </Section>
+  </Shell>

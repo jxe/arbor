@@ -21,7 +21,7 @@
         "@ovst/story-web": "workspace:*",
         "@ovst/tree-merge": "workspace:*",
         "@ovst/usl": "workspace:*",
-        "@ovst/uvl": "workspace:*",
+        "@ovst/vad": "workspace:*",
         "@ovst/working-tree": "workspace:*",
       },
       "devDependencies": {
@@ -215,11 +215,11 @@
         "csv-parse": "6.1.0",
       },
     },
-    "packages/uvl": {
-      "name": "@ovst/uvl",
+    "packages/vad": {
+      "name": "@ovst/vad",
       "version": "0.1.0",
       "bin": {
-        "uvl": "./src/cli.ts",
+        "vad": "./src/cli.ts",
       },
       "dependencies": {
         "@ovst/usl": "workspace:*",
@@ -397,7 +397,7 @@
 
     "@ovst/usl": ["@ovst/usl@workspace:packages/usl"],
 
-    "@ovst/uvl": ["@ovst/uvl@workspace:packages/uvl"],
+    "@ovst/vad": ["@ovst/vad@workspace:packages/vad"],
 
     "@ovst/working-tree": ["@ovst/working-tree@workspace:packages/working-tree"],
 

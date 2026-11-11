@@ -1,0 +1,6 @@
+// Rules may not refer to themselves.
+use "../supplies/data/schema.vad"
+
+// expect: rule-recursion
+rule above(a, b):
+  a == b or above(a, b)

@@ -1,0 +1,35 @@
+// Drawing views, limits, conditions and state.
+use "../supplies/data/schema.vad"
+use "../supplies/parts/cards.vad"
+
+view():
+  state q = ""
+
+  <Column>
+    // expect: missing-attribute
+    <PracticeCard />
+    // expect: unknown-attribute
+    <Avatar person={me} size={3} />
+    // expect: type-mismatch
+    <PracticeCard p={l} for={l in List} />
+    // expect: limit-reads-state
+    <PracticeCard p={p}
+      for={p in Practice} where={q in p.name}
+      limit={10} />
+    // expect: not-a-condition
+    <Text for={p in Practice} where={p.name}>{p.name}</Text>
+    // expect: not-a-collection
+    <Text for={l in List} where={me in l.owner}>{l.name}</Text>
+    // expect: set-comparison
+    <Text for={p in Practice} where={p.authors == me}>{p.name}</Text>
+    // expect: where-without-for
+    <Text where={q == ""}>Type to search</Text>
+    // expect: if-with-for
+    <Text for={l in List} if={q == ""}>{l.name}</Text>
+    // expect: group-without-for
+    <Rows group={q} />
+    // expect: set-target
+    <Button action={set(p, 1)}>Go</Button>
+    // expect: fallback-element
+    <Text fallback="none">x</Text>
+  </Column>

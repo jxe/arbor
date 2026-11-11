@@ -1,0 +1,34 @@
+// Mutations that write what they can't.
+use "../supplies/data/schema.vad"
+
+mutation bad(l List, p Practice):
+  // expect: implicit-field
+  l.modified = now
+  // expect: missing-field
+  Tag(list: l)
+  // expect: fact-key
+  Contribution(list: l, last: today)
+  // expect: type-mismatch
+  l.items = [l]
+  // expect: not-writable
+  Visibility(name: "Hidden")
+  // expect: fact-argument
+  Practice("walking")
+  // expect: unknown-table
+  Nothing(a: 1)
+  // expect: conflicting-writes
+  l.name = "b"
+  l.name = "c"
+  // expect: error-outside-if
+  forbidden "never"
+
+mutation guarded(l List):
+  if me == null:
+    // expect: error-not-alone
+    unauthorized "Sign in"
+    l.name = "x"
+
+// expect: row-action
+mutation edit(name Text) for List.edit:
+  if me == null:
+    unauthorized
