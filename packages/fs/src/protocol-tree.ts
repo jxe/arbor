@@ -1,5 +1,5 @@
 import type { BigIntStats } from "node:fs";
-import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rm, stat, utimes } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { CollectionReference } from "@ovst/protocol";
 import {
@@ -318,7 +318,9 @@ export async function materializeTree(
     const candidate = resolve(path);
     return exclusions.some((excluded) => candidate === excluded || candidate.startsWith(`${excluded}${sep}`));
   };
-  const visit = async (path: string, hash: ObjectHash, kind: "file" | "page" | "directory"): Promise<void> => {
+  /** `modified` is a written file or page entry's time (data model §6), which
+   * becomes the file's modification time, so a scan reads the date back. */
+  const visit = async (path: string, hash: ObjectHash, kind: "file" | "page" | "directory", modified?: number): Promise<void> => {
     if (isExcluded(path)) return;
     const bytes = await load(hash);
     if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
@@ -334,6 +336,7 @@ export async function materializeTree(
       if (existing?.equals(Buffer.from(content))) return;
       if (existing && keep && await keep(toTreePath(canonicalDestination, path), existing)) return;
       await writeAtomic(path, content);
+      if (modified !== undefined) await utimes(path, new Date(), new Date(modified));
       return;
     }
     const object = decodeProtocolDirectory(bytes);
@@ -358,8 +361,8 @@ export async function materializeTree(
       const target = contained(canonicalDestination, join(path, entry.name));
       if (isExcluded(target)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);
-      else if (entry.file) await visit(target, entry.file, "file");
-      else if (entry.page) await visit(target, entry.page, "page");
+      else if (entry.file) await visit(target, entry.file, "file", entry.modified);
+      else if (entry.page) await visit(target, entry.page, "page", entry.modified);
       else if (entry.directory) await visit(target, entry.directory, "directory");
     }
   };

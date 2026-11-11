@@ -18,7 +18,7 @@ function records(value: typeof vectors.cases[number]): LocalChange[] {
   for (const [index, step] of value.steps.entries()) {
     const edits = (step.edits ?? []).map(edit => ({offset: edit.range[0], length: edit.range[1] - edit.range[0], replacement: edit.replacement}));
     expect(applySourceChange(source, edits, step.moves)).toBe(step.source);
-    const record = prepareSourceChange({change: `c${index}`, tree: "tr_publication", graph, sourcePath: "/note.md",
+    const record = prepareSourceChange({at: new Date(0).toISOString(), change: `c${index}`, tree: "tr_publication", graph, sourcePath: "/note.md",
       basis: index ? {kind: "authored", change: `c${index-1}`} : {kind: "accepted", root: graph.root, update: "up_initial"},
       intent: {basis: {tree: "tr_publication", path: "/note", revision: `r${index}`, source}, edits, moves: step.moves, source: step.source}});
     result.push(record); graph = decodeTreeSnapshotJSON(record.candidate); source = step.source;
@@ -138,7 +138,7 @@ test("branches inside frozen batches commute only across disjoint source footpri
   const initial = f.tree({"a.md": "A", "b.md": "B", "c.md": "C"});
   const graph = {root: initial, objects: new Map(f.objects)};
   function edit(change: string, parent: LocalChange | undefined, path: string, source: string, next: string): LocalChange {
-    return prepareSourceChange({change, tree: "tr_publication", graph: parent ? decodeTreeSnapshotJSON(parent.candidate) : graph,
+    return prepareSourceChange({at: new Date(0).toISOString(), change, tree: "tr_publication", graph: parent ? decodeTreeSnapshotJSON(parent.candidate) : graph,
       basis: parent ? {kind: "authored", change: parent.change} : {kind: "accepted", root: initial, update: "up_initial"}, sourcePath: path,
       intent: {basis: {tree: "tr_publication", path, revision: change, source}, edits: [{offset: 0, length: source.length, replacement: next}], source: next}});
   }
@@ -268,7 +268,7 @@ test("typing in a page's body composes over the body", async () => {
   const local: LocalChange[] = [];
   for (const [i, c] of [..." world"].entries()) {
     const at = source.length - 1, next = source.slice(0, at) + c + source.slice(at);
-    const record = prepareSourceChange({change: `p${i}`, tree: "tr_publication", graph, sourcePath: "/note.md",
+    const record = prepareSourceChange({at: new Date(0).toISOString(), change: `p${i}`, tree: "tr_publication", graph, sourcePath: "/note.md",
       basis: i ? {kind: "authored", change: `p${i-1}`} : {kind: "accepted", root, update: "up_initial"},
       intent: {basis: {tree: "tr_publication", path: "/note", revision: `r${i}`, source}, edits: [{offset: at, length: 0, replacement: c}], source: next}});
     local.push(record); graph = decodeTreeSnapshotJSON(record.candidate); source = next;
