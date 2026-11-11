@@ -40,6 +40,7 @@ onward, which now draw `.view` widgets instead of running TSX.
 - A package for the language, beside `packages/usl`: parser, formatter, and a checker that
   resolves every model, field and path against the bound USL schemas, types parameters,
   finds each element's names, and reports source spans.
+- The checker rejects a `limit` whose conditions or ordering read state.
 - The checker produces the **plan** of each view (its `for`, `where`, paths, `orderBy`,
   `limit`, per element, nested) in the form the existing SQLite plan engine runs, and the
   write set of each mutation.
@@ -55,7 +56,9 @@ exploration check; their plans match what tracing produces today for the same pa
 - Run a mutation: resolve model parameters, check guards, compute the operations against
   the snapshot, and submit one guarded row-only update. No sidecar: overstoryd runs the
   evaluator in process, since no general-purpose code runs.
-- The views route answers `rows` and `tree` and takes `state`; `value` and `missed` go.
+- The views route answers `rows` and `tree`; `value` and `missed` go. Requests carry no
+  state: the checker splits each read into the host's plan and the conditions that read
+  state, which the client evaluates (spec §4.1.5).
   `GET` of a `.view` file renders HTML.
 
 **Verify:** `tests/integration/host-collections.test.ts` ported to `.view` sources, plus
