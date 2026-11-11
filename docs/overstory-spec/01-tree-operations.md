@@ -1180,8 +1180,9 @@ operations from its pending queue.
 
 A rejected reconciliation uses the shared `OverstoryError` envelope with
 `details.kind: "server-update" | "tree-configuration"`. Its details include
-`completed`, the ordered successful prefix results; `failedIndex`; the current
-`AcceptedUpdate`; and `conflicts`, structured reasons naming each conflicting
+`completed`, the ordered successful prefix results; `failedIndex`; `head`,
+the tree's current accepted state as an `UpdateHead`, exactly as a successful
+answer's; and `conflicts`, structured reasons naming each conflicting
 node. The client already holds the rejected candidate and its logical base, so
 the rejection does not repeat them; the candidate stays the client's draft.
 
