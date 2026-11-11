@@ -103,3 +103,28 @@ authorities unless the implementation really makes it so.
 - **Scalar values.** One language-neutral projection of booleans, nulls, bytes, wide
   integers, decimals and timestamps across rows, queries, mutations and observation, in
   TypeScript and Swift. Partly done by USL's types; check Postgres's wider types against it.
+
+## Two-way placement projections (moved from spec 06 §4, 2026-11-11)
+
+Joe moved this out of the spec because nothing builds it (the spec is normative). It is the
+design the spec had for `mode: bidirectional`; spec README Deferred item 4 points here.
+
+`mode: bidirectional` requests the later full-duplex contract
+(spec Deferred 4). It is permitted
+only when the host has activated the external store as an Overstory-managed
+materialization: the Overstory logical data tree is canonical, external Postgres
+writes are denied, accepted named mutations atomically record the resulting
+scoped model hash, accepted update, and receipt with their Postgres effects,
+and local SQLite publishes reviewed mutation intent or complete candidate
+updates. Host activation is an
+operational trust decision, not authored tree content or placement projection
+type. A host that cannot provide it rejects the placement capability rather
+than degrading to Postgres-authoritative CDC.
+
+In bidirectional mode, a local named mutation is durably queued as reviewed
+intent before provisional SQLite execution. Authority reauthorization and
+re-execution occur against current accepted state; one accepted logical update
+includes every direct, trigger, and foreign-key cascade effect. A direct local
+SQLite edit has no intent and is submitted as candidate logical state through
+tree updates; ambiguous cascades or constraint interactions conflict. Direct
+external writes to the managed authority Postgres are unsupported.

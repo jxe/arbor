@@ -458,27 +458,10 @@ After uncertainty or a missed observation, the driver conservatively rereads
 affected scopes or rebuilds from a fresh snapshot before advancing its applied
 root.
 
-`mode: bidirectional` requests the later full-duplex contract
-([deferred 4](README.md#deferred)). It is permitted
-only when the host has activated the external store as an Overstory-managed
-materialization: the Overstory logical data tree is canonical, external Postgres
-writes are denied, accepted named mutations atomically record the resulting
-scoped model hash, accepted update, and receipt with their Postgres effects,
-and local SQLite publishes reviewed mutation intent or complete candidate
-updates. Host activation is an
-operational trust decision, not authored tree content or placement projection
-type. A host that cannot provide it rejects the placement capability rather
-than degrading to Postgres-authoritative CDC.
+A two-way projection (`mode: bidirectional`) is
+[deferred](README.md#deferred) (item 4).
 
 External Postgres observation treats notifications only as commit wakeups, never as the data authority or a durable replacement for rereading state. On listener loss, overflow, unknown payload, or cursor discontinuity, the driver widens invalidation and reestablishes a fresh snapshot boundary. A connection without precise observation must conservatively invalidate and cannot claim precise live updates.
-
-In bidirectional mode, a local named mutation is durably queued as reviewed
-intent before provisional SQLite execution. Authority reauthorization and
-re-execution occur against current accepted state; one accepted logical update
-includes every direct, trigger, and foreign-key cascade effect. A direct local
-SQLite edit has no intent and is submitted as candidate logical state through
-tree updates; ambiguous cascades or constraint interactions conflict. Direct
-external writes to the managed authority Postgres are unsupported.
 
 ## 5. Data disclosure
 
