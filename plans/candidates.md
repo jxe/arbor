@@ -33,6 +33,11 @@ When one is decided, write a plan (or add it to the plan it belongs to) and dele
   model's `ends` (`packages/usl/src/layout.ts`); host row replay checks references and
   refuses a dangling one, so whoever writes the operations spells out the cascade.
 
+- **Full-text search in Beetle** (Joe, 2026-11-11): not a plugin. Support what SQLite FTS5
+  and Postgres (`tsvector`, `pg_trgm`) do: perhaps a storage attribute that indexes text
+  fields and built-ins to match and rank, run by the host for a `?q=` input and by a
+  client over local rows when the query is held in state.
+
 ## Reliability
 
 - **Explicit web-editor unload drain** (with Web 025). `beforeunload`/`pagehide` has no

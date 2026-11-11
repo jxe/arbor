@@ -11,7 +11,13 @@ box held in `state` can rank rows the client already has only if the ranking run
 **SKETCH · no timing.** Determinism must be guaranteed, not trusted, for anything a plan
 caches or a merge relies on, which may mean Wasm.
 
-## Three kinds
+Joe, 2026-11-11: value types matter most; common ones (dates, relative times, numbers,
+durations) should be Beetle built-ins, so plugins carry only the long tail. Search is not a
+plugin: when it is needed, Beetle should support what SQLite (FTS5) and Postgres
+(`tsvector`, trigram indexes) already do (see [candidates](../candidates.md)). Two-way
+relations are parked: no case yet that a stored field or a built-in doesn't cover.
+
+## Kinds, most important first
 
 ### 1. Types: values with their own operations
 
@@ -28,7 +34,7 @@ export const Duration = valueType({
 `{p.length}` shows "1h 20m", `where={p.length.minutes < 30}` filters, and a text field
 bound to it parses what people type. Dates, money, emails and slugs work the same way.
 
-### 2. Relations: usable in any direction
+### Parked: relations usable in any direction
 
 A plugin declares a relation and which arguments it can solve for (its modes). In a view
 or mutation it is a condition that binds whatever is free:
@@ -40,7 +46,7 @@ or mutation it is a condition that binds whatever is free:
 The planner treats a relation like an index with known access paths (Datalog's foreign
 predicates). A mode it lacks is a check error, not a slow scan.
 
-### 3. Derived fields and tables
+### 2. Derived fields, for what expressions can't compute
 
 ```
 table Practice:
