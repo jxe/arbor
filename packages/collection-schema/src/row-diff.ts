@@ -4,6 +4,8 @@ import {
   encodeCanonicalCBOR,
   executeRowOperations,
   pageValueJSON,
+  sameUntimed,
+  untimedEntry,
   type PageOperation,
   type PageValue,
   type PropertyOperation,
@@ -141,7 +143,12 @@ function pageEdits(path: string, object: ObjectHash, before: ProtocolPage, after
  * properties and replaying the operations reproduces `candidate` exactly
  * (spec 10 §4.1). Null otherwise: any other change stays a snapshot.
  */
-export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHash, read: Read, at: number): Promise<PropertyOperation[] | null> {
+/**
+ * …and the root they replay to on `basis` at `at`: `candidate`'s content,
+ * with the entries they change stamped `at` rather than as the scan stamped
+ * them, and the objects that root adds.
+ */
+export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHash, read: Read, at: number): Promise<{ operations: PropertyOperation[]; root: ObjectHash; generated: Map<ObjectHash, Uint8Array> } | null> {
   const operations: PropertyOperation[] = [];
   const walk = async (path: string, before: ObjectHash, after: ObjectHash): Promise<boolean> => {
     if (before === after) return true;
@@ -156,7 +163,7 @@ export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHa
     const names = new Set([...left.entries, ...right.entries].map((e) => e.name));
     for (const name of names) {
       const a = left.entries.find((e) => e.name === name), b = right.entries.find((e) => e.name === name);
-      if (stableJSONString(a ?? null) === stableJSONString(b ?? null)) continue;
+      if (stableJSONString(a ? untimedEntry(a) : null) === stableJSONString(b ? untimedEntry(b) : null)) continue;
       const child = `${path === "/" ? "" : path}/${name}`;
       if (a?.page && b?.page) {
         const edits = pageEdits(child, a.page, decodeProtocolPage(await read(a.page)), decodeProtocolPage(await read(b.page)));
@@ -173,7 +180,8 @@ export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHa
   operations.forEach((operation, index) => { operation.key = `${"page" in operation ? "page" : "row"}-${index + 1}`; });
   try {
     const replayed = await executeRowOperations(basis, operations, read, at, replayCollectionRows);
-    return replayed.root === candidate ? operations : null;
+    const load = async (hash: ObjectHash) => replayed.generated.get(hash) ?? await read(hash);
+    return await sameUntimed(replayed.root, candidate, load) ? { operations, root: replayed.root, generated: replayed.generated } : null;
   } catch {
     return null;
   }

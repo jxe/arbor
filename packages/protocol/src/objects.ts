@@ -353,6 +353,26 @@ export function restampedSubtree(hash: ObjectHash, at: number, objects: Map<Obje
   return result;
 }
 
+/** An entry without its times: what it names, for comparing content. */
+export function untimedEntry(entry: ProtocolDirectoryEntry): Omit<ProtocolDirectoryEntry, "created" | "modified"> {
+  const { created: _created, modified: _modified, ...rest } = entry;
+  return rest;
+}
+
+/** Whether two roots hold the same content, entry times aside. */
+export async function sameUntimed(left: ObjectHash, right: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<boolean> {
+  if (left === right) return true;
+  const [a, b] = [decodeProtocolDirectory(await load(left)), decodeProtocolDirectory(await load(right))];
+  if (JSON.stringify(a.collection ?? null) !== JSON.stringify(b.collection ?? null) || a.entries.length !== b.entries.length) return false;
+  for (const [index, entry] of a.entries.entries()) {
+    const other = b.entries[index]!;
+    if (entry.directory !== undefined && other.directory !== undefined) {
+      if (entry.name !== other.name || !(await sameUntimed(entry.directory, other.directory, load))) return false;
+    } else if (JSON.stringify(untimedEntry(entry)) !== JSON.stringify(untimedEntry(other))) return false;
+  }
+  return true;
+}
+
 /** An update's `at` (RFC 3339 UTC) as entry-time milliseconds. */
 export function entryTimeOf(at: string): number {
   const ms = Date.parse(at);

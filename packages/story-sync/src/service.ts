@@ -13,7 +13,7 @@ import type {
   UpdateRequestJSON,
 } from "@ovst/protocol";
 import { canonicalHTTPURL, canonicalNodePath, canonicalOverstoryLocator, canonicalURL, storyDataRoot, resolveLogicalURL, treeConfigurationID, ProtocolClient, ProtocolTransportError, protocolObjectReferences, treeHoldsPages, verifyTreeSnapshotGraph, type CurrentTree, type ObjectHash, type TreeSnapshot, type ProtocolObjectKind, type RemoteTreeDescriptor } from "@ovst/protocol";
-import { loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
+import { basisDirectories, loadIgnorePolicy, membershipSkip, resolveSnapshot, snapshotDirectory, trackedEntries, type SkipPath } from "@ovst/fs";
 import { loadLocalPlacements, replaceLocalPlacement, type LocalPlacement } from "@ovst/client";
 import { type SharedTreePlacement } from "./state/index.ts";
 import { resolveUserPath } from "@ovst/client";
@@ -667,6 +667,9 @@ export class StorySyncDaemon implements AsyncDisposable {
     const policy = await loadIgnorePolicy(workspace.root, { excludedRoots: exclusions });
     const skip = membershipSkip(policy, tracked ? trackedEntries(tracked.root, tracked.load) : null);
     const basis = tracked ?? collectionBasis;
+    // Unchanged entries keep the times the root the folder last held gave
+    // them; a new or changed file takes its mtime (data model §6).
+    const stamp = { at: Date.now(), basis: basis ? basisDirectories(basis.root, basis.load) : undefined };
     const scan = (pages: boolean) => {
       workspace.objects.setPageMode(pages);
       return snapshotDirectory(
@@ -677,6 +680,7 @@ export class StorySyncDaemon implements AsyncDisposable {
         workspace.objectIndex(),
         also ? async (path, isDirectory) => await skip(path, isDirectory) || await also(path, isDirectory) : skip,
         pages,
+        stamp,
       );
     };
     if (basis && await treeHoldsPages(basis.root, basis.load, this.pageDirectories)) return scan(true);

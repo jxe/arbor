@@ -33,16 +33,23 @@ export async function entryAt(io: TreeIO, root: string, names: readonly string[]
 
 /** Replace (or, with null, remove) the entry at `names` below `root`; null
  * when a parent directory is absent. */
+/** A file or page entry given without times takes the times of the entry it
+ * replaces, or 0 when it replaces none (a decision's alternative). */
+export type UntimedEntry = ProtocolDirectoryEntry | { name: string; file: string } | { name: string; page: string };
 export async function withEntry(
   io: TreeIO,
   root: string,
   names: readonly string[],
-  entry: ProtocolDirectoryEntry | null,
+  entry: UntimedEntry | null,
 ): Promise<string | null> {
   const value = await directory(io, root);
   const [name, ...rest] = names as [string, ...string[]];
   const prior = value.entries.find((e) => e.name === name);
-  let next: ProtocolDirectoryEntry | null = entry;
+  const timed = (given: UntimedEntry | null): ProtocolDirectoryEntry | null => {
+    if (!given || !("file" in given || "page" in given) || ("created" in given && given.created !== undefined)) return given as ProtocolDirectoryEntry | null;
+    return { ...given, created: prior?.created ?? 0, modified: prior?.modified ?? 0 } as ProtocolDirectoryEntry;
+  };
+  let next: ProtocolDirectoryEntry | null = rest.length ? null : timed(entry);
   if (rest.length) {
     if (!prior?.directory) return null;
     const child = await withEntry(io, prior.directory, rest, entry);

@@ -75,7 +75,8 @@ export class UnavailableCloudContentError extends Error {
 export interface SnapshotObjectIndex {
   fileHash(absolute: string, stat: BigIntStats): ObjectHash | undefined;
   /** A page's row names the page object its Markdown file reads as. */
-  remember(absolute: string, kind: "file" | "page" | "directory", stat: BigIntStats | undefined, hash: ObjectHash): void;
+  /** A directory comes with its bytes: its times are in no file, so they are kept here. */
+  remember(absolute: string, kind: "file" | "page" | "directory", stat: BigIntStats | undefined, hash: ObjectHash, bytes?: Uint8Array): void;
   directoryHash?(absolute: string): ObjectHash | undefined;
 }
 
@@ -137,11 +138,13 @@ export async function snapshotDirectory(
   if (!(await stat(root)).isDirectory()) throw new Error(`Tree root is not a directory: ${root}`);
   const objects = new Map<ObjectHash, ProtocolObjectSource>();
 
+  const directoryBytes = new Map<ObjectHash, Uint8Array>();
   const store = (object: ProtocolDirectory): ObjectHash => {
     const bytes = encodeProtocolDirectory(object);
     decodeProtocolDirectory(bytes);
     const hash = hashObject(bytes);
     objects.set(hash, { hash, bytes: () => Promise.resolve(bytes) });
+    directoryBytes.set(hash, bytes);
     return hash;
   };
 
@@ -253,7 +256,7 @@ export async function snapshotDirectory(
       entries: entries.sort((a, b) => compareProtocolNames(a.name, b.name)),
       ...(described ? { collection: described.collection } : {}),
     });
-    objectIndex?.remember(directory, "directory", undefined, hash);
+    objectIndex?.remember(directory, "directory", undefined, hash, directoryBytes.get(hash));
     return hash;
   };
 

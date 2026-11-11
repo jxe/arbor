@@ -32,7 +32,6 @@ export function forTrackedLookup<T>(run: () => Promise<T>): Promise<T> {
   return trackedLookups.run(true, run);
 }
 
-const EVERY_PATH_TRACKED: TrackedLookup = async () => true;
 
 export interface FilesystemObjectScope {
   boundaries: ReadonlyMap<string, string>;
@@ -65,7 +64,7 @@ export class FilesystemObjectSource implements AsyncDisposable {
   index(): SnapshotObjectIndex {
     return {
       fileHash: (path, info) => this.rows.objectRow(path, info)?.hash,
-      remember: (path, kind, info, hash) => this.rows.rememberObject(path, kind, info, hash),
+      remember: (path, kind, info, hash, bytes) => this.rows.rememberObject(path, kind, info, hash, bytes),
     };
   }
 
@@ -116,47 +115,18 @@ export class FilesystemObjectSource implements AsyncDisposable {
         this.options.report?.(objectReadError({ source: "filesystem", hash, path: row.path }, error));
         return undefined;
       });
-      // A page's object is the page its Markdown file reads as.
+      // A page's object is the page its Markdown file reads as. A directory's
+      // carries entry times no file holds, so it is the one a scan or write kept.
+      if (row.kind === "directory") {
+        const bytes = this.rows.directoryBytes(hash);
+        return bytes && hashObject(bytes) === hash ? bytes : undefined;
+      }
       const bytes = row.kind === "file" ? await read()
-        : row.kind === "page" ? await read().then((file) => { const page = file && parsePage(file); return page ? encodeProtocolPage(page) : undefined; })
-        : await this.directoryBytes(row.path, hash, scope);
+        : await read().then((file) => { const page = file && parsePage(file); return page ? encodeProtocolPage(page) : undefined; });
       if (bytes && hashObject(bytes) === hash) return bytes;
-      // Inside a tracked lookup a directory that does not rebuild from rows is not stale, only unknown here.
-      if (!bytes && row.kind === "directory" && trackedLookups.getStore()) return undefined;
       if (bytes) this.options.report?.({ source: "filesystem", reason: "hash-mismatch", hash, path: row.path });
       this.rows.forgetObject(row.path);
     }
-    return undefined;
-  }
-
-  private async directoryBytes(path: string, expected: ObjectHash, scope: FilesystemObjectScope): Promise<Uint8Array | undefined> {
-    const cached: SnapshotObjectIndex = {
-      ...this.index(),
-      directoryHash: (absolute) => {
-        const row = this.rows.storedObjectHash(absolute);
-        return row?.kind === "directory" ? row.hash : undefined;
-      },
-    };
-    // Inside a tracked lookup the tracked set is unknown: try the two
-    // encodings it can take here (no ignored path tracked, every one tracked)
-    // from the rows alone; the caller falls back to other sources.
-    const lookup = trackedLookups.getStore();
-    const attempts: Array<{ tracked: TrackedLookup | null; index: SnapshotObjectIndex }> = lookup
-      ? [{ tracked: null, index: cached }, { tracked: EVERY_PATH_TRACKED, index: cached }]
-      : await this.trackedLookup().then((tracked) => [{ tracked, index: cached }, { tracked, index: this.index() }]);
-    // Verify a shallow reconstruction first; a real walk repairs stale child rows.
-    for (const { tracked, index } of attempts) {
-      try {
-        const skip = await this.skip(path, scope.exclusions, tracked);
-        const snapshot = await snapshotDirectory(path, scope.boundaries, scope.exclusions, scope.describe, index, skip, this.pages);
-        if (snapshot.root === expected) return await snapshot.objects.get(snapshot.root)!.bytes();
-      } catch (error) {
-        this.options.report?.(objectReadError({ source: "filesystem", hash: expected, path }, error));
-        return undefined;
-      }
-    }
-    if (lookup) return undefined;
-    this.options.report?.({ source: "filesystem", reason: "hash-mismatch", hash: expected, path });
     return undefined;
   }
 
@@ -181,6 +151,7 @@ export class FilesystemObjectSource implements AsyncDisposable {
       for (const path of [...this.rows.storedObjectPaths("file"), ...this.rows.storedObjectPaths("page")]) {
         if (!audited.has(path)) this.rows.forgetObject(path);
       }
+      this.rows.pruneDirectories();
     })().catch((error) => {
       this.options.report?.(objectReadError({ source: "filesystem", path: this.root }, error));
       throw error;

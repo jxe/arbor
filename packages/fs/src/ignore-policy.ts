@@ -1,6 +1,6 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
-import { decodeProtocolDirectory, type Diagnostic, type ObjectHash, type ProtocolDirectoryEntry } from "@ovst/protocol";
+import { decodeProtocolDirectory, type Diagnostic, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "@ovst/protocol";
 
 /**
  * Filesystem membership: which local paths belong to a tree. Discovery,
@@ -435,6 +435,16 @@ export function trackedEntries(root: ObjectHash, load: (hash: ObjectHash) => Pro
   return async (treePath, isDirectory) => {
     const entry = await entryAt(treePath);
     return isDirectory ? entry?.directory !== undefined : entry?.file !== undefined;
+  };
+}
+
+/** The directory at a tree path beneath `root`, or undefined where there is
+ * none: what a folder scan stamps entry times against (data model §6). */
+export function basisDirectories(root: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): (treePath: string) => Promise<ProtocolDirectory | undefined> {
+  const entryAt = entries(root, load);
+  return async (treePath) => {
+    const entry = await entryAt(treePath);
+    return entry?.directory === undefined ? undefined : decodeProtocolDirectory(await load(entry.directory as ObjectHash));
   };
 }
 

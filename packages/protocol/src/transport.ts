@@ -584,10 +584,11 @@ export class ProtocolClient {
     tree: string,
     base: string | null,
     snapshot: TreeSnapshot,
-    options: { change?: string; deltas?: ObjectDelta[]; ifCurrent?: string; resolves?: CandidateUpdate["resolves"] } = {},
+    /** `at` must be no earlier than the times `snapshot` was stamped with; now when omitted. */
+    options: { change?: string; at?: string; deltas?: ObjectDelta[]; ifCurrent?: string; resolves?: CandidateUpdate["resolves"] } = {},
   ): Promise<UpdateResult> {
     const update: CandidateUpdate = {
-      ...activationElement(snapshot, options.change),
+      ...activationElement(snapshot, options.change, options.at),
       resolves: options.resolves ?? [],
       ...(options.ifCurrent !== undefined ? { ifCurrent: options.ifCurrent } : {}),
       deltas: options.deltas ?? [],

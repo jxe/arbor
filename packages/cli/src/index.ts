@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { HANDLE_PATH, decodeRunRequest, type RunRequest, agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient, setProtocolClientName } from "@ovst/protocol";
+import { HANDLE_PATH, decodeRunRequest, type RunRequest, agentBundleID, agentDevice, buildAgentLink, generateAgentCode, openDeviceSessionByDevice, parseAgentLink, decodeCandidateUpdateJSON, describeTransitionPayload, canonicalOverstoryLocator, canonicalHTTPURL, deviceKeyFromSeed, generateOverstoryID, generateDeviceKeySeed, openDeviceSession, resourceRuleKey, configurationCheckoutPath, editProfileConfigurationFile, HostAccountStore, HostPlacementStore, readStorySyncAccess, storyDataRoot, loadProfileConfigurations, parseAccountDevicesConfiguration, parseMountsYAML, readTreeConfigGraph, saveCurrentAccountDeviceID, snapshotTreeConfig, treeHoldsPages, directoryStamper, decodeProtocolDirectory, entryTimeOf, type AccessRule, type HostPlacementRecord, type ProfileConfigurationSnapshot, type ObjectHash, type ResourceAccessRule, type TreeConfigKind, type TreeConfigValues, ProtocolClient, setProtocolClientName } from "@ovst/protocol";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { constants as osConstants } from "node:os";
@@ -668,7 +668,9 @@ async function editRemoteTreeConfig(wire: ProtocolClient, tree: string, change: 
     try { const { sources: _sources, ...values } = readTreeConfigGraph(snapshot, kind, tree); current = values; break; } catch { /* another kind */ }
   }
   if (!current) throw new Error(`The configuration of ${tree} is not readable`);
-  await wire.submitUpdate(descriptor.id, descriptor.update, snapshotTreeConfig(change(current)), { ifCurrent: descriptor.update });
+  const at = new Date().toISOString();
+  const stamp = directoryStamper(decodeProtocolDirectory(snapshot.objects.get(snapshot.root)!), entryTimeOf(at));
+  await wire.submitUpdate(descriptor.id, descriptor.update, snapshotTreeConfig(change(current), stamp), { ifCurrent: descriptor.update, at });
 }
 
 /** A whole-tree grant as an `access.yaml` rule. */
@@ -840,7 +842,7 @@ async function placeLocal(
       await wire.declareTree(tree, snapshotTreeConfig({
         access: [{ who: { profile: config.profile }, allow: ["admin"] }, ...rules.map(resourceRule)],
         mounts: {},
-      }));
+      }, directoryStamper(undefined, Date.now())));
       await editMounts(client, selected, wire, parent, (mounts) => {
         if (mounts[name]) throw new Error(`${target.supplied} is already mounted`);
         return { ...mounts, [name]: tree! };
