@@ -53,6 +53,27 @@ Games call it entity-component-system, and Beetle already has most of it:
 Physics, game AI, pathfinding and procedural animation all fit: they are code over rows
 that a view draws.
 
+## Hit testing
+
+Two jobs, in two places (proposed to Joe 2026-11-11):
+
+- **Pointer hit testing is the renderer's.** Every shape is drawn from a row, so the client
+  knows which row is under a pointer, in 3D too. Shapes take event attributes like any
+  element, and the action gets the row and the point:
+
+  ```
+  <Circle for={b in Ball} x={b.x} y={b.y} r={8}
+    onTap={grab(b)} onDrag={drag(b, point.x, point.y)} onDrop={release(b)} />
+  <Canvas onTap={place(point.x, point.y)}>…</Canvas>
+  ```
+
+  `point` is a built-in name inside a pointer action: canvas coordinates, mapped back
+  through the shape's transforms. Drawing order decides which shape wins, and `hitArea={…}`
+  can enlarge a small target. A drag-and-drop board game needs no plugin.
+- **Collision is the plugin's.** Ball against paddle, ranges, line of sight are game logic
+  inside `step`, over the rows it is given. A pure spatial relation such as
+  `within(a, b, 20)` can live in [Apps 016](apps-016-pure-plugins.md) for views to use too.
+
 ## Open questions
 
 - **Writing `my` tables.** Joe 2026-11-11 meant session; whether a plugin may ever write a
@@ -61,8 +82,7 @@ that a view draws.
   time; no network, no other tables.
 - **Sensors and device input** (motion, microphone level): plugin-fed session tables, or
   built-in event lines like `on key`?
-- **Canvas vocabulary**: which shapes, text, images and transforms; how hit-testing turns a
-  tap on a shape into an action (`<Circle onTap={…}>`).
+- **Canvas vocabulary**: which shapes, text, images and transforms.
 - **Packaging and loading**: how `use "plugins/physics.ts"` resolves, and how Story and the
   HTML renderer sandbox it; what a client that can't run it shows.
 
