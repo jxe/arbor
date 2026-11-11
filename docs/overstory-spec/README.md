@@ -5,7 +5,7 @@
 
 ## Specification stance
 
-This is the aspirational public contract for Overstory. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](../../status.md) records what the reference implementation actually does; the [planning index](../../plans/README.md) owns remaining work, and completed plans live in git history.
+This is the aspirational public contract for Overstory. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [Current status](../../status.md) records what the reference implementation actually does; the [planning index](../../plans/README.md) owns remaining work, and completed plans live in git history. Wire forms the reference implementation has not reached yet arrive together at one flag day, Protocol 003, listed in [Protocol 001](../../plans/soon/protocol-001-spec-review-route-changes.md) and [Protocol 003](../../plans/soon/protocol-003-times-in-directory-entries.md).
 
 The specification contains only behavior that must remain portable across independently implemented Overstory components. The [reference documentation](../architecture/README.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Overstory requirements.
 
@@ -24,43 +24,39 @@ file names carry the layer: `1.2-reading-and-watching.md` is layer 1, chapter 2.
 4. **Apps.** Apps and views: views, mutations and agents, with their
    authoring API.
 
-A host conforms to layers 1 and 3; a Story-compatible client conforms to
-layers 1 to 3. Every route is listed in the [route index](#route-index). Local
+A host conforms to layers 1 and 3, and to layer 4 when it runs apps; a
+Story-compatible client conforms to layers 1 to 3. Every route is listed in the [route index](#route-index). Local
 client/daemon transport, UI controls, CLI commands, runtime algorithms, package
 topology, private-state layout, and test machinery are reference choices.
 
 ## Thesis
 
-Overstory's global logical space is conceptually a sparse table from `TreeID` to
-independently versioned trees. It is a shared identity space, not one enumerable
-database or central authority; every device and community sees only the trees it
-can locate and access. Canonical URLs form a secondary, forest-shaped lookup:
-DNS places an Overstory host, whose path boundaries select trees. Local,
-private, unpublished, and temporarily disconnected trees
-remain complete even when absent from that lookup. Each person places the
-trees they can reach wherever it makes sense on their own devices. Any folder
-may be backed by ordinary files, an Overstory tree, a database, or a safe connection
-to an existing store. Apps and agents read and change those
-placed trees through the same permissioned contracts as human clients.
+Overstory's global space is a sparse table from `TreeID` to independently
+versioned trees. It is a shared identity space, not one enumerable database or
+central authority: every device and community sees only the trees it can
+locate and read. Canonical URLs are a secondary lookup: DNS places an
+Overstory host, whose path boundaries select trees. Local, private and
+disconnected trees stay complete without it, and each person places the trees
+they can reach wherever suits them on their own devices.
 
-**Ordinary files and folders to navigate and edit; independent Overstory trees where synchronization, history, or permissions require a boundary; and ordinary authored files for turning those trees into apps and agents.**
+**Ordinary files and folders to navigate and edit; independent Overstory trees where synchronization, history, or permissions require a boundary; and ordinary authored files for turning those trees into apps.**
 
-An authored application is isomorphic across placements. Once synchronization
-has settled, the same source tree and logical data roots expose the same nodes,
-components, scripts, queries, mutations, constraints, and public results
-whether execution uses an expanded filesystem, a local projection, or an
-authority materialization. Physical bytes, indexes, query plans, and placement
-projection choices are not application semantics.
+Four ideas organize the system:
 
-Five concepts organize the system:
-
-1. The **global TreeID space** maps stable tree identities to logical trees without requiring one global store or discovery service.
-2. An **Overstory tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
-3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other [node readings](1.1-data-model.md#2-nodes-children-and-readings) are roles rather than competing kinds, while expanded files, collection files, and databases are interchangeable [representations](1.1-data-model.md#3-representations) where their represented model agrees.
-4. A **canonical URL lookup** first uses DNS to place an Overstory host, then resolves that host's longest readable registered boundary back to TreeID and path.
-5. An **app** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
-
-Ordinary unpromoted files are browsable without gaining a durable Overstory identity. Promotion creates an Overstory tree in place: its local path need not move, its canonical public name is replaceable, and `overstory://<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Overstory trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [locators §5](1.6-locators.md#5-finding-trees).
+1. An **Overstory tree** is a `TreeID`-rooted hierarchy of nodes with its own
+   history, synchronization stream and permission boundary. Trees nest by
+   mounting, each still a separate graph and access boundary.
+2. A **node** has properties, optional content, and children. Page, folder,
+   collection, row and file are [readings of a node](1.1-data-model.md#2-nodes-children-and-readings),
+   not competing kinds, and expanded files, collection files and SQLite are
+   interchangeable [representations](1.1-data-model.md#3-representations) of
+   the same model.
+3. A **canonical URL** is found by DNS, then by the host's longest readable
+   mount boundary ([locators §5](1.6-locators.md#5-finding-trees)). It can be
+   renamed; `overstory://<TreeID>/` cannot.
+4. An **app** is ordinary files in a tree: views and mutations that run as
+   their caller, bounded by [access control](3.2-access-control.md), and that
+   mean the same whichever placement or host runs them.
 
 ## Specification map
 
@@ -90,9 +86,7 @@ implementations.
 
 Language-neutral vectors under [`conformance`](conformance) cover descriptors, access, errors, resolution, objects, updates, snapshots, SSE framing and resume, bootstrap idempotency, pairing, configuration merge and governance, activation, and tree-scoped reachability. The [reference implementation documentation](../architecture/README.md), including the local API, CLI, and client design, is informative rather than normative.
 
-The checked-in configuration vectors describe the `tree-config-v1` graph. The
-earlier per-account `account-config-v2` grammar is no longer accepted by the
-reference runtime; old state requires an offline migration before startup.
+The checked-in configuration vectors describe the `tree-config-v1` graph.
 
 ## Route index
 
@@ -110,7 +104,7 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 | `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}[/messages]` | [presence §3.3](1.2-reading-and-watching.md#33-routes) |
 | `QUERY /.overstory/trees/{TreeID}/views` | [apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views) |
 | `POST /.overstory/trees/{TreeID}/mutate` | [apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations) |
-| `POST /.overstory/challenges` (purpose `account`, `placement` or `session`), `PUT /.overstory/accounts` (a new home, or a placement) | [accounts and devices §1.1–1.4](3.1-accounts-and-devices.md#11-beginning-a-person-identity) |
+| `POST /.overstory/challenges` (purpose `account`, `placement` or `session`), `PUT /.overstory/accounts` (a new home, or a placement) | [accounts and devices §1.2](3.1-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key), [federation §3](3.3-federation.md#3-accepting-an-invitation-as-a-placement) |
 | `POST /.overstory/pairings`, `PUT /.overstory/pairings/claim` | [accounts and devices §4](3.1-accounts-and-devices.md#4-device-pairing) |
 | `POST /.overstory/device-sessions` | [accounts and devices §4.1](3.1-accounts-and-devices.md#41-device-sessions) |
 
@@ -123,30 +117,27 @@ needs them:
 | `GET https://{domain}/.overstory/peer/domain-check` | [locators §5.1](1.6-locators.md#51-trees-at-a-persons-domain) |
 
 A host also reads another host's public trees (a remote group's members) with
-the ordinary tree reads above. A host's own processes, such as its execution
-sidecar, never reach it through a public route.
+the ordinary tree reads above.
 
 Authentication headers apply to every route ([access control §2](3.2-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1](1.2-reading-and-watching.md#1-reading-trees), while SSE framing and common errors are in [encoding §2.1](1.2-reading-and-watching.md#21-stream-framing-and-errors).
 
 ## Component roles
 
-- A **Overstory host** represents one host and owns its local accounts, allocation policy,
-  governed private tree configurations, hosted-tree boundaries,
-  mutable refs, immutable objects, claims, access enforcement, and watch
-  streams. A profile `TreeID` has one home host, which holds its
-  configuration, and may hold placement accounts at other hosts
-  ([accounts and devices §1](3.1-accounts-and-devices.md#1-profiles-and-host-accounts));
-  no host owns that identity merely because it allocated one of its names. A host
-  does not need local filesystem materialization.
-- A **Overstory client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
-- A **backing adapter** supplies the common node/children primitives from one
-  representation or external source, including observation, schema, coherent
-  snapshots, and physical commit primitives. The execution runtime owns query
-  and transaction semantics.
-- An **app runtime** serves a reviewed view at its file's own address, injects authenticated Overstory user context, executes its named handles, and streams validated live-query results without exposing the backing data authority.
-- An **agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
+- An **Overstory host** owns its accounts, the private tree configurations it
+  governs, its hosted trees' boundaries and accepted history, their objects,
+  access enforcement and watch streams. A profile has one home host, which
+  holds its configuration, and may have placement accounts at others
+  ([federation](3.3-federation.md)). A host needs no files on disk in the
+  shape of its trees.
+- An **Overstory client** finds trees, transfers objects, keeps a working tree
+  in sync through the update machine ([working trees](2.1-working-trees.md)),
+  and never discloses credentials or link secrets.
+- An **app runtime** serves a view at its file's own address, passes it the
+  caller's user context, runs its mutations, and streams validated results
+  without exposing the data behind them ([apps and views](4.1-apps-and-views.md)).
 
-The protocol carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [accounts and devices](3.1-accounts-and-devices.md).
+The protocol does not dictate private indexes, journals, caches, local
+client/daemon transport, or UI.
 
 ## Deferred
 
@@ -158,11 +149,11 @@ inline mention links here; accepted implementation work is indexed under
 1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([accounts and devices](3.1-accounts-and-devices.md#32-invariants)).
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([apps and views §12.3](4.1-apps-and-views.md#123-relationship-to-tree-synchronization), [apps and views](4.1-apps-and-views.md#4-queries)).
 3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([apps and views](4.1-apps-and-views.md#5-mutations)).
-4. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([apps and views](4.1-apps-and-views.md#13-agents)).
+4. **Hosted agents**: apps whose body is a prompt, with their tools, confinement and transcripts ([apps and views](4.1-apps-and-views.md#13-agents)).
 5. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
 6. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([apps and views](4.1-apps-and-views.md#4-queries)).
 7. **A capability field that may reference a `system:` address** without making it a content locator ([locators](1.6-locators.md#1-forms)).
-8. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([updates and merging §3.1](1.3-updates-and-merging.md#31-exact-state-preconditions), [access control §3.2](3.2-access-control.md#32-updates-and-guards)).
+8. **Additional fine-grained operation families** beyond the resource operations defined in access control. Exact-state preconditions are concurrency guards, not permissions ([updates and merging §3.1](1.3-updates-and-merging.md#31-exact-state-preconditions), [access control §3.2](3.2-access-control.md#32-updates-and-guards)).
 9. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.
 10. **Placement-specific read-only ceilings** for installations where the same TreeID has several local placements with different effective limits.
 11. **Durable pinned placements of immutable historical revisions.** Revision locators remain read-only even when a client later makes them durable.

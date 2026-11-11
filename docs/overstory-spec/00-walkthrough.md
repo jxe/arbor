@@ -17,14 +17,12 @@ TreeID and `handle: joe` together. For a community he did not found, Joe would
 send the same public TreeID to its administrator, who would add that exact pair
 to the structured members list.
 
-The laptop requests a fresh account challenge and signs it with the profile
-private key. It then generates a `DeviceID` and a device key pair whose
-private key never leaves the machine, and derives his profile's configuration
-`TreeID` from the profile `TreeID`. It sends `PUT /.overstory/accounts` with the
-complete account locator, challenge, public key, profile signature, the
-device's public key,
-the already-existing profile `TreeID`, and the first snapshot of the profile's
-tree configuration: `access.yaml` granting his profile `admin` and everyone
+The laptop asks for an account challenge, which binds the account, his profile
+`TreeID` and the configuration `TreeID` derived from it, and signs it with the
+profile private key. It generates a `DeviceID` and a device key pair whose
+private key never leaves the machine. It sends `PUT /.overstory/accounts` with
+the signed challenge, the profile's public key and signature, the device and
+its public key, and the first snapshot of the profile's tree configuration: `access.yaml` granting his profile `admin` and everyone
 `read`, empty `mounts.yaml` and `apps.yaml`, and `devices.yaml` marking the
 laptop, with its key, as the first administrator device. The server derives the reserved
 Profile TreeID from the supplied public key, verifies the target-bound
@@ -44,7 +42,7 @@ Joe also has an ordinary folder, `~/projects/atlas`. The laptop generates a fres
 (`access.yaml` granting Joe's profile `admin` and everyone `read`) with
 `base: null` to `/.overstory/trees/tr_…;overstory-config/updates`. It then adds
 `atlas: tr_…` to his profile's `mounts.yaml`, and records the local folder
-separately in `~/.story/placements.yaml`. The server validates each candidate
+as a placement on his laptop, which never reaches the host. The server validates each candidate
 under the `tree-config-v1` policy and reserves the tree; nothing is readable
 yet ([configuration YAML](3.1-accounts-and-devices.md#3-configuration-yaml),
 [accounts and devices §6](3.1-accounts-and-devices.md#6-governed-configuration-trees),
@@ -72,8 +70,8 @@ and a sibling `notes/` would supply its children, the edit touches one node
 The laptop builds the new candidate root: a new file object, and new directory
 objects from `notes.md` up to the root. It sends the file as an `ObjectDelta`
 against the previous file object and the small directory objects in full,
-with `base` set to the accepted update id it last observed, a fresh `change`,
-`operations: null` and `resolves: []`. The server finds current equal to base and answers
+with `base` set to the accepted update id it last observed, a fresh `change`
+and `at`, and no trace (a snapshot). The server finds current equal to base and answers
 `201 accepted` with the new update's id and the request digest ([sparse transfer](1.3-updates-and-merging.md#13-sparse-transfer-with-object-deltas),
 [submit](1.3-updates-and-merging.md#1-the-update-request)). The root that changed is a bytes hash; the model hash of every node Joe did
 not touch is unchanged
@@ -131,27 +129,25 @@ export default view(() => (
 ))
 ```
 
-The server has enabled hosting for the tree, so compilation produces a
-manifest that binds the view to `(tr_…, /practices, schema fingerprint)` and
-records its read prefix ([handles](4.1-apps-and-views.md#3-modules-and-named-handles),
+The server has enabled hosting for the tree, so it compiles the view and binds
+`./practices` to `(tr_…, /practices, model fingerprint)` ([handles](4.1-apps-and-views.md#3-modules-and-named-handles),
 [queries](4.1-apps-and-views.md#4-queries), [compilation](4.1-apps-and-views.md#7-compilation-and-hosting)).
 A visitor's browser receives the page with the view's result
-embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the document
-version and the view. The stream sends `result` and `ready`. When Joe edits
-the CSV, the tree advances, the provider reports which rows changed, the host
-re-evaluates, and a new `result` with a new `outputHash` follows
+embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the view's handle
+and code version. The stream sends `result` and `ready`. When Joe edits
+the CSV, the tree advances, the host sees which rows the view read changed,
+re-evaluates it, and a new `result` with a new `outputHash` follows
 ([apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views), [apps and views](4.1-apps-and-views.md#15-authoring-api)).
 
 ## 8. Run a mutation
 
-`handles.ts` also exports `addPractice = mutation(node("."), inputSchema, async ({ tx, user }, input) => …)`.
+`handles.ts` also exports a mutation, `addPractice`, with an input schema.
 A form on the page calls it as an action. The browser sends
-`POST /.overstory/trees/tr_…/mutate` with the handle reference, validated input,
-and a caller-chosen `mutationID`. The runner opens the CSV's whole-file
-transaction, validates keys and constraints, writes a complete replacement,
-and records the receipt with the same durability as the data. Because the
-mutation changed an Overstory-canonical tree, the receipt's `affected` names the
-new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
+`POST /.overstory/trees/tr_…/mutate` with the handle, the input, and a
+caller-chosen `mutationID`. The runtime runs the mutation in one transaction
+over the collection's rows and submits its writes as one guarded update of row
+operations. The receipt's `affected` names that accepted update, and Alice's
+watch sees an ordinary `tree.update` frame; Joe's Mac rewrites the CSV. A
 retry with the same `mutationID` returns the original receipt and does nothing
 twice ([mutations](4.1-apps-and-views.md#5-mutations),
 [apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations), [actions](4.1-apps-and-views.md#154-actions-and-forms)).
