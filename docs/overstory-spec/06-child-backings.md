@@ -426,40 +426,14 @@ store and schema. It never selects a local representation. A tree containing
 both `_store.yaml` and the legacy `_store.postgres` is ambiguous and does not
 activate either descriptor.
 
-With no placement `projection`, every execution placement connects directly to
+Every execution placement connects directly to
 the declared Postgres store and must resolve the same stable store identity.
 Postgres is then the shared data authority. Overstory introspects schemas, maps each
 runtime-owned transaction to Postgres, and observes committed changes; the authored
 tree synchronizes the safe descriptor rather than a database copy.
 
-A device placement may instead request a private SQLite projection in its
-[configuration](04-accounts-and-devices.md):
-
-```yaml
-projection:
-  driver: sqlite
-  mode: read-only
-```
-
-`read-only` is the first portable projection mode. The host evaluates a reviewed
-node query over the remote store, supplies a coherent typed snapshot and
-snapshot-then-follow invalidation boundary, and the placement materializes that
-logical result into private SQLite. Local queries may use the last completely
-applied projection while offline. Mutations and direct SQLite writes fail with
-`read-only-projection`; reconnect reevaluates current state, so this mode does
-not need retained mutation history or two-way CDC. Projection query plans,
-applied output hashes/model hashes, SQLite/WAL bytes, and local paths are
-private placement state.
-
-The projection manifest declares a finite schema-complete node scope. Bootstrap
-may page that scope under one consistent snapshot and observation boundary; it
-does not require encoding the whole database as one public query-result value.
-After uncertainty or a missed observation, the driver conservatively rereads
-affected scopes or rebuilds from a fresh snapshot before advancing its applied
-root.
-
-A two-way projection (`mode: bidirectional`) is
-[deferred](README.md#deferred) (item 4).
+A device placement's private SQLite projection of an external store, read-only
+or two-way, is [deferred](README.md#deferred) (item 4).
 
 External Postgres observation treats notifications only as commit wakeups, never as the data authority or a durable replacement for rereading state. On listener loss, overflow, unknown payload, or cursor discontinuity, the driver widens invalidation and reestablishes a fresh snapshot boundary. A connection without precise observation must conservatively invalidate and cannot claim precise live updates.
 

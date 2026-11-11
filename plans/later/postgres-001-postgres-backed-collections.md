@@ -104,6 +104,37 @@ authorities unless the implementation really makes it so.
   integers, decimals and timestamps across rows, queries, mutations and observation, in
   TypeScript and Swift. Partly done by USL's types; check Postgres's wider types against it.
 
+## Read-only placement projections (moved from spec 06 §4, 2026-11-11)
+
+Also moved out by Joe: Story Sync's Postgres provider today connects directly, reads tables
+and pages by offset (which spec 06 §1.2 forbids for live data); none of this projection exists.
+
+A device placement may instead request a private SQLite projection in its
+[configuration](../../docs/overstory-spec/04-accounts-and-devices.md):
+
+```yaml
+projection:
+  driver: sqlite
+  mode: read-only
+```
+
+`read-only` is the first portable projection mode. The host evaluates a reviewed
+node query over the remote store, supplies a coherent typed snapshot and
+snapshot-then-follow invalidation boundary, and the placement materializes that
+logical result into private SQLite. Local queries may use the last completely
+applied projection while offline. Mutations and direct SQLite writes fail with
+`read-only-projection`; reconnect reevaluates current state, so this mode does
+not need retained mutation history or two-way CDC. Projection query plans,
+applied output hashes/model hashes, SQLite/WAL bytes, and local paths are
+private placement state.
+
+The projection manifest declares a finite schema-complete node scope. Bootstrap
+may page that scope under one consistent snapshot and observation boundary; it
+does not require encoding the whole database as one public query-result value.
+After uncertainty or a missed observation, the driver conservatively rereads
+affected scopes or rebuilds from a fresh snapshot before advancing its applied
+root.
+
 ## Two-way placement projections (moved from spec 06 §4, 2026-11-11)
 
 Joe moved this out of the spec because nothing builds it (the spec is normative). It is the
