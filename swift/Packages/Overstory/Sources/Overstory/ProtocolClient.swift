@@ -152,7 +152,7 @@ public actor ProtocolClient {
         let encoded = "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
         let value: ProtocolLocatorResolution = try await get(path: "/.well-known/overstory\(encoded);overstory-config")
         _ = try value.enclosingTree.validated()
-        guard value.ref.tree == value.enclosingTree.id, value.enclosingTree.kind == "tree-configuration", !value.observedThrough.isEmpty else {
+        guard value.ref.tree == value.enclosingTree.id, value.enclosingTree.kind == "tree-configuration" else {
             throw ProtocolValidationError.invalidValue("Malformed configuration resolution")
         }
         return value
@@ -162,7 +162,7 @@ public actor ProtocolClient {
         let encoded = path == "/" ? "" : "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
         let value: ProtocolLocatorResolution = try await get(path: "/.well-known/overstory\(encoded)")
         _ = try value.enclosingTree.validated()
-        guard value.ref.tree == value.enclosingTree.id, !value.observedThrough.isEmpty else {
+        guard value.ref.tree == value.enclosingTree.id else {
             throw ProtocolValidationError.invalidValue("Malformed locator resolution")
         }
         return value

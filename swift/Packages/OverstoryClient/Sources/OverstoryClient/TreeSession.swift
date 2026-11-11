@@ -164,12 +164,12 @@ public struct TreeSession: Sendable {
         })
         let transport = ProtocolReplicaTransport(client: client)
         let workingTree: WorkingTree
-        var observedThrough = opening?.current.observedThrough
+        var observedThrough = opening?.current.tree.update
         switch settings.index {
         case .memory:
             let current: ProtocolCurrentTree
             if let given = opening?.current { current = given } else { current = try await client.descriptor(tree: tree.id) }
-            observedThrough = current.observedThrough
+            observedThrough = current.tree.update
             workingTree = try await WorkingTree.inMemory(tree: treeID, platform: objects)
             if settings.prefetch == .openedPages { await workingTree.loadDirectoriesLazily() }
             await workingTree.readPages(from: settings.folder)
@@ -185,7 +185,7 @@ public struct TreeSession: Sendable {
                 snapshot: graph,
                 tree: treeID,
                 update: current.tree.update,
-                cursor: current.observedThrough,
+                cursor: current.tree.update,
                 mode: .lazyDirectories
             ))
             if settings.prefetch != .openedPages { try await workingTree.loadEverything() }
@@ -259,7 +259,7 @@ public struct TreeSession: Sendable {
             snapshot: snapshot,
             tree: TreeID(rawValue: tree.id),
             update: current.tree.update,
-            cursor: current.observedThrough
+            cursor: current.tree.update
         ))
         try storage.format.write(to: formatMarker, atomically: true, encoding: .utf8)
         return workingTree
@@ -333,9 +333,9 @@ public struct TreeSession: Sendable {
         let current = try await client.descriptor(tree: tree.id)
         let heads = try await workingTree.heads()
         if current.tree.root != heads.materializedRoot {
-            try await pull(root: current.tree.root, update: current.tree.update, cursor: current.observedThrough)
+            try await pull(root: current.tree.root, update: current.tree.update, cursor: current.tree.update)
         }
-        return current.observedThrough
+        return current.tree.update
     }
 
     /// Move to the accepted state at `root`: the directories the session

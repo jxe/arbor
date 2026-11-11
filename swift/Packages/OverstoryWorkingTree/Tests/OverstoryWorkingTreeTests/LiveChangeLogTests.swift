@@ -81,7 +81,7 @@ struct LiveChangeLogTests {
         let tree = try await WorkingTree.inMemory(tree: TreeID(rawValue: current.tree.id))
         let snapshot = try await client.snapshot(tree: current.tree.id, root: current.tree.root)
         try await tree.initializeFromSystem(SnapshotBridge.replacement(snapshot: snapshot,
-            tree: TreeID(rawValue: current.tree.id), update: current.tree.update, cursor: current.observedThrough))
+            tree: TreeID(rawValue: current.tree.id), update: current.tree.update, cursor: current.tree.update))
         return tree
     }
 

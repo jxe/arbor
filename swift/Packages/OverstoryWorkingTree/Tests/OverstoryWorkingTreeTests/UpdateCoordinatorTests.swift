@@ -12,7 +12,6 @@ private actor ClosureTransport: UpdateTransport {
     private(set) var current: ProtocolSnapshot
     private(set) var snapshots: [String: ProtocolSnapshot]
     private(set) var currentUpdate: String
-    private(set) var currentObservedThrough: String
     let submitter: Submit
     /// Serve an accepted candidate as the current tree afterwards, the way the host does.
     let advancesCurrentOnAccept: Bool
@@ -26,7 +25,6 @@ private actor ClosureTransport: UpdateTransport {
         current: ProtocolSnapshot? = nil,
         additionalSnapshots: [ProtocolSnapshot] = [],
         currentUpdate: String = "up_initial",
-        currentObservedThrough: String? = nil,
         advancesCurrentOnAccept: Bool = false,
         submitter: @escaping Submit
     ) {
@@ -37,7 +35,6 @@ private actor ClosureTransport: UpdateTransport {
             uniquingKeysWith: { _, latest in latest }
         )
         self.currentUpdate = currentUpdate
-        self.currentObservedThrough = currentObservedThrough ?? currentUpdate
         self.advancesCurrentOnAccept = advancesCurrentOnAccept
         self.submitter = submitter
     }
@@ -60,7 +57,6 @@ private actor ClosureTransport: UpdateTransport {
                 if let snapshot = snapshots[update.root] {
                     current = snapshot
                     currentUpdate = update.id
-                    currentObservedThrough = update.id
                 }
             }
         }
@@ -77,8 +73,7 @@ private actor ClosureTransport: UpdateTransport {
                 access: "write",
                 canonical: ProtocolCanonicalDescriptor(path: "/~owner/\(tree)", endpoint: "https://overstory.example"),
                 update: currentUpdate
-            ),
-            observedThrough: currentObservedThrough
+            )
         )
     }
 
@@ -826,8 +821,7 @@ struct UpdateCoordinatorTests {
             )
             let remoteTransport = ClosureTransport(
                 initial: remote,
-                currentUpdate: "up_remote",
-                currentObservedThrough: "observation_after_remote"
+                currentUpdate: "up_remote"
             ) { _, _ in
                 throw ProtocolValidationError.invalidValue("Gap recovery must not submit")
             }
@@ -838,7 +832,8 @@ struct UpdateCoordinatorTests {
             #expect(result.state == .current)
             #expect(result.acceptedRoot == remote.root)
             #expect(try await workingTree.heads().acceptedUpdate == "up_remote")
-            #expect(try await coordinator.watchCursor() == "observation_after_remote")
+            // The watch resumes after the accepted update itself.
+            #expect(try await coordinator.watchCursor() == "up_remote")
             #expect(await remoteTransport.descriptorRequests == 1)
             #expect(await remoteTransport.requestedRoots == [remote.root])
             #expect(await remoteTransport.requests.isEmpty)
@@ -861,8 +856,7 @@ struct UpdateCoordinatorTests {
             )
             let remoteTransport = ClosureTransport(
                 initial: remote,
-                currentUpdate: "up_remote",
-                currentObservedThrough: "observation_after_remote"
+                currentUpdate: "up_remote"
             ) { _, _ in
                 throw ProtocolValidationError.invalidValue("A clean reconnect must not submit")
             }
@@ -876,7 +870,8 @@ struct UpdateCoordinatorTests {
             await coordinator.setTransportAvailable(true)
 
             #expect(try await workingTree.heads().materializedRoot == remote.root)
-            #expect(try await coordinator.watchCursor() == "observation_after_remote")
+            // The watch resumes after the accepted update itself.
+            #expect(try await coordinator.watchCursor() == "up_remote")
             #expect(await remoteTransport.descriptorRequests == 1)
             #expect(await remoteTransport.requestedRoots == [remote.root])
             #expect(await remoteTransport.requests.isEmpty)
@@ -1012,7 +1007,7 @@ struct UpdateCoordinatorTests {
             let current = accepted(id: "up_remote", tree: tree, root: remote.root, base: initial.root, candidate: remote.root)
             let rejecting = ClosureTransport(initial: initial, current: remote, currentUpdate: "up_remote") { _, _ in
                 throw ProtocolUpdateConflictError(conflict: ProtocolUpdateConflict(
-                    message: "stale guard", current: current, conflicts: []))
+                    message: "stale guard", head: ProtocolUpdateHead(update: current.id, root: current.root, conflicted: current.conflicted), conflicts: []))
             }
             let coordinator = try UpdateCoordinator(workingTree: workingTree, transport: rejecting, stateRoot: root)
             let session = try await noteSession(workingTree, coordinator, tree: tree)
@@ -1154,7 +1149,7 @@ struct UpdateCoordinatorTests {
                         acceptedAt: 1_800_000_000_000
                     )
                     return ProtocolUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigests.last!, reconciliation: ProtocolTransitionPayload(objects: merged.objects),
-                        head: .init(update: update.id, root: merged.root, conflicted: false, observedThrough: update.id))
+                        head: .init(update: update.id, root: merged.root, conflicted: false))
                 }
                 let workingTree = try await placeWorkingTree(
                     tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -1364,7 +1359,7 @@ struct UpdateCoordinatorPhase3Tests {
                 result: .accepted(update),
                 requestDigest: prepared.requestDigests.last!,
                 reconciliation: ProtocolTransitionPayload(objects: [mergedRoot], deltas: [delta]),
-                head: .init(update: update.id, root: mergedRoot.hash, conflicted: false, observedThrough: update.id)
+                head: .init(update: update.id, root: mergedRoot.hash, conflicted: false)
             )
         }
         try await withTemporaryRoot { root in
@@ -1457,7 +1452,7 @@ private func acceptingTransport(tree: String, initial: ProtocolSnapshot, before:
             previous = element.candidate
             return ProtocolUpdateElementResult(result: .accepted(update), requestDigest: prepared.requestDigests[index])
         }
-        return ProtocolUpdateResponse(results: results, head: .init(update: "up_\(number)", root: previous, conflicted: false, observedThrough: "up_\(number)"))
+        return ProtocolUpdateResponse(results: results, head: .init(update: "up_\(number)", root: previous, conflicted: false))
     }
 }
 
@@ -1516,7 +1511,7 @@ private func placeInMemory(tree: String, transport: any UpdateTransport) async t
         snapshot: snapshot,
         tree: TreeID(rawValue: tree),
         update: current.tree.update,
-        cursor: current.observedThrough
+        cursor: current.tree.update
     ))
     return workingTree
 }
@@ -1739,7 +1734,7 @@ private func placeWorkingTree(
         snapshot: snapshot,
         tree: TreeID(rawValue: tree.id),
         update: current.tree.update,
-        cursor: current.observedThrough
+        cursor: current.tree.update
     )
     try await workingTree.initializeFromSystem(replacement)
     return workingTree
@@ -1789,11 +1784,11 @@ private actor SourceModeTransport: UpdateTransport {
             current = selected; currentID = update.id
         }
         return ProtocolUpdateResponse(results: results,
-            head: .init(update: currentID, root: current.root, conflicted: !receipts.isEmpty, observedThrough: "cursor_\(currentID)"))
+            head: .init(update: currentID, root: current.root, conflicted: !receipts.isEmpty))
     }
     func descriptor(tree: String) throws -> ProtocolCurrentTree {
         ProtocolCurrentTree(tree: ProtocolTreeDescriptor(id: tree, kind: "ordinary", root: current.root, access: "write",
-            canonical: nil, update: currentID, conflicted: !receipts.isEmpty), observedThrough: "cursor_\(currentID)")
+            canonical: nil, update: currentID, conflicted: !receipts.isEmpty))
     }
     func object(tree: String, hash: String) throws -> Data {
         guard let object = snapshots.values.lazy.flatMap(\.objects).first(where: { $0.hash == hash }) else {

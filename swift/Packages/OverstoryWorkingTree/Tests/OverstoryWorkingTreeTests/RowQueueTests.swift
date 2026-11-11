@@ -24,8 +24,7 @@ private actor RowTransport: UpdateTransport {
     }
     func descriptor(tree: String) async throws -> ProtocolCurrentTree {
         ProtocolCurrentTree(tree: ProtocolTreeDescriptor(id: tree, kind: "ordinary", root: snapshot.root, access: "write",
-            canonical: ProtocolCanonicalDescriptor(path: "/~owner/\(tree)", endpoint: "https://overstory.example"), update: "up_initial"),
-            observedThrough: "up_initial")
+            canonical: ProtocolCanonicalDescriptor(path: "/~owner/\(tree)", endpoint: "https://overstory.example"), update: "up_initial"))
     }
     func snapshot(tree _: String, root _: String) async throws -> ProtocolSnapshot { snapshot }
 }
@@ -91,7 +90,7 @@ struct RowQueueTests {
                 let update = ProtocolAcceptedUpdate(id: "up_rows", tree: Self.tree.rawValue, root: snapshot.root,
                     previous: .init(id: "up_initial", root: snapshot.root), acceptedAt: 1_800_000_000_000)
                 return ProtocolUpdateResponse(results: [.init(result: .accepted(update), requestDigest: prepared.requestDigests[0], candidate: snapshot.root)],
-                    head: .init(update: "up_rows", root: snapshot.root, conflicted: false, observedThrough: "up_rows"))
+                    head: .init(update: "up_rows", root: snapshot.root, conflicted: false))
             }
             let (coordinator, provider) = try await open(snapshot, at: root, transport: transport)
             #expect(try await status(provider) == .string("Draft"))

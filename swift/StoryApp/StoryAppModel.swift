@@ -1657,7 +1657,7 @@ final class StoryWorkspaceState {
             tree,
             client: client,
             settings: .browse(),
-            opening: TreeOpening(current: ProtocolCurrentTree(tree: tree, observedThrough: resolution.observedThrough))
+            opening: TreeOpening(current: ProtocolCurrentTree(tree: tree))
         )
         // Browse: the first page and the directories down to it in one path
         // read, before the editor asks for them; no snapshot is downloaded.
@@ -1683,7 +1683,7 @@ final class StoryWorkspaceState {
             acceptedRoot: tree.root,
             localRoot: tree.root
         )
-        visitFollowTask = session.follow(after: resolution.observedThrough) { [weak self] in
+        visitFollowTask = session.follow(after: resolution.enclosingTree.update) { [weak self] in
             await self?.noteVisitChanged(workingTree)
         }
         prefetchLocalStorySyncOverview()

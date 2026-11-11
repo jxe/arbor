@@ -368,7 +368,7 @@ public actor UpdateCoordinator {
             guard update.tree == attempt.tree else { throw UpdateError.returnedSnapshotMismatch }
         }
         let head = response.head
-        let current = CurrentHead(update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.observedThrough)
+        let current = CurrentHead(update: head.update, root: head.root, conflicted: head.conflicted, observedThrough: head.update)
         guard !current.update.isEmpty else { throw UpdateError.returnedSnapshotMismatch }
         return current
     }
@@ -498,7 +498,7 @@ public actor UpdateCoordinator {
                 guard descriptor.tree.id == tree, !descriptor.tree.update.isEmpty else { throw UpdateError.replicaIsNotPlaced }
                 Self.syncLog.notice("catch-up descriptor update=\(descriptor.tree.update, privacy: .public) after \(seconds(), format: .fixed(precision: 1))s")
                 installed = try await install(current: .init(update: descriptor.tree.update, root: descriptor.tree.root,
-                    conflicted: descriptor.tree.conflicted, observedThrough: descriptor.observedThrough), projection: nil)
+                    conflicted: descriptor.tree.conflicted, observedThrough: descriptor.tree.update), projection: nil)
             }
             watchEvent = nil
             control.acceptedConflicted = installed.conflicted

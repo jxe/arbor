@@ -250,11 +250,10 @@ public struct ProtocolResolvedNodeRef: Codable, Sendable, Equatable {
     }
 }
 
+/// A locator resolved (locators §5): `enclosingTree.update` is where a watch starts.
 public struct ProtocolLocatorResolution: Codable, Sendable, Equatable {
     public var ref: ProtocolResolvedNodeRef
     public var enclosingTree: ProtocolTreeDescriptor
-    public var historical: Bool
-    public var observedThrough: String
 }
 
 public struct ProtocolAcceptedLink: Codable, Sendable, Equatable {
@@ -354,19 +353,17 @@ public struct ProtocolSnapshot: Codable, Sendable, Equatable {
     }
 }
 
-/// The tree resource: its current descriptor and the cursor to watch after.
+/// The tree resource: its current descriptor, whose `update` is also where a watch resumes.
 public struct ProtocolCurrentTree: Codable, Sendable, Equatable {
     public var tree: ProtocolTreeDescriptor
-    public var observedThrough: String
 
-    public init(tree: ProtocolTreeDescriptor, observedThrough: String) {
+    public init(tree: ProtocolTreeDescriptor) {
         self.tree = tree
-        self.observedThrough = observedThrough
     }
 
     public func validated(expectedTree: String? = nil) throws -> Self {
         let tree = try tree.validated()
-        guard !tree.update.isEmpty, !observedThrough.isEmpty, expectedTree == nil || tree.id == expectedTree else {
+        guard !tree.update.isEmpty, expectedTree == nil || tree.id == expectedTree else {
             throw ProtocolValidationError.invalidValue("Tree descriptor does not match its tree")
         }
         return self
@@ -768,24 +765,25 @@ public struct ProtocolConflictDetails: Codable, Sendable, Equatable {
     public var kind: String
     public var completed: [ProtocolUpdateElementResult]
     public var failedIndex: Int
-    public var current: ProtocolAcceptedUpdate
+    /// The tree's current accepted state, as a success's `head` names it.
+    public var head: ProtocolUpdateHead
     public var conflicts: [ProtocolConflictReason]
 
     private enum CodingKeys: String, CodingKey {
-        case kind, completed, failedIndex, current, conflicts
+        case kind, completed, failedIndex, head, conflicts
     }
 
     public init(
         kind: String,
         completed: [ProtocolUpdateElementResult],
         failedIndex: Int,
-        current: ProtocolAcceptedUpdate,
+        head: ProtocolUpdateHead,
         conflicts: [ProtocolConflictReason]
     ) {
         self.kind = kind
         self.completed = completed
         self.failedIndex = failedIndex
-        self.current = current
+        self.head = head
         self.conflicts = conflicts
     }
 
@@ -798,7 +796,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
     public var tree: String?
     public var details: ProtocolConflictDetails
 
-    public var current: ProtocolAcceptedUpdate { details.current }
+    public var head: ProtocolUpdateHead { details.head }
     public var conflicts: [ProtocolConflictReason] { details.conflicts }
 
     public init(
@@ -809,7 +807,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
         kind: String = "server-update",
         completed: [ProtocolUpdateElementResult] = [],
         failedIndex: Int = 0,
-        current: ProtocolAcceptedUpdate,
+        head: ProtocolUpdateHead,
         conflicts: [ProtocolConflictReason]
     ) {
         self.error = error
@@ -820,7 +818,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
             kind: kind,
             completed: completed,
             failedIndex: failedIndex,
-            current: current,
+            head: head,
             conflicts: conflicts
         )
     }
@@ -830,7 +828,7 @@ public struct ProtocolUpdateConflict: Codable, Sendable, Equatable {
         guard ["server-update", "tree-configuration"].contains(details.kind) else {
             throw ProtocolValidationError.invalidValue("Unknown conflict detail kind")
         }
-        _ = try details.current.validated()
+        try details.head.validate()
         guard details.failedIndex == details.completed.count else {
             throw ProtocolValidationError.invalidValue("Conflict prefix does not match its failed index")
         }
@@ -887,13 +885,18 @@ public struct ProtocolUpdateElementResult: Sendable, Equatable, Codable {
 }
 
 /// The server's current head as of an accepted update response.
+/// Its `update` is also where a watch resumes.
 public struct ProtocolUpdateHead: Sendable, Equatable, Codable {
     public var update: String
     public var root: String
     public var conflicted: Bool
-    public var observedThrough: String
-    public init(update: String, root: String, conflicted: Bool, observedThrough: String) {
-        self.update = update; self.root = root; self.conflicted = conflicted; self.observedThrough = observedThrough
+    public init(update: String, root: String, conflicted: Bool) {
+        self.update = update; self.root = root; self.conflicted = conflicted
+    }
+
+    func validate() throws {
+        guard !update.isEmpty else { throw ProtocolValidationError.invalidValue("Invalid update head") }
+        try validateObjectHash(root)
     }
 }
 
@@ -924,10 +927,7 @@ public struct ProtocolUpdateResponse: Sendable, Equatable, Codable {
         results = try values.decode([ProtocolUpdateElementResult].self, forKey: .results)
         guard !results.isEmpty else { throw ProtocolValidationError.invalidValue("Update response has no results") }
         head = try values.decode(ProtocolUpdateHead.self, forKey: .head)
-        guard !head.update.isEmpty, !head.observedThrough.isEmpty, head.observedThrough.utf8.count <= 1024 else {
-            throw ProtocolValidationError.invalidValue("Invalid update head")
-        }
-        try validateObjectHash(head.root)
+        try head.validate()
     }
 
     public func encode(to encoder: Encoder) throws {

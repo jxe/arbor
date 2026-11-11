@@ -49,7 +49,7 @@ struct TreeSessionTests {
             f.tree,
             client: ProtocolClient(origin: URL(string: "http://127.0.0.1:9")!),
             settings: settings,
-            opening: TreeOpening(current: ProtocolCurrentTree(tree: f.tree, observedThrough: "up_visit"))
+            opening: TreeOpening(current: ProtocolCurrentTree(tree: f.tree))
         )
     }
 
@@ -63,7 +63,8 @@ struct TreeSessionTests {
         let session = try await browse(f, store: everything(f))
         #expect(session.coordinator == nil)
         #expect(session.settings.readOnly)
-        #expect(session.observedThrough == "up_visit")
+        // The watch resumes after the tree's accepted update.
+        #expect(session.observedThrough == f.tree.update)
         #expect(try await session.workingTree.heads().materializedRoot == f.root.hash)
         #expect(await session.workingTree.hasUnloadedDirectories())
         let note = try await session.provider.resolve(WorkspaceReference(tree: "tr_visit", path: "/note"))

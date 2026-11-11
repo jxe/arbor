@@ -768,7 +768,7 @@ struct UpdateProtocolTests {
         )
         let requestDigest = prepared.requestDigest
         let response = Data("""
-        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false,"observedThrough":"up_retry"}}
+        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -802,7 +802,7 @@ struct UpdateProtocolTests {
             at: "2026-11-11T12:00:00.000Z"
         )
         let response = Data("""
-        {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false,"observedThrough":"up_retry"}}
+        {"results":[{"outcome":"accepted","requestDigest":"\(otherDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previous":{"id":"prior","root":"\(baseHash)"},"conflicted":false,"acceptedAt":1787529600000,"subject":"dv_retry"}}],"head":{"update":"up_retry","root":"\(root.hash)","conflicted":false}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, _ in (201, response) }
         await #expect(throws: ProtocolValidationError.invalidValue("Server response update-string identity mismatch")) {
@@ -833,7 +833,7 @@ struct UpdateProtocolTests {
         let base = "sha256:" + String(repeating: "0", count: 64)
         let remote = "sha256:" + String(repeating: "1", count: 64)
         let response = Data("""
-        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previous":{"id":"prior","root":"\(base)"},"conflicted":false,"acceptedAt":1787529600001,"subject":"dev_remote"},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"head":{"update":"up_remote","root":"\(remote)","conflicted":false},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
         """.utf8)
         await HostURLProtocolStub.state.install { _, _ in (409, response) }
         let client = ProtocolClient(
@@ -852,7 +852,7 @@ struct UpdateProtocolTests {
             _ = try await client.submitUpdate(prepared)
             Issue.record("Expected a typed conflict")
         } catch let error as ProtocolUpdateConflictError {
-            #expect(error.conflict.current.id == "up_remote")
+            #expect(error.conflict.head.update == "up_remote")
             #expect(error.conflict.conflicts.first?.reason == "binary-conflict")
         }
         #expect(await HostURLProtocolStub.state.snapshot().count == 1)
@@ -923,7 +923,7 @@ struct UpdateProtocolTests {
         let root = try #require(snapshot.objects.first { $0.hash == snapshot.root })
         let bundle = try ProtocolSnapshotBundleCodec.encode(snapshot)
         let descriptor = """
-        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://host.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1","conflicted":false},"observedThrough":"up_1"}
+        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://host.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1","conflicted":false}}
         """
         await HostURLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
@@ -942,7 +942,6 @@ struct UpdateProtocolTests {
         let accepted = try await client.snapshot(tree: "tr_atlas", root: ref.tree.root)
         let object = try await client.object(tree: "tr_atlas", hash: snapshot.root)
         #expect(ref.tree.update == "up_1")
-        #expect(ref.observedThrough == "up_1")
         #expect(accepted == snapshot.sorted())
         #expect(object == root.bytes)
     }
@@ -982,7 +981,6 @@ struct LiveProtocolTests {
         #expect(configuration.id == treeConfigurationID(try #require(account.account.profileTree)))
         let ref = try await client.descriptor(tree: configuration.id)
         #expect(ref.tree.root == configuration.root)
-        #expect(!ref.observedThrough.isEmpty)
         let current = try await client.descriptor(tree: configuration.id)
         let snapshot = try await client.snapshot(tree: configuration.id, root: current.tree.root)
         #expect(current.tree.id == configuration.id)
