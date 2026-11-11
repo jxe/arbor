@@ -239,7 +239,7 @@ export class CollectionProjections {
    * keeps its `created` and is modified now; a new one is created now unless
    * the projection stored its times.
    */
-  private stamp(read: LogicalTables, before: LogicalTables | null, now: string): LogicalTables {
+  private stamp(read: LogicalTables, before: LogicalTables | null, now: number): LogicalTables {
     const out: LogicalTables = {};
     for (const [model, rows] of Object.entries(read)) {
       const prior = new Map((before?.[model] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
@@ -285,7 +285,8 @@ export class CollectionProjections {
     const stamp = form ? filesStamp(directory, formFiles(form, form.kind === "sqlite" ? database : files), schemaBytes) : null;
     const cached = this.reads.get(directory);
     if (stamp && cached?.stamp === stamp && cached.tables === before) return { ...cached.result, objects: cached.objects };
-    const now = this.options.now?.() ?? new Date().toISOString();
+    const nowOption = this.options.now?.();
+    const now = nowOption === undefined ? Date.now() : Date.parse(nowOption);
     let tables: LogicalTables | null;
     try {
       const layout = form?.kind === "sqlite" ? database : files;

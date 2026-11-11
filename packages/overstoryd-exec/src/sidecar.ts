@@ -113,7 +113,7 @@ function reflected(path: string, key: "update" | "schema" = "update"): string | 
 }
 
 /** Times for rows a mutation produced: unchanged rows keep theirs, changed ones are modified at `now`, new ones created then (spec 10 §4.1). */
-function stamp(after: LogicalTables, before: LogicalTables, now: string): LogicalTables {
+function stamp(after: LogicalTables, before: LogicalTables, now: number): LogicalTables {
   const out: LogicalTables = {};
   for (const [model, rows] of Object.entries(after)) {
     const prior = new Map((before[model] ?? []).map((row) => [logicalRowKey(row), row as LogicalRow]));
@@ -401,7 +401,7 @@ export class ExecSidecar implements AsyncDisposable {
         const request: DerivableUpdateRequest = {
           base: collection.update,
           // Stored with the pending receipt, so a retry derives the same root (updates and merging §1.1).
-          updates: [{ change, at: new Date().toISOString(), candidate: null, ifCurrent: collection.update, trace: [{ operations }], resolves: [], deltas: [], objects: [] }],
+          updates: [{ change, at: new Date(question.now).toISOString(), candidate: null, ifCurrent: collection.update, trace: [{ operations }], resolves: [], deltas: [], objects: [] }],
         };
         this.receipts.query("insert or replace into pending_receipts (tree, subject, mutation_id, request_digest, request_json, result_json) values (?, ?, ?, ?, ?, ?)")
           .run(tree, subject, question.mutationID, prepared.requestDigest, JSON.stringify(request), JSON.stringify(trial.result ?? null));
@@ -434,7 +434,8 @@ export class ExecSidecar implements AsyncDisposable {
       database.close();
     }
     const tables = (byModel: Map<string, Map<string, Row>>): RowsByTable => Object.fromEntries([...byModel].map(([model, byKey]) => [model, [...byKey.values()]]));
-    const before = logicalFromRows(opened.logical.result, opened.layout, tables(rows), { now });
+    const nowMs = Date.parse(now);
+    const before = logicalFromRows(opened.logical.result, opened.layout, tables(rows), { now: nowMs });
     for (const change of changes) {
       const schema = opened.schemas.find((candidate) => candidate.model === change.collection);
       if (!schema) continue;
@@ -444,7 +445,7 @@ export class ExecSidecar implements AsyncDisposable {
       if (was) byKey.delete(stableKeyFromProperties(schema.primaryKey, was)!);
       if (is) byKey.set(stableKeyFromProperties(schema.primaryKey, is)!, is);
     }
-    const after = stamp(logicalFromRows(opened.logical.result, opened.layout, tables(rows), { now }), before, now);
+    const after = stamp(logicalFromRows(opened.logical.result, opened.layout, tables(rows), { now: nowMs }), before, nowMs);
     const operations = rowOperationsBetween(opened.logical.models, before, after, { material: { kind: "basis", path: collection.path, object: collection.directory as ObjectHash } });
     operations?.forEach((operation, index) => { operation.key = `row-${index + 1}`; });
     return operations;

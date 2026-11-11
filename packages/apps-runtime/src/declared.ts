@@ -151,7 +151,7 @@ export function declaredView(schema: CheckResult, collection: string, name: Decl
       });
     }
     // Present from the rows the plan read, laid out as data files are.
-    const logical = logicalFromRows(schema, database.filter((table) => table.name in rows), rows, { now: "1970-01-01T00:00:00.000Z" });
+    const logical = logicalFromRows(schema, database.filter((table) => table.name in rows), rows, { now: 0 });
     const presented = rowsFromLogical(schema, files, logical);
     return presentView(schema, presented, {
       model: found.model,

@@ -119,7 +119,7 @@ function logical(model: LogicalModel, key: LogicalRow["key"], row: Row): Logical
     const next = f.arity === "many" && Array.isArray(value) ? canonicalMany(f, value) : value;
     if (next !== undefined) fields[f.name] = next;
   }
-  return { key, fields, created: created as string, modified: modified as string };
+  return { key, fields, created: created as number, modified: modified as number };
 }
 
 /**
