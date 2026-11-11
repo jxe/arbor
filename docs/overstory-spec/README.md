@@ -20,8 +20,8 @@ file names carry the layer: `1.2-reading-and-watching.md` is layer 1, chapter 2.
    placements on disk.
 3. **Accounts and access.** Who the callers are and what they may do:
    accounts and devices, and access control.
-4. **Apps.** Executable documents (views, mutations and agents, with their
-   authoring API) and external stores.
+4. **Apps.** Executable documents: views, mutations and agents, with their
+   authoring API.
 
 A host conforms to layers 1 and 3; a Story-compatible client conforms to
 layers 1 to 3. Every route is listed in the [route index](#route-index). Local
@@ -55,7 +55,7 @@ Five concepts organize the system:
 
 1. The **global TreeID space** maps stable tree identities to logical trees without requiring one global store or discovery service.
 2. An **Overstory tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
-3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other [node readings](1.1-data-model.md#2-nodes-children-and-readings) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable [representations](1.1-data-model.md#3-representations) where their represented model agrees.
+3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other [node readings](1.1-data-model.md#2-nodes-children-and-readings) are roles rather than competing kinds, while expanded files, collection files, and databases are interchangeable [representations](1.1-data-model.md#3-representations) where their represented model agrees.
 4. A **canonical URL lookup** first uses DNS to place an Overstory host, then resolves that host's longest readable registered boundary back to TreeID and path.
 5. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
@@ -78,7 +78,6 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | 3. Accounts and access | [accounts and devices](3.1-accounts-and-devices.md) | Profile identity, host accounts, placement accounts, tree configurations, device pairing and sessions, and declaring, activating and mounting trees |
 | | [access control](3.2-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
 | 4. Apps | [executable documents](4.1-executable-documents.md) | Views, mutations and agents in `.ts`/`.tsx` files and Markdown: addresses, queries, mutations, identity, hosting, confinement, consent, transcripts, data disclosure, and the `overstory/data` and `overstory/ui` authoring API |
-| | [external stores](4.2-external-stores.md) | A folder whose rows live in an external database such as Postgres |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for
@@ -168,15 +167,13 @@ inline mention links here; accepted implementation work is indexed under
 1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([accounts and devices](3.1-accounts-and-devices.md#32-invariants)).
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](4.1-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](4.1-executable-documents.md#4-queries)).
 3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](4.1-executable-documents.md#5-mutations)).
-4. **Placement projections of an external store**: a device's private SQLite copy, read-only or two-way (`mode: bidirectional`) ([external stores](4.2-external-stores.md#1-postgres-and-placement-projections)); the earlier designs are kept in [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md#read-only-placement-projections-moved-from-spec-06-4-2026-11-11).
-5. **External-store change log and checkpoint format** for synchronizing Postgres placements. Logical collections, SQLite projections included, synchronize as row operations with a logical hash ([collections](1.4-collections.md)); an external store has no such form yet ([data model §3](1.1-data-model.md#3-representations)).
-6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](4.1-executable-documents.md#131-agent-files)).
-7. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
-8. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([executable documents](4.1-executable-documents.md#4-queries)).
-9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](1.6-locators.md#1-forms)).
-10. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([updates and merging §3.1](1.3-updates-and-merging.md#31-exact-state-preconditions), [access control §4](3.2-access-control.md#4-reading-access)).
-11. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.
-12. **Placement-specific read-only ceilings** for installations where the same TreeID has several local placements with different effective limits.
-13. **Durable pinned placements of immutable historical revisions.** Revision locators remain read-only even when a client later makes them durable.
-14. **Reader-local annotation or proposal overlays** that augment a mounted tree without changing the underlying authored content. A nested mount is path composition, not such an overlay.
-15. **How a link spells a declared view**: a schema file plus an entry's label ([executable documents §1](4.1-executable-documents.md#1-views-and-their-addresses)).
+4. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](4.1-executable-documents.md#131-agent-files)).
+5. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
+6. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([executable documents](4.1-executable-documents.md#4-queries)).
+7. **A capability field that may reference a `system:` address** without making it a content locator ([locators](1.6-locators.md#1-forms)).
+8. **Additional fine-grained operation families** beyond the resource operations defined in access control. Scoped grants are now specified; exact-state preconditions remain concurrency guards, not permissions ([updates and merging §3.1](1.3-updates-and-merging.md#31-exact-state-preconditions), [access control §4](3.2-access-control.md#4-reading-access)).
+9. **Several simultaneous local placements of one TreeID**, including the ownership and conflict rules needed when more than one path is writable.
+10. **Placement-specific read-only ceilings** for installations where the same TreeID has several local placements with different effective limits.
+11. **Durable pinned placements of immutable historical revisions.** Revision locators remain read-only even when a client later makes them durable.
+12. **Reader-local annotation or proposal overlays** that augment a mounted tree without changing the underlying authored content. A nested mount is path composition, not such an overlay.
+13. **How a link spells a declared view**: a schema file plus an entry's label ([executable documents §1](4.1-executable-documents.md#1-views-and-their-addresses)).

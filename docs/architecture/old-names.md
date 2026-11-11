@@ -40,7 +40,7 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 | 03 locators | [locators](../overstory-spec/1.6-locators.md) |
 | 04 accounts and devices | [accounts and devices](../overstory-spec/3.1-accounts-and-devices.md); §4 local placements moved to [placements on disk §7](../overstory-spec/2.2-placements-on-disk.md#7-local-placements) |
 | 05 access control | [access control](../overstory-spec/3.2-access-control.md) |
-| 06 child backings | [collections](../overstory-spec/1.4-collections.md) (§1–2.3, 2.5), [placements on disk §4–6](../overstory-spec/2.2-placements-on-disk.md) (projections, SQLite, migration), [external stores](../overstory-spec/4.2-external-stores.md) (§4), [executable documents](../overstory-spec/4.1-executable-documents.md) (§5–6) |
+| 06 child backings | [collections](../overstory-spec/1.4-collections.md) (§1–2.3, 2.5), [placements on disk §4–6](../overstory-spec/2.2-placements-on-disk.md) (projections, SQLite, migration), Postgres moved to [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md), [executable documents](../overstory-spec/4.1-executable-documents.md) (§5–6) |
 | 07 executable documents | [executable documents](../overstory-spec/4.1-executable-documents.md) |
 | 08 authoring API | [executable documents](../overstory-spec/4.1-executable-documents.md#16-authoring-api) |
 | 09 client synchronization | [working trees](../overstory-spec/2.1-working-trees.md) |
