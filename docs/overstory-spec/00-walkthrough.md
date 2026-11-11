@@ -134,7 +134,7 @@ use "views/practices.view" (view as Practices)
 ````
 
 The server has enabled hosting for the tree, so it checks the file and binds
-`Practice` to `(tr_…, /practices, model fingerprint)` ([handles](4.1-apps-and-views.md#23-handles-and-code-versions)).
+`Practice` to `(tr_…, /practices, model fingerprint)` ([handles](4.1-apps-and-views.md#101-handles-and-code-versions)).
 The plan comes from the source alone: the `Link` expands once per published
 practice ([expansion](4.1-apps-and-views.md#34-expansion), [the language](4.1-apps-and-views.md)).
 A visitor's browser receives the page with the view drawn as HTML. Story opens
