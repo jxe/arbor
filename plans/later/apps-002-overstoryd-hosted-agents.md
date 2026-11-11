@@ -208,7 +208,7 @@ Every runtime may expose Overstory's built-in read, navigate, search, backlinks,
 node-query, and mutation operations. The node-query surface includes schema-
 governed collection and relational capabilities when the addressed source
 provides them. An agent may additionally name compiled
-[app](../../docs/overstory-spec/4.1-apps-and-views.md#3-modules-and-named-handles) query and mutation handles. Each
+[app](../../docs/overstory-spec/4.1-apps-and-views.md#3-files-and-named-handles) query and mutation handles. Each
 tool has a typed input/output boundary and retains tree/path provenance in its
 results.
 

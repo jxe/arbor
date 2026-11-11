@@ -6,11 +6,13 @@
 
 **PLANNED · after Apps
 [005](../../status.md#views-on-the-host-and-declared-views--2026-11-08); coordinates [011](../soon/apps-011-widgets-in-story.md).**
-Replace unused query/mutation authoring as needed. Own final authoring signatures,
-workflow progress/receipt encoding and implementation in the sidecar, not another
-overstoryd execution engine. Portable semantics live in [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md)
-and [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md#15-authoring-api). The illustrative syntax there
-is a design starting point, not an implemented compiler claim.
+**Superseded in part (Joe, 2026-11-11):** views and mutations are now written in the
+declarative view language ([apps and views §15](../../docs/overstory-spec/4.1-apps-and-views.md#15-the-language)),
+and TypeScript authoring is gone ([Apps 015](../soon/apps-015-the-view-language.md)). The
+TypeScript signatures below (`authority`, `step`, transaction callbacks) are a record of the
+earlier design; durable workflows and combined author/user authority must be redesigned as
+language statements before any of this is built. Code with general effects is
+[USL plugins](apps-014-usl-plugins.md)' sources and sinks.
 
 ## First deliverable: freeze concrete authoring
 

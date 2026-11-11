@@ -46,10 +46,11 @@ updates on the same row changes.
 
 - A page that presents a collection (the
   [pages that present other collections](../spec-extensions/pages-that-present-other-collections.md)
-  extension, once settled) and a `.tsx` widget embed share placement identity and menus.
+  extension, once settled) and a `.view` widget embed share placement identity and menus.
 - An authored view can include a declared view as a component, for example an app's own
   page that shows its collection "By status".
-- Row actions in the built-in list come from the app's `mutation.for(Model, op)` when it has
+- Row actions in the built-in list come from the app's row-action mutations
+  (`mutation … for Model.op`, [apps and views §15.5](../../docs/overstory-spec/4.1-apps-and-views.md#155-mutations)) when it has
   them, and otherwise from plain row edits (Schema language 007).
 
 **Verify:** the People directory and the games sandbox look and edit the same before and

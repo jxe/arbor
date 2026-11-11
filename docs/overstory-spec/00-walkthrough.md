@@ -112,45 +112,48 @@ Each row has an ordinary public address such as
 
 ## 7. Show it on a page
 
-Joe writes a view in `views/practices.tsx` and embeds it in his page with a
-link on its own line, `views/practices.tsx`:
+Joe writes a view in `views/practices.view` and embeds it in his page with a
+link to `views/practices.view` on a line of its own:
 
-```tsx
-import { node, view } from "overstory/data"
-import { Column, Link } from "overstory/ui"
+```
+use "../practices/schema.usl"
 
-const Practice = node("./practices").children
-
-export default view(() => (
+view Practices() =
   <Column>
-    {Practice.all(p => [p.published.is(true)]).map(p =>
-      <Link key={p.id} href={`practices/${p.id}`}>{p.title}</Link>)}
+    <Link to="practices/{p.id}" for={p in Practice} where={p.published}>{p.title}</Link>
   </Column>
-))
 ```
 
-The server has enabled hosting for the tree, so it compiles the view and binds
-`./practices` to `(tr_…, /practices, model fingerprint)` ([handles](4.1-apps-and-views.md#3-modules-and-named-handles),
-[queries](4.1-apps-and-views.md#4-queries), [compilation](4.1-apps-and-views.md#7-compilation-and-hosting)).
-A visitor's browser receives the page with the view's result
-embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the view's handle
-and code version. The stream sends `result` and `ready`. When Joe edits
-the CSV, the tree advances, the host sees which rows the view read changed,
-re-evaluates it, and a new `result` with a new `outputHash` follows
-([apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views), [apps and views](4.1-apps-and-views.md#15-authoring-api)).
+The server has enabled hosting for the tree, so it checks the file and binds
+`Practice` to `(tr_…, /practices, model fingerprint)` ([files and handles](4.1-apps-and-views.md#3-files-and-named-handles)).
+The plan comes from the source alone: the `Link` expands once per published
+practice ([expansion](4.1-apps-and-views.md#413-expansion), [the language](4.1-apps-and-views.md#15-the-language)).
+A visitor's browser receives the page with the view drawn as HTML. Story opens
+`QUERY /.overstory/trees/tr_…/views` naming the view's handle and code version,
+receives the plan's rows as `result`, then `ready`, and draws the view natively.
+When Joe edits the CSV, the tree advances, the host sees which rows the plan
+read changed, and a new `result` with a new `outputHash` follows
+([apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views)).
 
 ## 8. Run a mutation
 
-`handles.ts` also exports a mutation, `addPractice`, with an input schema.
-A form on the page calls it as an action. The browser sends
-`POST /.overstory/trees/tr_…/mutate` with the handle, the input, and a
-caller-chosen `mutationID`. The runtime runs the mutation in one transaction
-over the collection's rows and submits its writes as one guarded update of row
-operations. The receipt's `affected` names that accepted update, and Alice's
-watch sees an ordinary `tree.update` frame; Joe's Mac rewrites the CSV. A
-retry with the same `mutationID` returns the original receipt and does nothing
-twice ([mutations](4.1-apps-and-views.md#5-mutations),
-[apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations), [actions](4.1-apps-and-views.md#154-actions-and-forms)).
+The same file declares a mutation:
+
+```
+mutation addPractice(title: Text) =
+  require me != null else user-required
+  require title != "" else invalid-input "A practice needs a title"
+  insert Practice { title: title, published: false }
+```
+
+A form on the page names it as its action, `<Form action={addPractice}>`.
+The browser sends `POST /.overstory/trees/tr_…/mutate` with the handle, the input, and a
+caller-chosen `mutationID`. The runtime checks the guards, then submits the
+insert as one guarded update of row operations. The receipt's `affected` names
+that accepted update, and Alice's watch sees an ordinary `tree.update` frame;
+Joe's Mac rewrites the CSV. A retry with the same `mutationID` returns the
+original receipt and does nothing twice ([mutations](4.1-apps-and-views.md#5-mutations),
+[apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations), [actions](4.1-apps-and-views.md#154-actions-forms-and-events)).
 
 ## 9. Rename the canonical URL
 
