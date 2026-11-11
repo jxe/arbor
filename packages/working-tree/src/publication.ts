@@ -1,4 +1,4 @@
-import { composeSourceEdits, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
+import { composeSourceEdits, decodeProtocolPage, encodeProtocolPage, type PlainSourceEdit, objectDelta, applyObjectDelta, encodeObjectDeltaJSON, encodeWireBody, decodeBase64, decodeProtocolDirectory, encodeProtocolDirectory, encodeBase64, arrangeSources, decodeTreeSnapshotJSON, hashObject, protocolObjectReferences, type ProtocolDirectoryEntry, type ProtocolObjectKind, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
 import { UpdateValidationError } from "./control.ts";
 import type { LocalChange } from "./local-change.ts";
 
@@ -20,7 +20,7 @@ function movePublication(records: LocalChange[]): ChangePublication | undefined 
   const frame = composeMoves(frames, decodeTreeSnapshotJSON(first.graph).objects, decodeTreeSnapshotJSON(last.candidate).objects, "move");
   if (!frame || frame.after !== last.candidate.root) return;
   const changes = records.map(record => record.change), known = new Set(first.graph.objects.map(object => object.hash));
-  return { changes, update: { change: identity("moves-", changes), candidate: frame.after, resolves: [], deltas: [],
+  return { changes, update: { change: identity("moves-", changes), at: last.update.at, candidate: frame.after, resolves: [], deltas: [],
     objects: last.candidate.objects.filter(object => !known.has(object.hash)), trace: [frame] },
     operations: Object.fromEntries(records.map(record => [record.change, Object.fromEntries(record.update.trace!.flatMap(frame => frame.operations).map(op => [op.key, "move"]))])) };
 }
@@ -129,7 +129,9 @@ export function publication(records: LocalChange[], previous: ChangePublication[
   const renamed = records.flatMap(record => record.update.trace!.map(frame => ({...frame, operations: frame.operations.map(op => ({...rewrite(op), key: names[record.change]![op.key]}) as SourceOperation)})));
   const trace = composePlainRuns(renamed, records, change, names);
   if (trace.length > 64 || trace.reduce((n, frame) => n + frame.operations.length, 0) > 1024) return;
-  return { changes, operations: names, update: { change, candidate: last.candidate.root, resolves: first.update.resolves, ...(first.update.ifCurrent !== undefined ? {ifCurrent: first.update.ifCurrent} : {}), deltas,
+  // A coalesced update is as late as its last record; each entry keeps the
+  // time its own record stamped (data model §6).
+  return { changes, operations: names, update: { change, at: last.update.at, candidate: last.candidate.root, resolves: first.update.resolves, ...(first.update.ifCurrent !== undefined ? {ifCurrent: first.update.ifCurrent} : {}), deltas,
     trace,
     objects: [...objects.values()].filter(object => !known.has(object.hash)).sort((a,b) => a.hash.localeCompare(b.hash)) } };
 }
@@ -228,10 +230,19 @@ function composeRun(run: Frame[], path: string, object: string, index: number, t
     const source = page ? page.body : stored;
     const produced = applyPlainEdits(source, edits); if (!produced) return;
     let next = page ? hashObject(encodeProtocolPage({ ...page, body: produced })) : hashObject(produced);
+    // The run's last tree says when the entry changed.
+    let times: { created: number; modified: number } | undefined, at = after;
+    for (const [i, part] of parts.entries()) {
+      const bytes = finish.get(at); if (!bytes) return;
+      const found = decodeProtocolDirectory(bytes).entries.find(entry => entry.name === part);
+      if (i < parts.length - 1) { if (!found?.directory) return; at = found.directory; continue; }
+      if (found?.created === undefined) return;
+      times = { created: found.created, modified: found.modified };
+    }
     for (let depth = parts.length - 1; depth >= 0; depth--) {
       const directory = directories[depth]!.value;
-      const entries = directory.entries.map(item => item.name !== parts[depth] ? item : depth === parts.length - 1
-        ? (page ? { name: item.name, page: next } : { name: item.name, file: next }) : { name: item.name, directory: next });
+      const entries = directory.entries.map((item): ProtocolDirectoryEntry => item.name !== parts[depth] ? item : depth === parts.length - 1
+        ? (page ? { name: item.name, page: next, ...times! } : { name: item.name, file: next, ...times! }) : { name: item.name, directory: next });
       next = hashObject(encodeProtocolDirectory({ ...directory, entries }));
     }
     if (next !== after) return;
@@ -293,17 +304,18 @@ export function branchPublications(group: ChangePublication, shared: number, bra
     [record.graph, record.candidate].flatMap(graph => [...decodeTreeSnapshotJSON(graph).objects])));
   const directory = (hash: string) => decodeProtocolDirectory(objects.get(hash)!);
   // A crossed file or page, by its object; the entry keeps its kind.
-  function file(root: string, path: string): string {
+  function file(root: string, path: string): string { return content(root, path).object; }
+  function content(root: string, path: string): { object: string; created: number; modified: number } {
     const parts = path.slice(1).split("/"); let hash = root;
     for (const [i, part] of parts.entries()) {
       const entry = directory(hash).entries.find(entry => entry.name === part);
-      if (i === parts.length - 1 && (entry?.file ?? entry?.page) !== undefined) return (entry!.file ?? entry!.page)!;
+      if (i === parts.length - 1 && (entry?.file ?? entry?.page) !== undefined) return { object: (entry!.file ?? entry!.page)!, created: entry!.created!, modified: entry!.modified! };
       if (!entry?.directory) throw new UpdateValidationError("Publication branch requires existing files");
       hash = entry.directory;
     }
     throw new UpdateValidationError("Invalid publication branch path");
   }
-  const replacements = [...crossed].sort().map(path => ({path, before: file(split.candidate.root, path), after: file(end.candidate.root, path)}));
+  const replacements = [...crossed].sort().map(path => ({path, before: file(split.candidate.root, path), after: content(end.candidate.root, path)}));
   const result: ChangePublication[] = [];
   for (const record of branch) {
     const supplied = new Map(record.update.objects.map(object => [object.hash, object]));
@@ -318,8 +330,9 @@ export function branchPublications(group: ChangePublication, shared: number, bra
         const parts = replacement.path.slice(1).split("/");
         function replace(hash: string, depth: number): string {
           const value = directory(hash);
-          value.entries = value.entries.map(entry => entry.name !== parts[depth] ? entry : depth === parts.length - 1
-            ? (entry.page !== undefined ? {name: entry.name, page: replacement.after} : {name: entry.name, file: replacement.after}) : {name: entry.name, directory: replace(entry.directory!, depth + 1)});
+          const {object, created, modified} = replacement.after;
+          value.entries = value.entries.map((entry): ProtocolDirectoryEntry => entry.name !== parts[depth] ? entry : depth === parts.length - 1
+            ? (entry.page !== undefined ? {name: entry.name, page: object, created, modified} : {name: entry.name, file: object, created, modified}) : {name: entry.name, directory: replace(entry.directory!, depth + 1)});
           const bytes = encodeProtocolDirectory(value), next = hashObject(bytes);
           objects.set(next, bytes); supplied.set(next, {hash: next, bytes: encodeBase64(bytes)});
           return next;

@@ -400,7 +400,8 @@ export class ExecSidecar implements AsyncDisposable {
         const change = `mutation-${sha256(`${tree}\0${subject}\0${question.mutationID}\0${prepared.requestDigest}`).slice(0, 32)}`;
         const request: DerivableUpdateRequest = {
           base: collection.update,
-          updates: [{ change, candidate: null, ifCurrent: collection.update, trace: [{ operations }], resolves: [], deltas: [], objects: [] }],
+          // Stored with the pending receipt, so a retry derives the same root (updates and merging §1.1).
+          updates: [{ change, at: new Date().toISOString(), candidate: null, ifCurrent: collection.update, trace: [{ operations }], resolves: [], deltas: [], objects: [] }],
         };
         this.receipts.query("insert or replace into pending_receipts (tree, subject, mutation_id, request_digest, request_json, result_json) values (?, ?, ?, ?, ?, ?)")
           .run(tree, subject, question.mutationID, prepared.requestDigest, JSON.stringify(request), JSON.stringify(trial.result ?? null));

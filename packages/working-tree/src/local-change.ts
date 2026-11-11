@@ -1,7 +1,7 @@
 import {prepareEntryActions, prepareEntryTransfer, type EntryActions, type EntryTransfer} from "./entry-transfer.ts";
 import { applySourceChange, applySourceEdits, canonicalCBORHash, composeSourceEdits, type PlainSourceEdit, type SourceEdit, type SourceMove } from "@ovst/protocol";
 import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, verifyTreeSnapshotGraph, decodeProtocolDirectory, decodeProtocolPage, encodeProtocolPage, isProtocolContentKind, parsePage, samePage, protocolObjectReferences, type ProtocolObjectKind,
-  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, encodeCandidateUpdateJSON,
+  encodeProtocolDirectory, hashObject, decodeCandidateUpdateJSON, entryTimeOf, stampedEntry, encodeCandidateUpdateJSON,
   type TreeSnapshot, type TreeSnapshotJSON, type CandidateUpdateJSON, type SourceOperation } from "@ovst/protocol";
 
 export type LocalChangeBasis = { kind: "accepted"; root: string; update: string } | { kind: "authored"; change: string };
@@ -104,8 +104,11 @@ class PageCopy extends Error {}
 export function prepareSourceChange(input: {
   change?: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot;
   sourcePath: string; intent: SourceIntent; compact?: boolean;
+  /** When the edit was made (RFC 3339 UTC); now when omitted. */
+  at?: string;
 }): LocalChange & {document: SourceDocumentCapture; sourcePath: string} {
   const { tree, sourcePath, intent, graph } = input;
+  const at = input.at ?? new Date().toISOString(), atMs = entryTimeOf(at);
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   if (intent.basis.tree !== tree || typeof intent.basis.revision !== "string" || !intent.basis.revision ||
       typeof intent.basis.path !== "string" || !validText(intent.basis.source, decoder) || typeof intent.source !== "string" ||
@@ -150,7 +153,7 @@ export function prepareSourceChange(input: {
       const produced = encoder.encode(source), file = hashObject(produced);
       objects.set(file, produced);
       addedBody = {parentPath: depth === 0 ? "/" : "/" + parts.slice(0, depth).join("/"), parent: hash, file};
-      directory.entries.push({ name: "_index.md", file });
+      directory.entries.push(stampedEntry("file", "_index.md", file, undefined, atMs));
       directory.entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
       const next = encodeProtocolDirectory(directory), root = hashObject(next); objects.set(root, next); return root;
     }
@@ -164,18 +167,19 @@ export function prepareSourceChange(input: {
       if (!after) {
         // Frontmatter that no longer parses leaves a file (directory format §3).
         const produced = encoder.encode(source), hash = hashObject(produced);
-        objects.set(hash, produced); directory.entries[index] = { name: entry.name, file: hash };
+        objects.set(hash, produced); directory.entries[index] = stampedEntry("file", entry.name, hash, entry, atMs);
       } else {
         const produced = encodeProtocolPage(after), hash = hashObject(produced);
         objects.set(hash, produced);
         if (samePage({ ...after, body: before.body }, before)) { file = entry.page; bodyStart = encoder.encode(previous).length - before.body.length; }
-        directory.entries[index] = { name: entry.name, page: hash };
+        directory.entries[index] = stampedEntry("page", entry.name, hash, entry, atMs);
       }
     } else if (depth === parts.length - 1) {
       if (!entry.file || !objects.has(entry.file) || !bytesEqual(objects.get(entry.file)!, encoder.encode(previous))) throw new Error("Source bytes do not match basis");
       file = entry.file;
-      const produced = encoder.encode(source);
-      entry.file = hashObject(produced); objects.set(entry.file, produced);
+      const produced = encoder.encode(source), hash = hashObject(produced);
+      objects.set(hash, produced);
+      directory.entries[directory.entries.indexOf(entry)] = stampedEntry("file", entry.name, hash, entry, atMs);
     } else {
       if (!entry.directory) throw new Error("Source path crosses a file or tree boundary");
       entry.directory = replace(entry.directory, depth + 1, previous, source);
@@ -267,7 +271,7 @@ export function prepareSourceChange(input: {
     if (compacted.every(frame => reproduces(frame, sourcePath, sources))) frames = compacted;
   }
   if (frames.length > TRACE_FRAME_LIMIT || frames.reduce((total, frame) => total + frame.operations.length, 0) > TRACE_OPERATION_LIMIT) evidence = false;
-  const update = encodeCandidateUpdateJSON({ candidate: root, change,
+  const update = encodeCandidateUpdateJSON({ candidate: root, change, at,
     trace: evidence && frames.length ? frames : null, resolves: [],
     objects: [...candidate.objects].filter(([hash]) => !graph.objects.has(hash)).sort(([a], [b]) => a.localeCompare(b)).map(([hash, bytes]) => ({ hash, bytes })), deltas: [] });
   decodeCandidateUpdateJSON(update);
@@ -356,14 +360,14 @@ function reproduces(frame: SourceFrame, sourcePath: string, sources: ReadonlyMap
  * names that branch and proves that removing it restores the original graph, so
  * the candidate is exactly the basis plus the addition. Undoing a conversion in
  * the editor is a plain source edit. */
-export function preparePageCreation(input: {change: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot; candidate: TreeSnapshot; creation: SourcePageCreation}): LocalChange {
-  const {change,tree,basis,graph,candidate,creation} = input;
+export function preparePageCreation(input: {change: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot; candidate: TreeSnapshot; creation: SourcePageCreation; at: string}): LocalChange {
+  const {change,tree,basis,graph,candidate,creation,at} = input;
   if (creation.document.tree !== tree) throw Error("Invalid creation scope");
-  const removed = prepareEntryActions(candidate,{transfers:[],removals:creation.removals},{change});
+  const removed = prepareEntryActions(candidate,{transfers:[],removals:creation.removals},{change,at:entryTimeOf(at)});
   if (removed.candidate.root !== graph.root) throw Error("Creation does not reproduce original graph");
   verifyTreeSnapshotGraph(graph,"sparse-files"); verifyTreeSnapshotGraph(candidate,"sparse-files");
   const operations = creationOperations(creation.removals, graph, candidate);
-  const update = encodeCandidateUpdateJSON({change,candidate:candidate.root,trace:[{before:graph.root,after:candidate.root,operations}],resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  const update = encodeCandidateUpdateJSON({change,at,candidate:candidate.root,trace:[{before:graph.root,after:candidate.root,operations}],resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   return {change,tree,basis,graph:snapshotJSON(graph),candidate:snapshotJSON(candidate),sourcePath:null,document:null,creation:{document:{...creation.document},removals:[...creation.removals]},update};
 }
 /** One `addEntry` per created branch, under the basis directory that held it. */
@@ -389,13 +393,16 @@ function creationOperations(paths: string[], graph: TreeSnapshot, candidate: Tre
 }
 export function prepareEntryChange(input: {
   change?: string; tree: string; basis: LocalChangeBasis; graph: TreeSnapshot; entryTransfer?: EntryTransfer; entryActions?: EntryActions; candidate?: TreeSnapshot;
+  /** When the edit was made (RFC 3339 UTC); now when omitted. */
+  at?: string;
 }): LocalChange {
   const change=input.change ?? crypto.randomUUID();
   if(!!input.entryTransfer === !!input.entryActions)throw Error("Specify one entry intent representation");
-  const context={change,candidate:input.candidate};
+  const at=input.at ?? new Date().toISOString();
+  const context={change,candidate:input.candidate,at:entryTimeOf(at)};
   const {candidate,operations}=input.entryActions ? prepareEntryActions(input.graph,input.entryActions,context) : prepareEntryTransfer(input.graph,input.entryTransfer!,context);
   if(input.candidate && input.candidate.root!==candidate.root)throw Error("Entry intent does not reproduce candidate");
-  const update=encodeCandidateUpdateJSON({change,candidate:candidate.root,trace:operations.length?[{before:input.graph.root,after:candidate.root,operations}]:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
+  const update=encodeCandidateUpdateJSON({change,at,candidate:candidate.root,trace:operations.length?[{before:input.graph.root,after:candidate.root,operations}]:null,resolves:[],deltas:[],objects:[...candidate.objects].filter(([hash])=>!input.graph.objects.has(hash)).sort(([a],[b])=>a.localeCompare(b)).map(([hash,bytes])=>({hash,bytes}))});
   decodeCandidateUpdateJSON(update);
   return {change,tree:input.tree,basis:input.basis,graph:snapshotJSON(input.graph),sourcePath:null,document:null,...(input.entryActions ? {entryActions:structuredClone(input.entryActions)} : {entryTransfer:structuredClone(input.entryTransfer)}),candidate:snapshotJSON(candidate),update};
 }
@@ -415,7 +422,7 @@ export function validateLocalChange(record: LocalChange): void {
   if ((record.document === null) !== (record.sourcePath === null)) throw new Error("Incomplete source intent");
   if (record.creation) {
     if (record.creation.document.tree !== record.tree || record.entryActions || record.entryTransfer) throw new Error("Invalid page creation");
-    const removed = prepareEntryActions(candidate,{transfers:[],removals:record.creation.removals},{change:record.change});
+    const removed = prepareEntryActions(candidate,{transfers:[],removals:record.creation.removals},{change:record.change,at:entryTimeOf(record.update.at)});
     if (removed.candidate.root !== graph.root) throw new Error("Creation does not reproduce original graph");
   }
   if (record.entryTransfer && record.entryActions) throw new Error("Multiple entry intent representations");

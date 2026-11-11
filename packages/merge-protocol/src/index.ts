@@ -175,6 +175,8 @@ const binding = z
 export interface Candidate {
   root: ObjectHash;
   change: string;
+  /** The update's `at` in Unix ms: what the candidate's own changes are stamped with (data model §6). */
+  at: number;
   trace: Frame[] | null;
   /** Decision keys whose guards overstoryd checked. */
   resolves: string[];
@@ -184,6 +186,7 @@ const candidate = z
   .object({
     root: hash,
     change: token,
+    at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     trace,
     resolves: z.array(token).max(1024),
     alternatives: z.array(binding).max(1024).optional(),

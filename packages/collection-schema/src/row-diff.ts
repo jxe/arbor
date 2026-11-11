@@ -141,7 +141,7 @@ function pageEdits(path: string, object: ObjectHash, before: ProtocolPage, after
  * properties and replaying the operations reproduces `candidate` exactly
  * (spec 10 §4.1). Null otherwise: any other change stays a snapshot.
  */
-export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHash, read: Read): Promise<PropertyOperation[] | null> {
+export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHash, read: Read, at: number): Promise<PropertyOperation[] | null> {
   const operations: PropertyOperation[] = [];
   const walk = async (path: string, before: ObjectHash, after: ObjectHash): Promise<boolean> => {
     if (before === after) return true;
@@ -172,7 +172,7 @@ export async function deriveRowOperations(basis: ObjectHash, candidate: ObjectHa
   if (!(await walk("/", basis, candidate)) || !operations.length) return null;
   operations.forEach((operation, index) => { operation.key = `${"page" in operation ? "page" : "row"}-${index + 1}`; });
   try {
-    const replayed = await executeRowOperations(basis, operations, read, replayCollectionRows);
+    const replayed = await executeRowOperations(basis, operations, read, at, replayCollectionRows);
     return replayed.root === candidate ? operations : null;
   } catch {
     return null;

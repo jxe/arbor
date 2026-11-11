@@ -52,6 +52,9 @@ import {
   validateUpdateRequestIntent,
   decodeProtocolDirectory,
   encodeProtocolDirectory,
+  entryTimeOf,
+  directoryStamper,
+  stampedEntry,
   hashObject,
   updateRequestDigests,
   type AcceptedTransition,
@@ -278,12 +281,12 @@ function mountBelow(parentPath: string, mount: string): string {
   return parentPath === "/" ? `/${mount}` : `${parentPath}/${mount}`;
 }
 
-function directSnapshot(source: string): TreeSnapshot {
+function directSnapshot(source: string, at = Date.now()): TreeSnapshot {
   const fileBytes = new TextEncoder().encode(source);
   const fileHash = hashObject(fileBytes);
   const rootBytes = encodeProtocolDirectory({
     type: "directory",
-    entries: [{ name: "_index.md", file: fileHash }],
+    entries: [stampedEntry("file", "_index.md", fileHash, undefined, at)],
   });
   const rootHash = hashObject(rootBytes);
   return { root: rootHash, objects: new Map([[fileHash, fileBytes], [rootHash, rootBytes]]) };
@@ -641,7 +644,7 @@ export class HostDaemon implements AsyncDisposable {
       access: [...communityAdmins.map((profile) => ({ who: { profile }, allow: ["admin" as const] })), { who: "everyone", allow: ["read"] }],
       mounts: {},
       apps: {},
-    }));
+    }, directoryStamper(undefined, Date.now())));
     const now = Date.now();
     this.db.transaction(() => {
       this.db.run("INSERT INTO meta (key, value) VALUES ('community_handle', ?)", [config.handle]);
@@ -657,7 +660,7 @@ export class HostDaemon implements AsyncDisposable {
       const profileConfig = await this.prepareConfig(profileTree, "person", snapshotTreeConfig({
         ...initialPersonConfig(profileTree, { id: deviceID, label, key: account.device.key }),
         access: [{ who: { profile: profileTree }, allow: ["admin"] }, { who: "everyone", allow: ["read"] }],
-      }));
+      }, directoryStamper(undefined, Date.now())));
       this.insertMemberMount(community.id, account.handle, profileTree);
       await this.insertTree(directSnapshot(profileSource("person", account.name ?? account.handle)), {
         id: profileTree,
@@ -1490,8 +1493,8 @@ export class HostDaemon implements AsyncDisposable {
     const kind = this.treeConfigKind(tree);
     const current = await this.configGraphAt(configuration.ref, kind, tree, undefined, true);
     const next = change(current);
-    const canonical = snapshotTreeConfig(next);
     const directory = decodeProtocolDirectory(await this.objects.load(configuration.ref));
+    const canonical = snapshotTreeConfig(next, directoryStamper(directory, Date.now()));
     const generated = decodeProtocolDirectory(canonical.objects.get(canonical.root)!);
     const same = (name: string) => JSON.stringify((current as unknown as Record<string, unknown>)[name.replace(".yaml", "")])
       === JSON.stringify((next as unknown as Record<string, unknown>)[name.replace(".yaml", "")]);
@@ -1912,7 +1915,7 @@ export class HostDaemon implements AsyncDisposable {
     const object = hashObject(bytes);
     const nextDirectory = encodeProtocolDirectory({
       ...directory,
-      entries: directory.entries.map((item, i) => i !== index ? item : entry.page ? { name: item.name, page: object } : { name: item.name, file: object }),
+      entries: directory.entries.map((item, i) => i !== index ? item : stampedEntry(entry.page ? "page" : "file", item.name, object, item, Date.now())),
     });
     const root = hashObject(nextDirectory);
     return { root, generated: new Map<ObjectHash, Uint8Array>([[object, bytes], [root, nextDirectory]]) };
@@ -2070,7 +2073,7 @@ export class HostDaemon implements AsyncDisposable {
       if (root === null || update.trace === null) throw new UpdateProtocolError("unsupported-operation", `Update ${updates.length} (${update.change}) leaves roots out without a basis`);
       let result: Awaited<ReturnType<typeof deriveTrace>>;
       try {
-        result = await deriveTrace(root, update.trace, (hash) => this.objects.load(hash, supplied), replayCollectionRows);
+        result = await deriveTrace(root, update.trace, (hash) => this.objects.load(hash, supplied), entryTimeOf(update.at), replayCollectionRows);
       } catch (error) {
         if (error instanceof UnsupportedDerivation) throw new UpdateProtocolError("unsupported-operation", error.message);
         throw error;
@@ -2320,6 +2323,7 @@ export class HostDaemon implements AsyncDisposable {
     return {
       root: update.candidate,
       change: update.change,
+      at: entryTimeOf(update.at),
       trace: update.trace,
       resolves,
       ...(alternatives.length ? { alternatives } : {}),
@@ -2349,7 +2353,7 @@ export class HostDaemon implements AsyncDisposable {
     // to acceptance. It depends only on the trace and the objects it names.
     let checked = this.plainTraces.get(update.trace);
     if (!checked) {
-      checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), replayCollectionRows);
+      checked = await checkPlainTrace(update.trace, (hash) => this.objects.load(hash, objects), entryTimeOf(update.at), replayCollectionRows);
       this.plainTraces.set(update.trace, checked);
     }
     if (!checked.plain) return miss(checked.reason);
@@ -2983,7 +2987,7 @@ export class HostDaemon implements AsyncDisposable {
         const rules = this.rules();
         const { answer, objects } = await this.mergeTool.ask({
           base: head.hash, head: head.hash,
-          candidate: { root, change, trace: null, resolves: [] },
+          candidate: { root, change, at: Date.now(), trace: null, resolves: [] },
           rules: { ...rules, config: { ...(rules.config as object), conflictProjection: "incoming" } },
         }, staged, [head.entry.root]);
         if (answer.root !== root) throw new ServerFaultError("The merge sidecar did not accept overstoryd's own root");
@@ -3217,7 +3221,7 @@ export class HostDaemon implements AsyncDisposable {
       const root = await this.prepareConfig(generateOverstoryID("tr"), "tree", snapshotTreeConfig({
         access: [{ who: { profile: profileTree }, allow: ["admin"] }],
         mounts: {},
-      }));
+      }, directoryStamper(undefined, Date.now())));
       accounts.push({ handle, profileTree, homeHost, root });
     }
     return { pins, locators, accounts };

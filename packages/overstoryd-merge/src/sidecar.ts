@@ -447,7 +447,7 @@ export class Sidecar {
     if (trace[0]!.before !== basis) throw new MergeRefusal("invalid", "Trace does not follow its basis");
     if (trace.at(-1)!.after !== candidate.root) throw new MergeRefusal("invalid", "Trace does not end at the candidate");
     try {
-      const checked = await validateSourceTrace(trace as SourceFrame[], (hash) => this.objects.read(hash), replayCollectionRows);
+      const checked = await validateSourceTrace(trace as SourceFrame[], (hash) => this.objects.read(hash), candidate.at, replayCollectionRows);
       for (const [hash, bytes] of checked.generated) this.remember(hash, bytes);
     } catch (error) {
       if (error instanceof MergeRefusal) throw error;

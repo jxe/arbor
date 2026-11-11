@@ -80,7 +80,9 @@ export interface AuthoredFrame extends DerivableFrame { before: string; after: s
  * `after` and the authority computes it. An empty trace carries no evidence
  * but is not a snapshot; only a resolution uses it. */
 export interface DerivableUpdateIntent {
-  change: string; candidate: string | null; trace: DerivableFrame[] | null;
+  /** When the edit was made, RFC 3339 UTC with milliseconds: it stamps the
+   * entries this update creates or changes (data model §6). */
+  change: string; at: string; candidate: string | null; trace: DerivableFrame[] | null;
   resolves: ResolutionDeclaration[]; ifCurrent?: string;
 }
 /** An update with every root stated: what a client that computes roots sends,
@@ -207,9 +209,12 @@ function operation(raw: unknown): AuthoredOperation {
 export function decodeAuthoredRequestIntent(raw: unknown): DerivableRequestIntent {
   const v = obj(raw); keys(v, ["base", "updates"]); if (v.base !== null) token(v.base);
   require(Array.isArray(v.updates) && v.updates.length > 0); const changes = new Set();
+  let previousAt = -Infinity;
   for (const raw of v.updates) {
     const u = decodeAuthoredCandidateIntent(raw);
     require(!changes.has(u.change)); changes.add(u.change);
+    // Within one request each `at` is no earlier than the one before it.
+    const at = Date.parse(u.at); require(at >= previousAt); previousAt = at;
   }
   if (v.base === null) { const first = v.updates[0]; require(!Object.hasOwn(first, "ifCurrent") && first.resolves.length === 0); }
   return v as DerivableRequestIntent;
@@ -223,8 +228,9 @@ export function authoredRequestIdentities(tree: string, request: DerivableReques
 export { reference as decodeMaterialRef };
 
 export function decodeAuthoredCandidateIntent(raw: unknown): DerivableUpdateIntent {
-  const u = obj(raw); keys(u, ["change", "candidate", "trace", "resolves"], ["ifCurrent"]);
+  const u = obj(raw); keys(u, ["change", "at", "candidate", "trace", "resolves"], ["ifCurrent"]);
   id(u.change);
+  require(typeof u.at === "string" && ROW_TIME.test(u.at) && Number.isFinite(Date.parse(u.at)));
   // A derived candidate is an operation trace whose last frame omits `after`.
   if (u.candidate !== null) hash(u.candidate);
   else require(Array.isArray(u.trace) && u.trace.length > 0);

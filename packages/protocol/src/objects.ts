@@ -5,10 +5,12 @@ export type ObjectHash = string;
 
 export type ProtocolEntryKind = "file" | "page" | "directory";
 export type ProtocolDirectoryEntry =
-  | { name: string; file: ObjectHash; page?: never; directory?: never; tree?: never }
-  | { name: string; page: ObjectHash; file?: never; directory?: never; tree?: never }
-  | { name: string; directory: ObjectHash; file?: never; page?: never; tree?: never }
-  | { name: string; tree: string; file?: never; page?: never; directory?: never };
+  | { name: string; file: ObjectHash; created: number; modified: number; page?: never; directory?: never; tree?: never }
+  | { name: string; page: ObjectHash; created: number; modified: number; file?: never; directory?: never; tree?: never }
+  | { name: string; directory: ObjectHash; file?: never; page?: never; tree?: never; created?: never; modified?: never }
+  | { name: string; tree: string; file?: never; page?: never; directory?: never; created?: never; modified?: never };
+/** A file or page entry. */
+export type ProtocolContentEntry = Extract<ProtocolDirectoryEntry, { created: number }>;
 
 export interface ProtocolDirectory {
   type: "directory";
@@ -180,12 +182,36 @@ function scanDirectory(b: Uint8Array): ProtocolDirectory | null {
   if (count < 0) return null;
   const entries: ProtocolDirectoryEntry[] = new Array(count);
   let previousAt = -1, previousLength = 0;
+  // An unsigned integer head at `o`, minimal and safe; -1 for anything else
+  // (a negative time takes the general path).
+  const uint = (): number => {
+    if (o >= n) return -1;
+    const first = b[o]!;
+    if (first >> 5 !== 0) return -1;
+    const extra = first & 31;
+    if (extra < 24) { o += 1; return extra; }
+    if (extra === 24) { if (o + 2 > n || b[o + 1]! < 24) return -1; o += 2; return b[o - 1]!; }
+    if (extra === 25) { if (o + 3 > n) return -1; const v = (b[o + 1]! << 8) | b[o + 2]!; if (v <= 0xff) return -1; o += 3; return v; }
+    if (extra === 26) { if (o + 5 > n) return -1; const v = ((b[o + 1]! << 24) >>> 0) + (b[o + 2]! << 16) + (b[o + 3]! << 8) + b[o + 4]!; if (v <= 0xffff) return -1; o += 5; return v; }
+    if (extra === 27) {
+      if (o + 9 > n) return -1;
+      const high = ((b[o + 1]! << 24) >>> 0) + (b[o + 2]! << 16) + (b[o + 3]! << 8) + b[o + 4]!;
+      const low = ((b[o + 5]! << 24) >>> 0) + (b[o + 6]! << 16) + (b[o + 7]! << 8) + b[o + 8]!;
+      if (high === 0 || high > 0x1fffff) return -1;
+      o += 9; return high * 0x100000000 + low;
+    }
+    return -1;
+  };
   for (let index = 0; index < count; index++) {
-    if (b[o] !== 0xa2) return null;
+    const size = b[o];
+    if (size !== 0xa2 && size !== 0xa4) return null;
     o += 1;
-    // Keys in canonical order: "file" sorts before "name"; "page", "tree" and "directory" after it.
+    // Keys in canonical order, shorter first: "file" and "page" entries are
+    // {file, name, created, modified} and {name, page, created, modified};
+    // "directory" and "tree" entries {name, directory} and {name, tree}.
     let kind: "file" | "page" | "directory" | "tree";
     let nameAt: number, nameLength: number, targetAt: number, targetLength: number;
+    let created = 0, modified = 0;
     if (key("file")) {
       kind = "file";
       targetLength = head(3); targetAt = o; o += targetLength;
@@ -202,6 +228,10 @@ function scanDirectory(b: Uint8Array): ProtocolDirectory | null {
       targetLength = head(3); targetAt = o; o += targetLength;
       if (targetLength < 0 || o > n) return null;
     } else return null;
+    if ((kind === "file" || kind === "page") !== (size === 0xa4)) return null;
+    if (size === 0xa4) {
+      if (!key("created") || (created = uint()) < 0 || !key("modified") || (modified = uint()) < 0 || created > modified) return null;
+    }
     // Name: non-empty, not . or .., no / \ or NUL, valid UTF-8 in NFC.
     if (nameLength === 0) return null;
     let ascii = true;
@@ -235,13 +265,104 @@ function scanDirectory(b: Uint8Array): ProtocolDirectory | null {
     }
     let target: string;
     try { target = strictUTF8.decode(b.subarray(targetAt, targetAt + targetLength)); } catch { return null; }
-    entries[index] = kind === "file" ? { name, file: target }
-      : kind === "page" ? { name, page: target }
+    entries[index] = kind === "file" ? { name, file: target, created, modified }
+      : kind === "page" ? { name, page: target, created, modified }
       : kind === "directory" ? { name, directory: target }
       : { name, tree: target };
   }
   if (o !== n) return null;
   return { type: "directory", entries };
+}
+
+/**
+ * A file or page entry at `name` holding `object`, with its times stamped as
+ * data model §6 says, from the entry that was at its path before (or at its
+ * source, for a rename, move or file↔page conversion):
+ *
+ * - the same object, or `keep` (a rename, move or conversion): its times stay;
+ * - a different object: `created` stays, `modified` becomes `at`;
+ * - nothing before: both become `at`.
+ *
+ * `source` is an earlier time a snapshot update takes from where the content
+ * came from, such as a file's mtime; it is never allowed past `at`.
+ */
+export function stampedEntry(
+  kind: "file" | "page",
+  name: string,
+  object: ObjectHash,
+  previous: ProtocolDirectoryEntry | undefined,
+  at: number,
+  options: { keep?: boolean; source?: number } = {},
+): ProtocolContentEntry {
+  const before = previous && (previous.file !== undefined || previous.page !== undefined) ? previous as ProtocolContentEntry : undefined;
+  const target = kind === "file" ? { name, file: object } : { name, page: object };
+  if (before && (options.keep || protocolContentObject(before) === object)) {
+    return { ...target, created: before.created, modified: before.modified } as ProtocolContentEntry;
+  }
+  const stamp = options.source !== undefined && isEntryTime(options.source) ? Math.min(options.source, at) : at;
+  return { ...target, created: before ? Math.min(before.created, stamp) : stamp, modified: stamp } as ProtocolContentEntry;
+}
+
+/** Stamps entries of one directory against the directory that was at its
+ * path before (`stampedEntry` for each name). */
+export type EntryStamper = (kind: "file" | "page", name: string, object: ObjectHash) => ProtocolContentEntry;
+export function directoryStamper(previous: ProtocolDirectory | undefined, at: number): EntryStamper {
+  const before = new Map(previous?.entries.map((entry) => [entry.name, entry]));
+  return (kind, name, object) => stampedEntry(kind, name, object, before.get(name), at);
+}
+
+/**
+ * A merged entry's times (data model §6, updates and merging §3.6): `created`
+ * is the basis's, or the earlier of the sides' when both created it;
+ * `modified` is the later of the sides that changed the entry, or the basis's
+ * when neither did. A side changed the entry when it differs from the basis
+ * in object or times.
+ */
+export function mergedEntryTimes(
+  base: ProtocolDirectoryEntry | undefined,
+  candidate: ProtocolDirectoryEntry | undefined,
+  current: ProtocolDirectoryEntry | undefined,
+): { created: number; modified: number } | undefined {
+  const times = (entry: ProtocolDirectoryEntry | undefined) => entry && entry.created !== undefined ? entry as ProtocolContentEntry : undefined;
+  const b = times(base), sides = [times(candidate), times(current)].filter((entry) => entry !== undefined);
+  if (!sides.length) return b ? { created: b.created, modified: b.modified } : undefined;
+  const changed = sides.filter((entry) => !b || protocolContentObject(entry) !== protocolContentObject(b) || entry.created !== b.created || entry.modified !== b.modified);
+  const created = b ? b.created : Math.min(...sides.map((entry) => entry.created));
+  const modified = changed.length ? Math.max(...changed.map((entry) => entry.modified)) : b!.modified;
+  return { created: Math.min(created, modified), modified };
+}
+
+/**
+ * A copy of a directory subtree as entries created at `at` (a copied entry is
+ * a new entry, data model §6): every file and page entry below `hash` takes
+ * `at` for both times, and the rewritten directories go into `objects`.
+ * Nested tree entries are left as they are. Returns the new directory hash.
+ */
+export function restampedSubtree(hash: ObjectHash, at: number, objects: Map<ObjectHash, Uint8Array>): ObjectHash {
+  const bytes = objects.get(hash);
+  if (!bytes) throw new Error(`Missing directory ${hash}`);
+  const directory = decodeProtocolDirectory(bytes);
+  const entries = directory.entries.map((entry): ProtocolDirectoryEntry => {
+    if (entry.directory) return { name: entry.name, directory: restampedSubtree(entry.directory, at, objects) };
+    if (entry.file !== undefined || entry.page !== undefined) return { ...entry, created: at, modified: at } as ProtocolContentEntry;
+    return entry;
+  });
+  const next = encodeProtocolDirectory({ ...directory, entries });
+  const result = hashObject(next);
+  objects.set(result, next);
+  return result;
+}
+
+/** An update's `at` (RFC 3339 UTC) as entry-time milliseconds. */
+export function entryTimeOf(at: string): number {
+  const ms = Date.parse(at);
+  if (!isEntryTime(ms)) throw new Error(`Invalid update time: ${at}`);
+  return ms;
+}
+
+/** Whether `value` can be an entry time: a safe integer of Unix milliseconds. */
+export function isEntryTime(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
 }
 
 /** The general decoder: any directory, with a message for every refusal. Exported for differential tests. */
@@ -269,8 +390,12 @@ export function decodeDirectoryValue(bytes: Uint8Array): ProtocolDirectory {
         || /[\\/\0]/.test(item.name)
         || (typeof item.file !== "string" && typeof item.page !== "string" && typeof item.directory !== "string" && typeof item.tree !== "string")
         || [item.file, item.page, item.directory, item.tree].filter((target) => target !== undefined).length !== 1
-        || itemKeys.length !== 2
+        || itemKeys.length !== (item.file !== undefined || item.page !== undefined ? 4 : 2)
       ) throw new Error("Invalid directory entry");
+      const content = item.file !== undefined || item.page !== undefined;
+      if (content && !(isEntryTime(item.created) && isEntryTime(item.modified) && item.created <= item.modified)) {
+        throw new Error("Invalid directory entry times");
+      }
       for (const hash of [item.file, item.page, item.directory]) {
         if (hash !== undefined && (typeof hash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(hash))) throw new Error("Invalid directory entry hash");
       }
@@ -288,6 +413,7 @@ export function decodeDirectoryValue(bytes: Uint8Array): ProtocolDirectory {
         ...(typeof item.page === "string" ? { page: item.page } : {}),
         ...(typeof item.directory === "string" ? { directory: item.directory } : {}),
         ...(typeof item.tree === "string" ? { tree: item.tree } : {}),
+        ...(content ? { created: item.created, modified: item.modified } : {}),
       } as ProtocolDirectoryEntry;
     });
     const collection = record.collection === undefined ? undefined : decodeCollectionReference(record.collection);

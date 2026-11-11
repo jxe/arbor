@@ -161,9 +161,11 @@ export interface ExistingProfileAccountRequest {
  * (`trace: null`), no resolutions, every object complete and no deltas. A
  * claim carries its configuration in this shape, and `declareTree` sends it.
  */
-export function activationElement(snapshot: TreeSnapshot, change: string = crypto.randomUUID()): CandidateUpdate {
+export function activationElement(snapshot: TreeSnapshot, change: string = crypto.randomUUID(), at: string = new Date().toISOString()): CandidateUpdate {
+  // `at` defaults to now, which is no earlier than the times the snapshot was stamped with.
   return {
     change,
+    at,
     trace: null,
     candidate: snapshot.root,
     resolves: [],

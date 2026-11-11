@@ -1,9 +1,11 @@
-import { decodeProtocolDirectory, decodeProtocolPage, encodeProtocolDirectory, hashObject, isProtocolContentKind, protocolEntryObject, protocolObjectReferences, verifyTreeSnapshotGraph, type ProtocolObjectKind, type TreeSnapshot, type SourceOperation } from "@ovst/protocol";
+import { decodeProtocolDirectory, decodeProtocolPage, encodeProtocolDirectory, hashObject, protocolContentObject, restampedSubtree, stampedEntry, type ProtocolDirectoryEntry, isProtocolContentKind, protocolEntryObject, protocolObjectReferences, verifyTreeSnapshotGraph, type ProtocolObjectKind, type TreeSnapshot, type SourceOperation } from "@ovst/protocol";
 
 /** Exact editor-declared relocation. This constructs a candidate; it does not infer
  * moves from snapshots or reconcile concurrent trees. */
 export interface EntryTransfer { kind: "moveEntry" | "copyEntry"; source: string; parent: string; name: string; rewrites?: Record<string,string> }
-export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, context: {change?:string; candidate?:TreeSnapshot} = {}): {candidate: TreeSnapshot; operations: SourceOperation[]} {
+/** `context.at` is the update's time in Unix ms: a copy is a new entry and
+ * takes it (data model §6); a move keeps the entry's times. */
+export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, context: {change?:string; candidate?:TreeSnapshot; at:number}): {candidate: TreeSnapshot; operations: SourceOperation[]} {
   verifyTreeSnapshotGraph(graph,"sparse-files");
   const components=(path:string)=>{
     if(path==="/")return [];
@@ -32,7 +34,10 @@ export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, 
   }
   let root=graph.root;
   if(input.kind==="moveEntry")root=change(root,source.slice(0,-1),d=>{d.entries=d.entries.filter(e=>e.name!==source.at(-1));});
-  root=change(root,parent,d=>{d.entries.push({...entry,name:input.name});});
+  const placed:ProtocolDirectoryEntry=input.kind==="moveEntry"?{...entry,name:input.name}
+    :entry.directory?{name:input.name,directory:restampedSubtree(entry.directory,context.at,objects)}
+    :stampedEntry(entry.page?"page":"file",input.name,protocolContentObject(entry)!,undefined,context.at);
+  root=change(root,parent,d=>{d.entries.push(placed);});
   const operations:SourceOperation[]=[{key:"entry-transfer",kind:input.kind,source:{material:{kind:"basis",path:input.source,object:protocolEntryObject(entry)!.hash}},destination:{parent:{material:{kind:"basis",path:input.parent,object:destination}},name:input.name}}];
   for(const [index,[relative,hash]] of Object.entries(input.rewrites ?? {}).sort(([a],[b])=>a<b?-1:a>b?1:0).entries()) {
     const parts=relative ? components("/"+relative) : [];
@@ -59,7 +64,7 @@ export function prepareEntryTransfer(graph: TreeSnapshot, input: EntryTransfer, 
 /** Independent physical effects of one atomic editor action, all authored
  * against the same graph. Dependent transforms require operation-result references. */
 export interface EntryActions { transfers: EntryTransfer[]; removals: string[] }
-export function prepareEntryActions(graph: TreeSnapshot, actions: EntryActions, context: {change: string; candidate?: TreeSnapshot}): {candidate: TreeSnapshot; operations: SourceOperation[]} {
+export function prepareEntryActions(graph: TreeSnapshot, actions: EntryActions, context: {change: string; candidate?: TreeSnapshot; at: number}): {candidate: TreeSnapshot; operations: SourceOperation[]} {
   verifyTreeSnapshotGraph(graph,"sparse-files");
   if(!actions.transfers.length && !actions.removals.length)throw Error("Empty entry action");
   const sources=[...actions.transfers.map(t=>t.source),...actions.removals];

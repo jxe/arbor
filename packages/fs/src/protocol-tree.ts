@@ -10,6 +10,7 @@ import {
   encodeProtocolPage,
   hashObject,
   isPageName,
+  stampedEntry,
   parsePage,
   writePageFile,
   type LazyTreeSnapshot,
@@ -111,6 +112,14 @@ export async function snapshotDirectory(
    * writer is in page mode when its basis holds a page entry.
    */
   pages = false,
+  /**
+   * How entries are stamped (data model §6): `at` is the update's time, and
+   * `basis` gives the basis directory at a tree path, whose entries keep
+   * their times when unchanged. A new or changed file takes its mtime, never
+   * later than `at`. Without it every entry is stamped with its mtime, as
+   * for a folder no tree holds yet.
+   */
+  stamp: { at: number; basis?: (path: string) => Promise<ProtocolDirectory | undefined> } = { at: Date.now() },
 ): Promise<LazyTreeSnapshot> {
   const resolvedInputRoot = resolve(inputRoot);
   const root = await realpath(inputRoot);
@@ -183,6 +192,7 @@ export async function snapshotDirectory(
     const entries: ProtocolDirectoryEntry[] = [];
     const fileNames: string[] = [];
     const seen = new Set<string>();
+    const basis = new Map((await stamp.basis?.(treePath))?.entries.map((entry) => [entry.name, entry]));
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => compareProtocolNames(a.name, b.name))) {
       if (isTransactionTemporaryName(entry.name) || isPlatformMetadataName(entry.name)) continue;
       if (isCloudPlaceholderName(entry.name)) {
@@ -206,7 +216,11 @@ export async function snapshotDirectory(
       } else if (entry.isFile()) {
         const page = await pageSource(absolute, entry.name);
         fileNames.push(entry.name);
-        entries.push(page ? { name: entry.name, page } : { name: entry.name, file: await fileSource(absolute, entry.name) });
+        const object = page ?? await fileSource(absolute, entry.name);
+        const before = basis.get(entry.name);
+        const unchanged = before && (before.file ?? before.page) === object;
+        const source = unchanged ? undefined : Math.floor(Number((await stat(absolute, { bigint: true })).mtimeNs / 1_000_000n));
+        entries.push(stampedEntry(page ? "page" : "file", entry.name, object, before, stamp.at, { source }));
         seen.add(entry.name);
       }
     }

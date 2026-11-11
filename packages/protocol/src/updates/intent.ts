@@ -3,12 +3,13 @@ import type { ObjectHash } from "../objects.ts";
 import type { DerivableCandidateUpdate, DerivableUpdateRequest } from "./types.ts";
 
 export type UpdateIntentBase = string | null | { requestDigest: ObjectHash; candidate: ObjectHash | null };
-export type UpdateIntent = Pick<DerivableCandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "trace"> & { base: UpdateIntentBase };
+export type UpdateIntent = Pick<DerivableCandidateUpdate, "candidate" | "ifCurrent" | "resolves" | "change" | "at" | "trace"> & { base: UpdateIntentBase };
 
 function intent(tree: string, request: UpdateIntent) {
   return {
-    domain: "arbor-update/2",
+    domain: "overstory-update/1",
     change: request.change,
+    at: request.at,
     trace: request.trace,
     tree,
     base: request.base,
