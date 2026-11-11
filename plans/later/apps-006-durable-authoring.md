@@ -9,7 +9,7 @@
 Replace unused query/mutation authoring as needed. Own final authoring signatures,
 workflow progress/receipt encoding and implementation in the sidecar, not another
 overstoryd execution engine. Portable semantics live in [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md)
-and [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md#16-authoring-api). The illustrative syntax there
+and [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md#15-authoring-api). The illustrative syntax there
 is a design starting point, not an implemented compiler claim.
 
 ## First deliverable: freeze concrete authoring
@@ -122,3 +122,106 @@ expansion/revocation and private-data non-disclosure pass; authored common cases
 need no hand-written outbox/receipt bookkeeping; unsupported arbitrary continuation
 or cross-store atomicity fails explicitly. Update spec, status and reference docs,
 and delete this plan only when those gates pass.
+
+## Text moved from the spec (2026-11-11)
+
+Joe moved these undecided designs out of [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md) on 2026-11-11, since they aren't built. They come back into the spec when this plan decides them. Old section numbers are from that chapter before the move.
+
+### From §5 Mutations
+
+A mutation may coordinate multiple domains through durable steps. This is a
+recoverable workflow, not a distributed atomic transaction. A later failure does
+not roll back previously committed steps. The runtime records stable step identity,
+input, code/binding identity and completed output; each backing atomically couples
+effects with retry evidence or supplies equivalent crash recovery. A sidecar journal
+alone cannot close the committed-but-response-lost gap. Pending work resumes against
+its pinned code and bindings, reauthorizes remaining effects, and reports blocked
+or failed progress without disguising partial completion. Compensation is explicit.
+
+Portable mutable schema includes primary and alternate unique keys, ordered
+foreign-key field pairs, nullability, and explicit constraint actions. Primary
+keys are immutable. The first portable foreign-key subset supports `restrict`,
+`cascade`, and `set-null` on delete, validated at transaction end so declared
+deferred or cyclic inserts succeed. `ON UPDATE CASCADE`, `SET DEFAULT`, and
+backing-default collation or coercion are not portable. A foreign key may cross
+collections only inside one logical data tree and one transaction domain; a
+cross-tree Overstory reference is a typed authored property, not a transactional
+foreign key. An accepted mutation contains every direct and cascading effect.
+Overstory never invents cascade intent for an ambiguous concurrent file edit or
+imprecise invalidation, and separate collection files do not imply a shared
+transaction domain.
+
+For each atomic step the runtime records retry identity and its completed result
+in the same transaction domain as its data effects, or uses an equivalent crash-recoverable
+mechanism that distinguishes a completed commit from an unexecuted intent after
+restart. Backing adapters provide guarded physical commit primitives; they do
+not define transaction scope, retry identity, or mutation semantics.
+
+### From §12.4 Durable workflow execution
+
+The query/mutation Overstory shapes above describe single-domain values and remain a
+basis for the runtime bridge, not a compatibility requirement for unused APIs.
+Workflow calls additionally expose `pending`, `blocked`, `failed`, or `completed`
+status and domain-specific receipts. They must not invent one `observedThrough`
+that promises atomic cross-domain visibility. [Apps 006](apps-006-durable-authoring.md)
+owns the paired language-neutral request/progress/receipt encoding before implementation.
+
+A durable step key is unique within an invocation, has canonical input, and is
+bound to pinned code and resolved source identities. Reusing a key for different
+intent fails. Completed output is replayed without repeating effects. Clock and
+ID values needed for replay are captured durably before use. Branches and loops
+require stable keys; automatic identity is allowed only where the compiler proves
+it remains stable. No arbitrary JavaScript continuation or process heap is durable.
+Transactions cannot span a suspension awaiting another provider. Restart without
+the pinned code or binding yields a diagnosable blocked run, never execution with
+new code. Receipts/results remain subject to current disclosure authority.
+
+Query SSR/hydration may reuse validated initial values; subscription always
+reauthorizes and establishes snapshot-and-follow. SQLite changes use provider
+observation, tree changes use host watch, and policy changes invalidate both.
+Mutation completion and subscribed results may arrive in either order. A disconnected
+client does not cancel already committed steps; explicit cancellation stops only
+future steps and reports what committed. Durable records must retain pinned code,
+bindings, step receipts and pending effects until safe recovery/retention expiry.
+
+### From §16.3 Mutations
+
+Views and mutations declare `authority: { author: [...], user: [...] }`.
+Requirements identify resolved source handles and operations, not credentials or
+arbitrary authority-bearing strings supplied by callers. Both parties' requirements
+are checked separately, then their granted capabilities combine for execution.
+Expansion beyond existing resource rules requires renewed consent; module/export
+renames within a code TreeID do not discard grants. Omission never confers ambient
+authority. Ordinary caller read permission, including `everyone`, works through code.
+
+The following is illustrative authoring syntax; [Apps 006](apps-006-durable-authoring.md)
+freezes the exact overloads, resource-selection typing and step API using the Supplies
+corpus before implementation. The previous `permission()` and `{ requires }` forms
+are superseded, not compatibility obligations.
+
+```ts
+export const savePractice = mutation({
+  input: inputSchema,
+  authority: {
+    author: [practices.read(), saves.create()],
+    user: [notebook.createChildren()],
+  },
+  async run({ input, user, step }) {
+    const prepared = await step("prepare", () => database.transaction(async tx => {
+      const practice = await tx.practices.get(input.practiceID)
+      return tx.saves.prepare({ practice, user })
+    }))
+    const page = await step("page", () => notebook.create(prepared.page))
+    return page
+  },
+})
+```
+
+Runtime handles choose their provider through the host's provider bindings, after their locators resolve by the ordinary [resolution rules](../../docs/overstory-spec/1.6-locators.md#4-resolution-rules).
+Single-domain handlers retain an implicit runner-owned transaction where declared;
+multi-domain handlers use explicit transaction blocks and stable durable steps.
+Straight-line handle calls may receive compiler-generated stable steps; loops,
+branches or dynamic repetition require explicit keys where stability is not proved.
+The runtime owns receipts and deterministic IDs; authors do not implement receipt
+or outbox tables. A transaction callback is one atomic step, not a sequence of
+independently replayed row writes. Throws roll back only the active transaction.

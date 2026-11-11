@@ -95,3 +95,31 @@ Not here:
   ([Apps 006](../later/apps-006-durable-authoring.md)).
 
 Never widen authority to get a fixture passing.
+
+## Text moved from the spec (2026-11-11)
+
+Joe moved these undecided designs out of [apps and views](../../docs/overstory-spec/4.1-apps-and-views.md) on 2026-11-11, since they aren't built. They come back into the spec when this plan decides them. Old section numbers are from that chapter before the move.
+
+### From §7 Compilation and hosting
+
+
+Compilation begins from the addressed view's module and follows its explicit import graph. It produces a reviewed app manifest containing:
+
+- source tree `TreeID`, logical module path, and code-version identity;
+- public component and asset bundles;
+- server-only query and mutation handles with Standard Schema input contracts
+  and author/user authority requirements with human-readable consent descriptions;
+- resolved read/write capabilities and backing-coupled features;
+- required tree roots, node/edge schemas, store identities, and schema fingerprints;
+- static query results when explicitly baked; and
+- live-host requirements.
+
+A module's path is ordinary Overstory identity, not an application ID. Moving a module changes its view's address just as moving any other file changes its URL. Imported named handles are identified by tree, module path, and export name; code hashes identify their versions.
+
+An Overstory host explicitly enables app hosting for a tree and grants its tree execution principal the reviewed capabilities required by its compiled modules. Merely adding `.ts` or `.tsx` source does not publish it, execute it, or grant it access. The host may compile eagerly or on demand, but a request uses one coherent version of the addressed view and all of its handles. An incompatible compilation fails without replacing the last usable version.
+
+Framework filenames do not create mutation endpoints, action routes, loaders, or private-data boundaries. Generated transport endpoints are host protocol details and are never authored or navigable nodes.
+
+### From §11 Portability and limits
+
+Static baking may replace explicitly static reads with compiled results. A view depending on user identity, live data, mutations, or hosted-only capabilities remains an executable-host requirement and cannot silently become static.

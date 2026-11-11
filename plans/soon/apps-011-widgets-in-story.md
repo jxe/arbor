@@ -128,7 +128,7 @@ The spec now addresses views by file path with the extension
 a file's default `view` export is its one linkable view, and the same spelling is used to
 import, embed, link and `GET` it. `.mdx` is gone, and the React document model
 (`overstory/react`, `useQuery`, extensionless `.tsx` routing) is gone from
-[the authoring API](../../docs/overstory-spec/4.1-apps-and-views.md#16-authoring-api). Still to do in code:
+[the authoring API](../../docs/overstory-spec/4.1-apps-and-views.md#15-authoring-api). Still to do in code:
 
 - `.mdx` files are plain file entries, not pages: `packages/protocol/src/pages.ts`,
   `path-read.ts` (`x.mdx`, `_index.mdx`), Swift `ProtocolPage.swift` and `ProtocolPathRead.swift`,

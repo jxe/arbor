@@ -24,7 +24,7 @@ export function hostProtocolOf(health: unknown): number {
  * Names a view or a mutation: a name in a file in a tree (07 §12.1). For an
  * authored handle, `path` is its module and `name` its export. For a declared
  * view, `path` is a schema and `name` a `~views` label. `version` is the
- * module's code version or the schema's fingerprint.
+ * module's code version or the schema file's object hash.
  */
 export interface HandleRef {
   tree: TreeID;

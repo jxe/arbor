@@ -140,7 +140,7 @@ embedded, then opens `QUERY /.overstory/trees/tr_…/views` naming the document
 version and the view. The stream sends `result` and `ready`. When Joe edits
 the CSV, the tree advances, the provider reports which rows changed, the host
 re-evaluates, and a new `result` with a new `outputHash` follows
-([apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views), [apps and views](4.1-apps-and-views.md#16-authoring-api)).
+([apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views), [apps and views](4.1-apps-and-views.md#15-authoring-api)).
 
 ## 8. Run a mutation
 
@@ -154,7 +154,7 @@ mutation changed an Overstory-canonical tree, the receipt's `affected` names the
 new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
 retry with the same `mutationID` returns the original receipt and does nothing
 twice ([mutations](4.1-apps-and-views.md#5-mutations),
-[apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations), [actions](4.1-apps-and-views.md#164-actions-and-forms)).
+[apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations), [actions](4.1-apps-and-views.md#154-actions-and-forms)).
 
 ## 9. Rename the canonical URL
 

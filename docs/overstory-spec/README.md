@@ -79,7 +79,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | 3. Accounts, access and federation | [accounts and devices](3.1-accounts-and-devices.md) | Profile identity, host accounts, tree configurations, device pairing and sessions, and declaring, activating and mounting trees |
 | | [access control](3.2-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches |
 | | [federation](3.3-federation.md) | Home and placement hosts, placement accounts, invitations accepted as placements, published device keys, and visitor sessions |
-| 4. Apps | [apps and views](4.1-apps-and-views.md) | Views, mutations and agents in `.ts`/`.tsx` files and Markdown: addresses, queries, mutations, identity, hosting, confinement, consent, transcripts, data disclosure, and the `overstory/data` and `overstory/ui` authoring API |
+| 4. Apps | [apps and views](4.1-apps-and-views.md) | Views, mutations and agents in `.ts`/`.tsx` files and Markdown: addresses, queries, mutations, identity, hosting, consent, data disclosure, and the `overstory/data` and `overstory/ui` authoring API |
 
 The specification map does not report implementation progress. See
 [status.md](../../status.md) for that boundary and [`conformance/`](conformance) for
@@ -148,16 +148,6 @@ Authentication headers apply to every route ([access control §2](3.2-access-con
 
 The protocol carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [accounts and devices](3.1-accounts-and-devices.md).
 
-## Execution hosts
-
-An execution runtime resolves authored source locators by the ordinary
-[resolution rules](1.6-locators.md#4-resolution-rules) and obtains each host-backed
-source's accepted state through the ordinary [current-tree read](1.2-reading-and-watching.md#111-reading-the-current-tree)
-under its execution token; there is no separate binding route. [apps and views](4.1-apps-and-views.md#8-host-and-server-boundaries)
-defines execution authority use; [reference sidecar documentation](../architecture/overstoryd/execution-sidecar.md)
-owns HTTP forwarding and provider bindings. Implementations
-may extract the runtime without preserving the unused legacy query/mutation APIs.
-
 ## Deferred
 
 These are the behaviors the specification names but does not yet define. Each
@@ -168,7 +158,7 @@ inline mention links here; accepted implementation work is indexed under
 1. **Remote tree deletion.** Retiring an active remote tree, and with it its configuration, is invalid until a deletion lifecycle exists ([accounts and devices](3.1-accounts-and-devices.md#32-invariants)).
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([apps and views §12.3](4.1-apps-and-views.md#123-relationship-to-tree-synchronization), [apps and views](4.1-apps-and-views.md#4-queries)).
 3. **External non-tree side effects** need an effect and consent contract distinct from deterministic collection mutations ([apps and views](4.1-apps-and-views.md#5-mutations)).
-4. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([apps and views](4.1-apps-and-views.md#131-agent-files)).
+4. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([apps and views](4.1-apps-and-views.md#13-agents)).
 5. **A Markdown-readable link carrying both a stable key and a content fragment.** The `#overstory-key=` alias has no room for a heading; such a link uses the `;overstory-key=` path suffix, which Overstory resolves but other Markdown readers do not ([locators §2.1](1.6-locators.md#21-links-written-in-markdown)).
 6. **Grouping, aggregates other than counts, pagination, and unbounded traversal** in views; today they are capability extensions ([apps and views](4.1-apps-and-views.md#4-queries)).
 7. **A capability field that may reference a `system:` address** without making it a content locator ([locators](1.6-locators.md#1-forms)).

@@ -42,7 +42,7 @@ On 2026-11-11 the spec's numbered chapters became five layers. Code comments tha
 | 05 access control | [access control](../overstory-spec/3.2-access-control.md) |
 | 06 child backings | [collections](../overstory-spec/1.4-collections.md) (§1–2.3, 2.5), [placements on disk §4–6](../overstory-spec/2.2-placements-on-disk.md) (projections, SQLite, migration), Postgres moved to [Postgres 001](../../plans/later/postgres-001-postgres-backed-collections.md), [apps and views](../overstory-spec/4.1-apps-and-views.md) (§5–6) |
 | 07 executable documents | [apps and views](../overstory-spec/4.1-apps-and-views.md) |
-| 08 authoring API | [apps and views](../overstory-spec/4.1-apps-and-views.md#16-authoring-api) |
+| 08 authoring API | [apps and views](../overstory-spec/4.1-apps-and-views.md#15-authoring-api) |
 | 09 client synchronization | [working trees](../overstory-spec/2.1-working-trees.md) |
 | 10 source intent | [updates and merging §2–3](../overstory-spec/1.3-updates-and-merging.md) |
 | 11 schema language | [schema language](../overstory-spec/1.5-schema-language.md) |
