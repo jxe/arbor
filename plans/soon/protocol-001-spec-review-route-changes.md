@@ -40,6 +40,7 @@ new form together, and the old forms are deleted in the same change.
 | No `configurationTree` in requests | accounts and devices §1.2 | clients send the derived configuration TreeID and the host refuses another | the host derives it; the challenge still binds it | Not yet: with Protocol 003 |
 | Pairing has one code | accounts and devices §4, §4.2 | `PUT /pairings/{PairingID}/claim` plus a secret in the body | `PUT /pairings/claim` with `code`; the host finds the pairing by the code's digest | Not yet: with Protocol 003 (recovery pairings too) |
 | One account descriptor | locators §5; federation §2 | home and placement descriptors differ; `homeHost` only at a placement host | one shape: `homeHost` always (the host itself at home), `configuration` only at home, `placementRoot` only at a placement host | Not yet: with Protocol 003 (TS `RemotePlacementAccountDescriptor` folds into `RemoteAccountDescriptor`) |
+| No access route | access control §4 | `GET /trees/{id}/access` (a safe projection plus locators) | none: administrators read `access.yaml` from the configuration tree; Story's share sheet resolves names itself | Not yet: with Protocol 003 (Story `StoryAppModel`/`ResourcePolicy`, TS `transport.ts`, story-web move first) |
 
 `/.overstory/execution/authority-watch` had no caller, so it was removed outright rather
 than moved.

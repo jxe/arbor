@@ -110,7 +110,6 @@ Every HTTP route an Overstory host exposes, and the section that defines it.
 | `GET /.overstory/trees/{TreeID}/presence`, `POST /.overstory/trees/{TreeID}/presence/{PresenceID}[/messages]` | [presence §3.3](1.2-reading-and-watching.md#33-routes) |
 | `QUERY /.overstory/trees/{TreeID}/views` | [apps and views §12.1](4.1-apps-and-views.md#121-evaluate-and-stream-views) |
 | `POST /.overstory/trees/{TreeID}/mutate` | [apps and views §12.2](4.1-apps-and-views.md#122-execute-named-mutations) |
-| `GET /.overstory/trees/{TreeID}/access` | [access control §4](3.2-access-control.md#4-reading-access) |
 | `POST /.overstory/challenges` (purpose `account`, `placement` or `session`), `PUT /.overstory/accounts` (a new home, or a placement) | [accounts and devices §1.1–1.4](3.1-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.overstory/pairings`, `PUT /.overstory/pairings/claim` | [accounts and devices §4](3.1-accounts-and-devices.md#4-device-pairing) |
 | `POST /.overstory/device-sessions` | [accounts and devices §4.1](3.1-accounts-and-devices.md#41-device-sessions) |
