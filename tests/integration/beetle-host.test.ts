@@ -17,6 +17,10 @@ import { CollectionProjections } from "@ovst/story-sync/state";
 import { serveHost } from "@ovst/overstoryd";
 import { resolveSnapshot, snapshotDirectory } from "@ovst/fs";
 import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, HostAccountStore, type HandleRef, type MutationCallRequest, type ObjectHash, type ViewsRequest } from "@ovst/protocol";
+import { loadDirectoryCollection } from "@ovst/collection-schema";
+import { StoreSchema } from "@ovst/beetle";
+import { rowsFromLogical } from "@ovst/usl";
+import { Materialization } from "../../packages/overstoryd/src/beetle-materialized.ts";
 import { installAccountHome } from "../helpers/account-home.ts";
 import { hostTree, readTreeConfig } from "../helpers/tree-config.ts";
 import { deviceClient, deviceSession, testAccount, testDevice } from "../helpers/devices.ts";
@@ -118,6 +122,17 @@ async function mutate(name: string, input: unknown, mutationID: string) {
     body: JSON.stringify(request),
   });
   return { status: response.status, body: await response.json() as any };
+}
+
+/** Two practices' ids, from the copy's rows. */
+async function practices(): Promise<string[]> {
+  const file = join(dataRoot, "beetle", "materialized", tree, encodeURIComponent("/supplies/data"), "_store.sqlite3");
+  const db = new Database(file, { readonly: true });
+  try {
+    return (db.query(`select id from "Practice" order by id limit 2`).all() as Array<{ id: string }>).map((r) => r.id);
+  } finally {
+    db.close();
+  }
 }
 
 /** Every node of a view tree, depth first. */
@@ -229,6 +244,39 @@ describe.serial("Beetle on the host", () => {
       const unliked = await mutate("toggleListReaction", { l: id }, "beetle-unlike");
       expect(unliked.body.rows).toEqual([{ table: "Reaction", key: JSON.stringify({ list: id, person: me }), deleted: true }]);
     } finally { controller.abort(); }
+  }, 30_000);
+
+  test("a mutation's SQL transaction commits on its copy as the accepted rows, at the accepted directory", async () => {
+    const made = await mutate("createList", { name: "Written in SQL", visibility: "Public" }, "sql-create");
+    const id = JSON.parse(made.body.rows[0].key) as string;
+    for (const [name, input, mutationID] of [
+      ["renameList", { l: id, name: "Renamed in SQL" }, "sql-rename"],
+      ["toggleListReaction", { l: id }, "sql-like"],
+      ["setListPractice", { l: id, p: (await practices())[0], included: true }, "sql-practice-1"],
+      ["setListPractice", { l: id, p: (await practices())[1], included: true }, "sql-practice-2"],
+      ["reorderList", { l: id, practices: [(await practices())[1], (await practices())[0]] }, "sql-reorder"],
+      ["setListPractice", { l: id, p: (await practices())[0], included: false }, "sql-practice-3"],
+    ] as const) expect((await mutate(name, input, mutationID)).status).toBe(200);
+    const head = host.overstoryd.currentUpdate(tree)!;
+    const objects = new Map<string, Uint8Array>((await (await deviceClient(host.url, token)).snapshot(tree, head.root)).objects);
+    const load = async (hash: string) => objects.get(hash)!;
+    let at = decodeProtocolDirectory(objects.get(head.root)!);
+    for (const name of ["supplies", "data"]) at = decodeProtocolDirectory(objects.get(at.entries.find((e) => e.name === name)!.directory!)!);
+    const dataHash = hashObject(encodeProtocolDirectory(at));
+    const collection = (await loadDirectoryCollection(at, load))!;
+    const schema = new StoreSchema(collection.schema.result);
+    const file = join(dataRoot, "beetle", "materialized", tree, encodeURIComponent("/supplies/data"), "_store.sqlite3");
+    const copy = new Database(file, { readonly: true });
+    const fresh = Materialization.build(join(sandbox, "fresh"), schema.layout, rowsFromLogical(schema.result, schema.layout, collection.tables), dataHash, "s");
+    try {
+      // The copy holds the accepted directory: its transaction committed, no catch-up ran.
+      expect((copy.query("select value from __beetle_materialized where key = 'directory'").get() as { value: string }).value).toBe(dataHash);
+      const dump = (db: Database) => Object.fromEntries(schema.layout.map((t) => [t.name, db.query(`select * from "${t.name}" order by ${t.primaryKey.map((k) => `"${k}"`).join(", ")}`).all()]));
+      expect(dump(copy)).toEqual(dump(fresh.database));
+    } finally {
+      copy.close();
+      fresh.close();
+    }
   }, 30_000);
 
   test("a data view streams its JSON", async () => {

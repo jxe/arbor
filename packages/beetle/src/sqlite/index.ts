@@ -3,3 +3,4 @@
 export { SQLiteStore } from "./store.ts";
 export * from "./introspect.ts";
 export { sqliteSnapshots } from "./snapshot.ts";
+export { SQLiteWriteStore, type RowEdit } from "./write.ts";

@@ -63,8 +63,15 @@ evaluator.
 
 ## Mutations
 
-A mutation gathers its facts over the same SQLite copies at the head and writes into an
-`OverlayStore` over them, which leaves the copy as it is. Its row operations come from the
+A mutation holds the copies of the collections it binds (no view or other mutation
+catches them up meanwhile), gathers its facts over them at the head, and writes into a
+SQL transaction on each changed copy's own second connection (`SQLiteWriteStore`,
+`begin immediate`, SQLite's foreign key checks off because deletes follow the layout's
+foreign keys themselves). Views keep reading the copy as it was until the transaction
+commits. When its update is accepted, the changed rows are rewritten as the accepted log
+holds them (stamped times included), the copy records the accepted collection directory,
+and the transaction commits, so the copy is what catching up would have made and no
+catch-up runs. Otherwise it rolls back. Its row operations come from the
 rows it touched (`editedLogical`): each written row's own logical row and the rows a
 relationship holds it in (a join row's owner, an ordered connection's holder), each
 converted from just its neighborhood, before and after, and stamped with the mutation's

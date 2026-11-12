@@ -75,14 +75,14 @@ export class Materialization {
     return m;
   }
 
-  private insert(table: Table): (row: Record<string, unknown>) => void {
+  private insert(table: Table, db = this.database): (row: Record<string, unknown>) => void {
     const columns = table.columns.map((c) => c.name);
-    const statement = this.database.prepare(`insert into ${quote(table.name)} (${columns.map(quote).join(", ")}) values (${columns.map(() => "?").join(", ")})`);
+    const statement = db.prepare(`insert into ${quote(table.name)} (${columns.map(quote).join(", ")}) values (${columns.map(() => "?").join(", ")})`);
     return (row) => statement.run(...table.columns.map((c) => stored(row[c.name] ?? emptyOf(c))) as never[]);
   }
 
-  private record(directory: string): void {
-    const set = this.database.prepare(`insert into ${META} (key, value) values (?, ?) on conflict(key) do update set value = excluded.value`);
+  private record(directory: string, db = this.database): void {
+    const set = db.prepare(`insert into ${META} (key, value) values (?, ?) on conflict(key) do update set value = excluded.value`);
     set.run("directory", directory);
     set.run("schema", this.schema);
     this.directory = directory;
@@ -95,12 +95,59 @@ export class Materialization {
    * the rows it holds in order. Every other row is the same before and after.
    */
   applyChanges(schema: StoreSchema, changes: LogicalChanges, directory: string): void {
+    this.database.transaction(() => {
+      this.database.exec("pragma defer_foreign_keys = on");
+      this.writeChanges(this.database, schema, changes);
+      this.record(directory);
+    })();
+  }
+
+  /** A second connection, for a mutation's writes (Performance 007), with SQLite's own foreign key checks off. */
+  private writer: Database | null = null;
+
+  /**
+   * Open a write transaction on the copy's second connection: what `SQLiteWriteStore`
+   * writes a mutation into. Views keep reading the rows as they were until it commits.
+   */
+  beginWrite(): Database {
+    if (!this.writer) {
+      this.writer = new Database(this.database.filename, { create: false, strict: true });
+      this.writer.exec("pragma busy_timeout = 5000");
+      this.writer.exec("pragma synchronous = normal");
+      this.writer.exec("pragma foreign_keys = off");
+    }
+    if (!this.writer.inTransaction) this.writer.exec("begin immediate");
+    return this.writer;
+  }
+
+  /**
+   * Commit the open write transaction once its update is accepted: the changed rows are
+   * written as the accepted log holds them (with their stamped times), so the copy is
+   * what catching up to `directory` would make.
+   */
+  commitWrite(schema: StoreSchema, changes: LogicalChanges, directory: string): void {
+    const db = this.writer;
+    if (!db?.inTransaction) throw new Error("No write is open");
+    try {
+      this.writeChanges(db, schema, changes);
+      this.record(directory, db);
+      db.exec("commit");
+    } catch (error) {
+      this.rollbackWrite();
+      throw error;
+    }
+  }
+
+  /** Discard the open write transaction, if any. */
+  rollbackWrite(): void {
+    if (this.writer?.inTransaction) this.writer.exec("rollback");
+  }
+
+  private writeChanges(db: Database, schema: StoreSchema, changes: LogicalChanges): void {
     const own = (model: string, row: LogicalTables[string][number]) => rowsFromLogical(schema.result, schema.layout, { [model]: [row] } as LogicalTables);
-    const db = this.database;
     const where = (columns: readonly string[]) => columns.map((c) => `${quote(c)} is ?`).join(" and ");
     const values = (row: Record<string, unknown>, columns: readonly string[]) => columns.map((c) => stored(row[c])) as never[];
-    db.transaction(() => {
-      db.exec("pragma defer_foreign_keys = on");
+    {
       const tableOf = (model: string) => {
         const name = schema.tableOf(model);
         const table = name ? schema.byName.get(name) : undefined;
@@ -139,7 +186,7 @@ export class Materialization {
               const sourceColumns = r.through.source.map((p) => p.through);
               const sourceValues = r.through.source.map((p) => stored[p.source] ?? null);
               db.prepare(`delete from ${quote(join.name)} where ${where(sourceColumns)}`).run(...sourceValues.map(storedValue) as never[]);
-              const insert = this.insert(join);
+              const insert = this.insert(join, db);
               for (const j of rows[join.name] ?? []) if (sourceColumns.every((c, i) => canonical(j[c] ?? null) === canonical(sourceValues[i]))) insert(j);
             } else if (r.direct && r.cardinality === "many") {
               const position = schema.positionOf(r);
@@ -157,11 +204,12 @@ export class Materialization {
         }
       }
       for (const set of positions) set();
-      this.record(directory);
-    })();
+    }
   }
 
   close(): void {
+    this.rollbackWrite();
+    this.writer?.close();
     this.database.close();
   }
 }

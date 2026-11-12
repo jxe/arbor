@@ -20,13 +20,22 @@ type Fact =
 export interface MutationOptions {
   /** The mutation's identity: new rows' ids derive from it, so an exact retry makes the same rows. */
   mutationID: string;
+  /**
+   * The store a changed collection's writes go to, over its rows as they were: by default
+   * writes held in memory over them; on the host, a SQL transaction on the collection's
+   * own database (`SQLiteWriteStore`).
+   */
+  writeTo?: (store: Store) => WriteStore;
 }
+
+/** A store a mutation writes to, which says which rows it changed. */
+export type WriteStore = Store & { edits(): Array<{ table: string; before: Row | null; after: Row | null }> };
 
 export interface MutationOutcome {
   /** Each bound collection's rows afterwards, by schema path; only collections it changed. Read whole on demand. */
   readonly rows: Record<string, RowsByTable>;
   /** Each changed collection's store before and its writes over it, by schema path: what row operations come from. */
-  changed: Record<string, { before: Store; after: OverlayStore }>;
+  changed: Record<string, { before: Store; after: WriteStore }>;
   /** The rows it wrote, by table: each one's key. */
   writes: Record<string, unknown[]>;
   /** Of those, the rows it deleted, by table. */
@@ -173,10 +182,11 @@ class MutationRun {
 
   /** Applies the gathered facts to a copy of the rows. */
   apply(): MutationOutcome {
-    const after = new Map<Store, OverlayStore>();
+    const after = new Map<Store, WriteStore>();
+    const writeTo = this.options.writeTo ?? ((s: Store) => new OverlayStore(s));
     const copy = (s: Store) => {
       let c = after.get(s);
-      if (!c) after.set(s, (c = new OverlayStore(s)));
+      if (!c) after.set(s, (c = writeTo(s)));
       return c;
     };
     const writes: Record<string, unknown[]> = {};

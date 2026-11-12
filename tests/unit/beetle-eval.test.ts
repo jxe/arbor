@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { layoutOf, logicalFromRows, rowsFromLogical, setupSql, type LogicalTables, type RowsByTable } from "@ovst/usl";
 import { BeetleError, compileProgram, editedLogical, Evaluator, runMutation, StoreSchema, type ViewNode } from "@ovst/beetle";
-import { SQLiteStore } from "@ovst/beetle/sqlite";
+import { SQLiteStore, SQLiteWriteStore } from "@ovst/beetle/sqlite";
 import { changedCollectionRows, compileLogicalSchema, encodeCollection } from "@ovst/collection-schema";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -436,6 +436,52 @@ describe("beetle over SQLite", () => {
       expect(changes(touched.before, touched.after)).toEqual(expected);
       // The SQLite rows themselves are as they were.
       expect(store.data()).toEqual(new SQLiteStore(store.schema, database(rows()), store.personFields).data());
+    });
+  }
+
+  for (const [path, me, name, input] of mutations) {
+    test(`${name} ${JSON.stringify(input)} as ${me}: writes as a SQL transaction give what the in-memory writes give`, () => {
+      const whole = runMutation(evaluator(path, me), name, input, { mutationID: "m-1" });
+      const { result, layout } = evaluator(path, me).stores.get(SCHEMA)!.schema;
+      const expected = changes(logicalFromRows(result, layout, rows(), { now: 1 }), logicalFromRows(result, layout, whole.rows[SCHEMA]!, { now: 1 }));
+      const dir = mkdtempSync(join(tmpdir(), "beetle-write-"));
+      try {
+        // The rows in a file, read on one connection and written in a transaction on another.
+        const file = join(dir, "store.sqlite3");
+        const reader = database(rows());
+        reader.exec("pragma journal_mode = wal");
+        reader.exec(`vacuum into '${file}'`);
+        const reading = new Database(file, { strict: true });
+        reading.exec("pragma journal_mode = wal");
+        const write = new Database(file, { strict: true });
+        write.exec("pragma foreign_keys = off");
+        write.exec("begin immediate");
+        const program = compileProgram(files[path]!, { path, read });
+        const person = (id: string) => people[id] ?? null;
+        const store = new SQLiteStore(new StoreSchema(program.checker.schemas.get(SCHEMA)!.result), reading, person);
+        const ev = new Evaluator(program, new Map([[SCHEMA, store]]), { me, now: new Date("2026-11-11T12:00:00Z"), person });
+        const outcome = runMutation(ev, name, input, { mutationID: "m-1", writeTo: (s) => new SQLiteWriteStore(s, write) });
+        const { before, after } = outcome.changed[SCHEMA]!;
+        expect(after).toBeInstanceOf(SQLiteWriteStore);
+        expect(outcome.writes).toEqual(whole.writes);
+        expect(outcome.deleted).toEqual(whole.deleted);
+        const touched = editedLogical(before, after, after.edits(), 1);
+        expect(changes(touched.before, touched.after)).toEqual(expected);
+        // Inside the transaction the rows are the mutation's; outside, as they were until it commits.
+        const logical = (data: RowsByTable) => logicalFromRows(result, layout, data, { now: 1 });
+        const all = (s: typeof store | typeof after) => Object.fromEntries(layout.map((t) => [t.name, s.rowsOf(t.name).map((r) => ({ ...r.data }))]));
+        // (A new row holds the database's insert time until the host writes its stamped one.)
+        const untimed = (tables: LogicalTables) => Object.fromEntries(Object.entries(tables).map(([m, list]) => [m, list.map(({ key, fields }) => ({ key, fields }))]));
+        expect(untimed(logical(after.data()))).toEqual(untimed(logical(whole.rows[SCHEMA]!)));
+        expect(logical(all(store))).toEqual(logical(rows()));
+        write.exec("commit");
+        // (A store keeps what it read; a new one reads the committed rows.)
+        expect(untimed(logical(all(new SQLiteStore(store.schema, reading, person))))).toEqual(untimed(logical(whole.rows[SCHEMA]!)));
+        reading.close();
+        write.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   }
 

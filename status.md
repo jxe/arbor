@@ -51,8 +51,17 @@ rows hash (collections §1, data model §5).
   port of `logicalFromRows`/`recordsFromRows`), then applies each later entry's changes;
   row counts come from the head entry. Swift checks each entry's row count but not its
   rows hash (no SHAKE256 in CryptoKit).
-- Not yet: the host's database as the working form, mutations as SQL transactions, the
-  switch.
+- A Beetle mutation writes into a SQL transaction on the host's copy of each collection it
+  changes (`@ovst/beetle/sqlite` `SQLiteWriteStore`; `runMutation`'s `writeTo`), held open
+  with the copy while its update is submitted: accepted, the changed rows are rewritten as
+  the log holds them and it commits at the accepted directory; otherwise it rolls back and
+  runs again. On every Supplies mutation its row changes, writes and rows match the
+  in-memory overlay's (`beetle-eval.test.ts`), and the host's copy after a run of
+  mutations equals one built from the accepted rows (`beetle-host.test.ts`). Facts are
+  still gathered and checked for conflicts by the evaluator, whose reads are SQL; the plan's
+  temp facts table and conflict query weren't needed for that. A Supplies mutation takes 13
+  to 14 ms end to end (12 to 13 before).
+- Not yet: the host's database as the working form, the switch.
 
 ## Entry times with the content — 2026-11-10
 

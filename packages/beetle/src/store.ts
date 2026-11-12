@@ -497,7 +497,7 @@ export class OverlayStore extends Store {
  * operations come from the rows it touched, not from whole collections. The set may hold
  * rows that didn't change; comparing before with after leaves them out.
  */
-export function editedLogical(before: Store, after: Store, edits: ReturnType<OverlayStore["edits"]>, now: number): { before: LogicalTables; after: LogicalTables } {
+export function editedLogical(before: Store, after: Store, edits: ReadonlyArray<{ table: string; before: Row | null; after: Row | null }>, now: number): { before: LogicalTables; after: LogicalTables } {
   const schema = before.schema;
   // The rows whose logical rows may have changed, named by columns that find them.
   const owners = new Map<string, { table: string; columns: string[]; values: Cell[] }>();

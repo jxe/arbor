@@ -99,23 +99,6 @@ Beetle's in-memory store, IndexedDB, or not at all in Browse mode). (Joe, 2026-1
 - **Its own edits merged differently or refused:** it keeps the operations it sent until
   their entry comes back, and on a difference undoes them and applies the accepted ones.
 
-### Mutations commit with their update
-
-A Beetle mutation becomes one SQL transaction on the host's database, held open while its
-update is submitted:
-
-1. Each line's reads run as `insert into temp facts select …`, before any write, so every
-   line reads the state from before the mutation (spec 1.5 §4).
-2. Conflicting facts are one query over the facts table: two values for the same row and
-   field fail the mutation with `conflict`. The checker flags the cases it can see
-   statically.
-3. The writes apply from the facts; their changed rows (`RETURNING`) become the row
-   operations.
-4. The operations are appended to the log as an update guarded on the head. Accepted: the
-   transaction commits. Not: it rolls back and the mutation runs again at the new head.
-
-The host serializes each collection's writes already.
-
 ### The host holds only the log form
 
 After the switch a collection is never held as table and rows chunks on the host. (Joe,
@@ -131,17 +114,13 @@ After the switch a collection is never held as table and rows chunks on the host
 
 ## Steps
 
-The log, rows hash, path reads, host snapshots, Story Sync's replica side and Swift's log
-reading are built
+The log, rows hash, path reads, host snapshots, Story Sync's replica side, Swift's log
+reading and mutations as SQL transactions are built
 ([status](../../status.md#performance-007-collections-as-a-log-of-row-changes--2026-11-12)).
 
 1. Host: the database as the working form. Accepting an update of row operations applies
    its entry to the host's SQLite copy in the same step, a cold load reads the copy instead
    of replaying the log, and a snapshot is `VACUUM INTO` of it; the in-memory states and the
    catch-up before views go.
-2. Mutations as SQL transactions, checked against the in-memory evaluator on every Supplies
-   mutation. Measured first (2026-11-12, `tests/performance/beetle-mutation-cost.ts`): a
-   Supplies mutation takes 11 to 13 ms end to end, update acceptance included, so this
-   waits for a collection where mutations are slow.
-3. Switch: the Protocol 003 migration turns each existing collection into a log; this
+2. Switch: the Protocol 003 migration turns each existing collection into a log; this
    branch merges after the flag day.

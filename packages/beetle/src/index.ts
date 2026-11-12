@@ -32,5 +32,5 @@ export function formatDiagnostic(path: string, d: Diagnostic): string {
 }
 export { compileProgram, type Program } from "./check.ts";
 export { Evaluator, BeetleError, Action, display, toJSON, toProp, type Value, type ViewNode, type EvalContext, type BoundRows } from "./eval.ts";
-export { runMutation, type MutationOptions, type MutationOutcome } from "./mutate.ts";
+export { runMutation, type MutationOptions, type MutationOutcome, type WriteStore } from "./mutate.ts";
 export { Store, OverlayStore, editedLogical, StoreSchema, Row, EnumValue, derivedID, canonical, type PersonFields, type PrefetchRead, type RowQuery } from "./store.ts";
