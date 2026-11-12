@@ -289,10 +289,24 @@ describe("beetle over SQLite", () => {
     });
   }
 
+  test("a view reads each table it ranges over once, with every relationship it follows from the rows nested in the same statement", () => {
+    const counts = cases.map(([path, me, name, input, data]) => {
+      const { sqlite, store } = both(path, me);
+      if (data) sqlite.data(name, input); else sqlite.view(name, input);
+      return [`${path}${name ? `?view=${name}` : ""}`, store.statements.length];
+    });
+    // Profile: the people any row names, then Practice and List once each. OnePractice: the practice, then List for its count.
+    expect(counts).toEqual([
+      ["/supplies/List.beetle", 1], ["/supplies/List.beetle", 1], ["/supplies/List.beetle", 1], ["/supplies/Home.beetle", 1],
+      ["/supplies/Profile.beetle", 3], ["/supplies/Feeds.beetle?view=ListsByOwner", 1], ["/supplies/Feeds.beetle?view=OnePractice", 2],
+      ["/supplies/data/schema.beetle?view=ByOwner", 1],
+    ]);
+  });
+
   test("a for over a table reads only the rows its conditions keep", () => {
     const { sqlite, store } = both("/supplies/List.beetle", BOB);
     sqlite.view("", { id: "L1" });
-    const lists = store.statements.filter((s) => s.sql.startsWith('select * from "List"'));
+    const lists = store.statements.filter((s) => s.sql.includes('from "List" as "r0"'));
     expect(lists.length).toBeGreaterThan(0);
     expect(lists.every((s) => s.sql.includes("where"))).toBe(true);
   });
@@ -300,7 +314,7 @@ describe("beetle over SQLite", () => {
   test("a for whose conditions and ordering are all on the row's columns reads only what its limit keeps", () => {
     const { sqlite, store } = both("/supplies/Feeds.beetle", null);
     sqlite.data("ListsByOwner", { owner: ALICE });
-    expect(store.statements[0]!.sql).toBe('select * from "List" where "owner" is ? order by ("modified" is null) desc, "modified" desc, "id" limit 20');
+    expect(store.statements[0]!.sql).toEndWith(' from "List" as "r0" where "owner" is ? order by ("modified" is null) desc, "modified" desc, "id" limit 20');
     expect(store.statements[0]!.parameters).toEqual([ALICE]);
   });
 

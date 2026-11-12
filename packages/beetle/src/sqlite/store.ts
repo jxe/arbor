@@ -7,8 +7,15 @@
 import type { Database } from "bun:sqlite";
 import { PERSON_RELATION, type Column, type Table } from "@ovst/usl";
 import { canonical, compareRows, Row, Store, type Cell, type PersonFields, type RowQuery, type StoreSchema } from "../store.ts";
+import type { ReadShape } from "../shape.ts";
+
+/** How many relationships deep one statement follows. */
+const MAX_NESTING = 4;
+/** The prefix of a nested read's key in a row's JSON; no column starts with it. */
+const NESTED = "→";
 
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
+const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
 
 /** A value as the layout stores it in SQLite: flags as 0/1. */
 function stored(value: Cell): unknown {
@@ -47,20 +54,110 @@ export class SQLiteStore extends Store {
     return t;
   }
 
-  private select(table: Table, where: string, parameters: unknown[], tail = ""): Row[] {
+  private select(table: Table, where: string, parameters: unknown[], tail = "", shape?: ReadShape): Row[] {
+    if (shape && !shape.empty) {
+      // One statement: each row as JSON, with the rows the shape follows from it nested in it.
+      const sql = `select ${this.rowJSON(table, "r0", shape, 1)} as row from ${quote(table.name)} as "r0"${where ? ` where ${where}` : ""}${tail}`;
+      this.statements.push({ sql, parameters });
+      return (this.database.query(sql).all(...(parameters as never[])) as Array<{ row: string }>).map((r) => this.loadJSON(table, JSON.parse(r.row) as Record<string, unknown>));
+    }
     const sql = `select * from ${quote(table.name)}${where ? ` where ${where}` : ""}${tail}`;
     this.statements.push({ sql, parameters });
+    return (this.database.query(sql).all(...(parameters as never[])) as Record<string, unknown>[]).map((raw) => this.rowOf(table, raw));
+  }
+
+  /** The one Row for a table's raw values. */
+  private rowOf(table: Table, raw: Record<string, unknown>): Row {
     const columns = new Map(table.columns.map((c) => [c.name, c]));
-    return (this.database.query(sql).all(...(parameters as never[])) as Record<string, unknown>[]).map((raw) => {
-      const data: Record<string, Cell> = {};
-      for (const [name, value] of Object.entries(raw)) data[name] = loaded(columns.get(name), value);
-      const row = new Row(table.stores, table.name, table.primaryKey, data);
-      const key = `${table.name}\0${row.keyText}`;
-      const known = this.identity.get(key);
-      if (known) return known;
-      this.identity.set(key, row);
-      return row;
-    });
+    const data: Record<string, Cell> = {};
+    for (const [name, value] of Object.entries(raw)) if (columns.has(name)) data[name] = loaded(columns.get(name), value);
+    const row = new Row(table.stores, table.name, table.primaryKey, data);
+    const key = `${table.name}\0${row.keyText}`;
+    const known = this.identity.get(key);
+    if (known) return known;
+    this.identity.set(key, row);
+    return row;
+  }
+
+  /** The relationship a shape's field follows from rows of `table`, when one statement can read it. */
+  private followed(table: Table, field: string) {
+    const place = this.schema.place(table.stores, field);
+    if (place.kind !== "relationship") return null;
+    const r = place.relationship;
+    if (r.direct && r.target !== PERSON_RELATION && this.schema.byName.has(r.target)) return r;
+    if (r.through && this.schema.byName.has(r.through.relation) && (r.target === PERSON_RELATION || this.schema.byName.has(r.target))) return r;
+    return null;
+  }
+
+  /** SQL for one row of `table`, aliased `alias`, as a JSON object, with what `shape` follows from it nested. */
+  private rowJSON(table: Table, alias: string, shape: ReadShape | undefined, depth: number): string {
+    const parts = table.columns.map((c) => `${literal(c.name)}, ${quote(alias)}.${quote(c.name)}`);
+    if (shape && depth <= MAX_NESTING) {
+      for (const [field, inner] of shape.fields) {
+        const r = this.followed(table, field);
+        if (!r) continue;
+        const b = `r${depth}`;
+        let sub: string;
+        if (r.direct) {
+          const target = this.table(r.target);
+          const on = r.direct.map((p) => `${quote(b)}.${quote(p.target)} is ${quote(alias)}.${quote(p.source)}`).join(" and ");
+          sub = `select json_group_array(${this.rowJSON(target, b, inner, depth + 1)}) from ${quote(target.name)} as ${quote(b)} where ${on}`;
+        } else {
+          const through = r.through!;
+          const join = this.table(through.relation);
+          const on = through.source.map((p) => `${quote(b)}.${quote(p.through)} is ${quote(alias)}.${quote(p.source)}`).join(" and ");
+          let far = "null";
+          if (r.target !== PERSON_RELATION) {
+            const target = this.table(r.target);
+            const c = `r${depth}f`;
+            const farOn = through.target.map((p) => `${quote(c)}.${quote(p.target)} is ${quote(b)}.${quote(p.through)}`).join(" and ");
+            far = `json((select json_group_array(${this.rowJSON(target, c, inner, depth + 1)}) from ${quote(target.name)} as ${quote(c)} where ${farOn}))`;
+          }
+          sub = `select json_group_array(json_object('join', ${this.rowJSON(join, b, undefined, depth + 1)}, 'far', ${far})) from ${quote(join.name)} as ${quote(b)} where ${on}`;
+        }
+        parts.push(`${literal(NESTED + field)}, json((${sub}))`);
+      }
+    }
+    return `json_object(${parts.join(", ")})`;
+  }
+
+  /** A row read as JSON, and the reads nested in it remembered as their own matches. */
+  private loadJSON(table: Table, json: Record<string, unknown>): Row {
+    const row = this.rowOf(table, json);
+    for (const [name, value] of Object.entries(json)) {
+      if (!name.startsWith(NESTED) || !Array.isArray(value)) continue;
+      const r = this.followed(table, name.slice(NESTED.length));
+      if (!r) continue;
+      if (r.direct) {
+        const target = this.table(r.target);
+        this.remember(target.name, r.direct.map((p) => p.target), r.direct.map((p) => row.data[p.source] ?? null),
+          value.map((v) => this.loadJSON(target, v as Record<string, unknown>)));
+      } else {
+        const through = r.through!;
+        const join = this.table(through.relation);
+        const joins = (value as Array<{ join: Record<string, unknown>; far: unknown[] | null }>).map((j) => {
+          const joinRow = this.rowOf(join, j.join);
+          if (r.target !== PERSON_RELATION && Array.isArray(j.far)) {
+            const target = this.table(r.target);
+            this.remember(target.name, through.target.map((p) => p.target), through.target.map((p) => joinRow.data[p.through] ?? null),
+              j.far.map((v) => this.loadJSON(target, v as Record<string, unknown>)));
+          }
+          return joinRow;
+        });
+        this.remember(join.name, through.source.map((p) => p.through), through.source.map((p) => row.data[p.source] ?? null), joins);
+      }
+    }
+    return row;
+  }
+
+  private matchKey(table: string, columns: readonly string[], values: readonly Cell[]): string {
+    return `${table}\0${columns.join("\0")}\0${canonical(values.map((v) => v ?? null))}`;
+  }
+
+  /** A match read as part of another statement: the same rows a match of its own would read. */
+  private remember(table: string, columns: readonly string[], values: readonly Cell[], rows: Row[]): void {
+    const key = this.matchKey(table, columns, values);
+    if (!this.found.has(key)) this.found.set(key, rows.sort(compareRows));
   }
 
   override rowsOf(table: string): readonly Row[] {
@@ -73,18 +170,18 @@ export class SQLiteStore extends Store {
     return rows;
   }
 
-  override match(table: string, columns: readonly string[], values: readonly Cell[]): readonly Row[] {
+  override match(table: string, columns: readonly string[], values: readonly Cell[], shape?: ReadShape): readonly Row[] {
     if (table === PERSON_RELATION || this.whole.has(table) || !this.schema.byName.has(table)) return super.match(table, columns, values);
-    const key = `${table}\0${columns.join("\0")}\0${canonical(values.map((v) => v ?? null))}`;
+    const key = this.matchKey(table, columns, values);
     let rows = this.found.get(key);
     if (!rows) {
-      rows = this.select(this.table(table), columns.map((c) => `${quote(c)} is ?`).join(" and "), values.map(stored)).sort(compareRows);
+      rows = this.select(this.table(table), columns.map((c) => `${quote(c)} is ?`).join(" and "), values.map(stored), "", shape).sort(compareRows);
       this.found.set(key, rows);
     }
     return rows;
   }
 
-  override query(model: string, query: RowQuery): readonly Row[] | null {
+  override query(model: string, query: RowQuery, shape?: ReadShape): readonly Row[] | null {
     const name = this.schema.tableOf(model);
     if (!name || name === PERSON_RELATION) return null;
     const table = this.table(name);
@@ -99,7 +196,22 @@ export class SQLiteStore extends Store {
       terms.push(...table.primaryKey.map((k) => quote(k)));
       tail = ` order by ${terms.join(", ")} limit ${query.limit}`;
     }
-    return this.select(table, where, parameters, tail).sort(compareRows);
+    // A whole table read with what follows from it is read once.
+    const all = !query.where.length && !tail && shape && !shape.empty ? `${table.name}\0*` : null;
+    const known = all ? this.found.get(all) : undefined;
+    if (known) return known;
+    const rows = this.select(table, where, parameters, tail, shape).sort(compareRows);
+    if (all) this.found.set(all, rows);
+    return rows;
+  }
+
+  /** The profile ids any row names, in one statement over every profile column. */
+  protected override peopleNamed(): Set<string> {
+    const parts = this.schema.layout.flatMap((t) => t.columns.filter((c) => c.profile).map((c) => `select ${quote(c.name)} as id from ${quote(t.name)}`));
+    if (!parts.length) return new Set();
+    const sql = `${parts.join(" union ")}`;
+    this.statements.push({ sql, parameters: [] });
+    return new Set((this.database.query(sql).all() as Array<{ id: unknown }>).flatMap((r) => (typeof r.id === "string" ? [r.id] : [])));
   }
 
   /** A copy in memory, for a mutation to write to: it reads every table. */

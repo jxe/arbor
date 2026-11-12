@@ -11,6 +11,7 @@
 
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import type { ReadShape } from "./shape.ts";
 import {
   layoutOf,
   logicalFromRows,
@@ -205,7 +206,7 @@ export class Store {
    * least the first `limit` matches in the evaluator's order (nulls last ascending, ties
    * in key order). A store in memory reads them all.
    */
-  query(_model: string, _query: RowQuery): readonly Row[] | null {
+  query(_model: string, _query: RowQuery, _shape?: ReadShape): readonly Row[] | null {
     return null;
   }
 
@@ -224,15 +225,23 @@ export class Store {
   }
 
   private allPeople(): Row[] {
+    return [...this.peopleNamed()].map((id) => this.person(id)).sort(compareRows);
+  }
+
+  /** The profile ids any row names. */
+  protected peopleNamed(): Set<string> {
     const ids = new Set<string>();
     for (const t of this.schema.layout) {
       for (const c of t.columns) if (c.profile) for (const row of this.rowsOf(t.name)) if (typeof row.data[c.name] === "string") ids.add(row.data[c.name] as string);
     }
-    return [...ids].map((id) => this.person(id)).sort(compareRows);
+    return ids;
   }
 
-  /** The rows of `table` whose `columns` hold `values`. */
-  match(table: string, columns: readonly string[], values: readonly Cell[]): readonly Row[] {
+  /**
+   * The rows of `table` whose `columns` hold `values`. `shape` says what will be read from
+   * them next, for a store that can read it in the same statement.
+   */
+  match(table: string, columns: readonly string[], values: readonly Cell[], _shape?: ReadShape): readonly Row[] {
     if (table === PERSON_RELATION) {
       const id = values[columns.indexOf("id")];
       return typeof id === "string" ? [this.person(id)] : [];
@@ -253,13 +262,13 @@ export class Store {
   }
 
   /** The row of a model with this key: one value, or an object of the key columns. */
-  find(model: string, key: Cell): Row | null {
+  find(model: string, key: Cell, shape?: ReadShape): Row | null {
     if (model === "Person") return typeof key === "string" ? this.person(key) : null;
     const table = this.schema.tableOf(model);
     if (!table || key === null || key === undefined) return null;
     const columns = this.schema.keyOf(table);
     const values = columns.length === 1 ? [key] : columns.map((c) => (key as Record<string, Cell>)?.[c]);
-    return this.match(table, columns, values)[0] ?? null;
+    return this.match(table, columns, values, shape)[0] ?? null;
   }
 
   /** The enum value with this name. */
@@ -376,8 +385,8 @@ export class OverlayStore extends Store {
     return out.sort(compareRows);
   }
 
-  override match(table: string, columns: readonly string[], values: readonly Cell[]): readonly Row[] {
-    const base = this.base.match(table, columns, values);
+  override match(table: string, columns: readonly string[], values: readonly Cell[], shape?: ReadShape): readonly Row[] {
+    const base = this.base.match(table, columns, values, shape);
     const own = this.own.get(table);
     if (!own) return base;
     const wanted = values.map((v) => canonical(v ?? null));
@@ -386,9 +395,9 @@ export class OverlayStore extends Store {
     return out.sort(compareRows);
   }
 
-  override query(model: string, query: RowQuery): readonly Row[] | null {
+  override query(model: string, query: RowQuery, shape?: ReadShape): readonly Row[] | null {
     const table = this.schema.tableOf(model);
-    return table && this.own.has(table) ? null : this.base.query(model, query);
+    return table && this.own.has(table) ? null : this.base.query(model, query, shape);
   }
 
   override data(): RowsByTable {

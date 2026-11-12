@@ -131,8 +131,9 @@ reads it from only the chunks that changed. Mutations run over the same copies: 
 into an `OverlayStore`, and row operations come from the touched rows (`editedLogical`). The in-memory store stays, for collections not in SQLite and as the
 reference (`beetle-eval.test.ts` checks both answer every Supplies view the same).
 `apps-runtime` is gone: the projection-provider types live in story-sync. Left: idle copies
-are never evicted; relationship reads are one statement per row (batching them, and narrowing
-`count`/`exists` comprehensions, would cut statements). Joe noted the overstoryd/Beetle
+are never evicted. Reads are one statement per table a view ranges over, with every
+relationship it follows nested as JSON (read shapes); folding a view's several tables into
+one statement is possible but not done. Joe noted the overstoryd/Beetle
 interface should differ from the first cut; the row-store contract is that change. Host
 declared views (`~views` served by the sidecar's built-in list view) went with it: a
 `view` in `schema.beetle` replaces them (`data/schema.beetle?view=ByOwner`), and Story's

@@ -30,7 +30,14 @@ written without waiting on the disk. The view reads it through `@ovst/beetle/sql
 `SQLiteStore`, which asks SQLite only for what the view reaches: a `for` over a table is
 narrowed by its conditions on the table's own columns (with its `orderBy` and `limit`
 when every condition and ordering can be stated), and keys and relationships are looked
-up by their columns. The evaluator still applies every condition itself, so a narrowing
+up by their columns. Each read also carries the view's read shape (`shape.ts`, found from
+the source): the relationships the view follows from those rows, at any depth, through
+drawn views and rules. SQLite answers the rows and everything the shape follows in one
+statement, as nested JSON (`json_object`/`json_group_array` subqueries), and the store
+keeps each nested part as the answer to the match the evaluator will make for it. A view
+reads each table it ranges over once, with one shape for all the places it does: every
+Supplies view takes one statement, except Profile (three: the people rows name, Practice
+and List) and OnePractice (two). The evaluator still applies every condition itself, so a narrowing
 only has to keep every match; the in-memory store answers the same and is what the tests
 compare against.
 People are virtual `Person` rows: their name, handle and

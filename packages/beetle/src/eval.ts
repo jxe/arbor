@@ -10,6 +10,7 @@
 
 import type { Attribute, Binding, Child, DataRecord, Element, Expr, OrderTerm, Param, TextPart, ViewDecl } from "./ast.ts";
 import { ruleCondition } from "./plan.ts";
+import { bindingShape, comprehensionShape, viewShapes, type ReadShape, type ViewShapes } from "./shape.ts";
 import { compileProgram, type Checker, type Program } from "./check.ts";
 import { canonical, compareRows, EnumValue, Row, Store, StoreSchema, type PersonFields, type RowQuery } from "./store.ts";
 import type { RowsByTable } from "@ovst/usl";
@@ -218,10 +219,10 @@ export class Evaluator {
   }
 
   /** A table-typed input resolved to its row: from a key, or a row already. */
-  resolveRow(model: string, key: unknown): Row | null {
+  resolveRow(model: string, key: unknown, shape?: ReadShape): Row | null {
     if (key instanceof Row) return key;
     if (model === "Person") return typeof key === "string" ? this.person(key) : null;
-    return this.storeOf(model)?.find(model, key) ?? null;
+    return this.storeOf(model)?.find(model, key, shape) ?? null;
   }
 
   field(v: Value, name: string): Value {
@@ -386,7 +387,7 @@ export class Evaluator {
     const first = e.args[0]?.value;
     const aggregate = ["count", "exists", "sum", "min", "max"].includes(e.callee);
     if (aggregate && first?.kind === "comprehension") {
-      const matches = this.members(this.expr(first.binding.source, env)).filter((m) => {
+      const matches = this.over(first, env).filter((m) => {
         const inner = new Map(env).set(first.binding.name, m);
         return first.where.every((c) => truthy(this.expr(c, inner)));
       });
@@ -428,6 +429,17 @@ export class Evaluator {
     return null;
   }
 
+  /** What a comprehension ranges over; a whole table is read at once with what its condition follows. */
+  private over(c: Extract<Expr, { kind: "comprehension" }>, env: Env): Value[] {
+    const source = c.binding.source;
+    if (source.kind === "name" && !env.has(source.name) && this.checker.models.get(source.name)?.kind === "data") {
+      const shape = this.tableShape(c.binding, () => comprehensionShape(this.checker, c));
+      const rows = shape.empty ? null : this.storeOf(source.name)?.query(source.name, { where: [], order: [] }, shape);
+      if (rows) return [...rows];
+    }
+    return this.members(this.expr(source, env));
+  }
+
   private aggregate(name: string, values: Value[]): Value {
     switch (name) {
       case "count": return values.length;
@@ -449,16 +461,16 @@ export class Evaluator {
   // ---------------------------------------------------------------- inputs
 
   /** A view's or mutation's parameters from its input: table-typed ones resolved to rows. */
-  bind(params: Param[], input: unknown, env: Env = new Map()): Env {
+  bind(params: Param[], input: unknown, env: Env = new Map(), shapes?: ReadonlyMap<string, ReadShape>): Env {
     const given = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
     for (const p of params) {
       const raw = given[p.name] ?? null;
-      env.set(p.name, this.input(p, raw));
+      env.set(p.name, this.input(p, raw, shapes?.get(p.name)));
     }
     return env;
   }
 
-  private input(p: Param, raw: unknown): Value {
+  private input(p: Param, raw: unknown, shape?: ReadShape): Value {
     const type = p.type?.name ?? "Text";
     const arity = p.type?.arity ?? "one";
     if (raw === null || raw === undefined) {
@@ -467,15 +479,15 @@ export class Evaluator {
     }
     if (arity === "many") {
       if (!Array.isArray(raw)) throw new BeetleError("invalid", `${p.name} takes a list`);
-      return raw.map((item) => this.one(p.name, type, item));
+      return raw.map((item) => this.one(p.name, type, item, shape));
     }
-    return this.one(p.name, type, raw);
+    return this.one(p.name, type, raw, shape);
   }
 
-  private one(name: string, type: string, raw: unknown): Value {
+  private one(name: string, type: string, raw: unknown, shape?: ReadShape): Value {
     const model = this.checker.models.get(type);
     if (model && model.kind !== "enum") {
-      const row = this.resolveRow(type, raw);
+      const row = this.resolveRow(type, raw, shape);
       if (!row) throw new BeetleError("missing", `No ${type} has the key given for ${name}`);
       return row;
     }
@@ -517,14 +529,33 @@ export class Evaluator {
     const decl = this.declaredView(name);
     if (!decl) throw new BeetleError("missing", name ? `There is no view ${name}` : "The file has no unnamed view");
     if (decl.data) throw new BeetleError("invalid", `${name} is a data view`);
-    return this.drawView(decl, this.bind(decl.params, input));
+    return this.withShapes(viewShapes(this.checker, decl), () => this.drawView(decl, this.bind(decl.params, input, new Map(), this.shapes!.params)));
   }
 
   /** A data view of the file, by name, evaluated into its JSON. */
   data(name: string, input: unknown): unknown {
     const decl = this.declaredView(name);
     if (!decl?.data) throw new BeetleError("missing", `There is no data view ${name}`);
-    return this.record(decl.data, this.bind(decl.params, input), null);
+    return this.withShapes(viewShapes(this.checker, decl), () => this.record(decl.data!, this.bind(decl.params, input, new Map(), this.shapes!.params), null));
+  }
+
+  /** What the view being evaluated reads, while it is. */
+  private shapes: ViewShapes | null = null;
+
+  private withShapes<T>(shapes: ViewShapes, run: () => T): T {
+    const was = this.shapes;
+    this.shapes = shapes;
+    try {
+      return run();
+    } finally {
+      this.shapes = was;
+    }
+  }
+
+  /** What a binding over a whole table reads, as the view's shape for the table when there is one. */
+  private tableShape(binding: Binding, own: () => ReadShape): ReadShape {
+    const source = binding.source;
+    return (source.kind === "name" ? this.shapes?.tables.get(source.name) : undefined) ?? own();
   }
 
   declaredView(name: string): ViewDecl | undefined {
@@ -563,9 +594,9 @@ export class Evaluator {
   }
 
   /** The matches of a `for`: one environment per combination its `where` keeps, ordered and cut. */
-  matches(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env): Env[] {
+  matches(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env, shape?: ReadShape): Env[] {
     let envs: Env[] = [env];
-    const narrowed = this.narrowed(bindings, where, order, limit, env);
+    const narrowed = this.narrowed(bindings, where, order, limit, env, shape);
     for (const [i, b] of bindings.entries()) {
       const next: Env[] = [];
       for (const e of envs) for (const m of i === 0 && narrowed ? narrowed : this.members(this.expr(b.source, e))) next.push(new Map(e).set(b.name, m));
@@ -596,7 +627,7 @@ export class Evaluator {
    * The evaluator still applies every condition, ordering and limit to what comes back,
    * so a store only has to return a superset of the matches.
    */
-  private narrowed(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env): readonly Row[] | null {
+  private narrowed(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env, shape?: ReadShape): readonly Row[] | null {
     const first = bindings[0];
     if (!first || first.source.kind !== "name" || env.has(first.source.name)) return null;
     const model = this.checker.models.get(first.source.name);
@@ -642,8 +673,9 @@ export class Evaluator {
         query.limit = Math.max(0, Math.floor(n));
       }
     }
-    if (!query.where.length && query.limit === undefined) return null;
-    return store.query(first.source.name, query);
+    // With nothing to narrow by, a store still reads the rows at once with what follows from them.
+    if (!query.where.length && query.limit === undefined && (!shape || shape.empty)) return null;
+    return store.query(first.source.name, query, shape);
   }
 
   private element(el: Element, env: Env, out: Array<ViewNode | string>): void {
@@ -663,7 +695,7 @@ export class Evaluator {
     const order = attr("orderBy");
     const limit = attr("limit");
     const envs = this.matches(forValue.bindings, where?.kind === "where" ? where.conditions : [],
-      order?.kind === "orderBy" ? order.terms : [], limit?.kind === "expr" ? limit.expr : undefined, env);
+      order?.kind === "orderBy" ? order.terms : [], limit?.kind === "expr" ? limit.expr : undefined, env, this.tableShape(forValue.bindings[0]!, () => bindingShape(this.checker, el, forValue.bindings[0]!)));
     if (!envs.length) return fallback();
     const introduced = forValue.bindings.map((b) => b.name);
     const used = new Set<string>();
@@ -795,7 +827,7 @@ export class Evaluator {
           if (forValue?.kind === "for") {
             const where = get("where"), order = get("orderBy"), limit = get("limit");
             const envs = this.matches(forValue.bindings, where?.kind === "where" ? where.conditions : [],
-              order?.kind === "orderBy" ? order.terms : [], limit?.kind === "expr" ? limit.expr : undefined, env);
+              order?.kind === "orderBy" ? order.terms : [], limit?.kind === "expr" ? limit.expr : undefined, env, this.tableShape(forValue.bindings[0]!, () => bindingShape(this.checker, entry, forValue.bindings[0]!)));
             const first = forValue.bindings[0]!.name;
             out[entry.key] = envs.map((e) => {
               const row = e.get(first);
