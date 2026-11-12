@@ -16,7 +16,7 @@ import { Recent } from "./recent.ts";
 import { LOG_ENTRY_FORMAT, MergeRefusal, type Asked, type Candidate, type LogDecision, type MergeAnswer, type MergeQuestion } from "@ovst/merge-protocol";
 import { MergeTool, type MergeToolOptions } from "./merge-tool.ts";
 import { retainedObjects } from "./retention.ts";
-import { pathReadObjects, checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
+import { pathReadComponents, pathReadObjects, checkPlainTrace, deriveTrace, encodeProtocolPage, isRowOperation, loadProtocolContent, parsePage, protocolContentObject, isStatedUpdate, TreeReader, UnsupportedDerivation, type DecisionPage, type PathReadRow, type ProtocolDirectory, type DerivableUpdateRequest } from "@ovst/protocol";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
@@ -788,14 +788,34 @@ export class HostDaemon implements AsyncDisposable {
    * A path read (tree operations §1.2.4): the directories from a retained
    * accepted root down to `path`, and the objects of the entries it names.
    */
-  async pathRead(treeID: string, root: ObjectHash, path: string): Promise<Map<ObjectHash, Uint8Array> | null> {
+  async pathRead(treeID: string, root: ObjectHash, path: string): Promise<{ objects: Map<ObjectHash, Uint8Array>; rows?: PathReadRow[] } | null> {
     if (!this.acceptedStore.hasRoot(treeID, root)) return null;
-    return pathReadObjects(root, path, async (hash) => {
+    const read = async (hash: ObjectHash) => {
       const bytes = await this.retainedObject(hash);
       // Every object of a retained root is retained; a gap is a fault, not an absent entry.
       if (!bytes) throw new Error(`Retained root ${root} is missing ${hash}`);
       return bytes;
-    });
+    };
+    const objects = await pathReadObjects(root, path, read);
+    // A path through a collection's folder that names no entry names a table or a row: a
+    // row is answered as the root holds it, without proof (reading and watching §1.2.4).
+    const components = pathReadComponents(path);
+    let directory = decodeProtocolDirectory(await read(root));
+    for (const [index, component] of components.entries()) {
+      const entry = directory.entries.find((e) => e.name === component || e.name === `${component}.md`);
+      if (entry?.directory && entry.name === component) { directory = decodeProtocolDirectory(await read(entry.directory)); continue; }
+      if (entry || !directory.collection) return { objects };
+      const rest = components.slice(index);
+      const collection = await loadDirectoryCollection(directory, read, this.wireSchemas);
+      if (!collection) return { objects };
+      const tableNamed = rest[0] !== collection.main && collection.rows.has(rest[0]!);
+      if (tableNamed && rest.length === 1) return { objects };
+      const [model, name] = tableNamed ? [rest[0]!, rest[1]] : [collection.main, rest[0]];
+      const found = model && rest.length === (tableNamed ? 2 : 1) ? collection.rows.get(model)?.find((r) => r.name === name) : undefined;
+      const row = found ? collection.state.tables.get(found.model)?.get(found.stableKey) : undefined;
+      return { objects, rows: found && row ? [{ model: found.model, row }] : [] };
+    }
+    return { objects };
   }
 
   boundary(path: string): HostTree | null {

@@ -1,6 +1,14 @@
 import { canonicalNodePath, normalizeTreePath } from "./model/logical-path.ts";
 import { decodeProtocolDirectory, hashObject, type ObjectHash, type ProtocolDirectory, type ProtocolDirectoryEntry } from "./objects.ts";
 import { decodeSparseSnapshotBundle, encodeSparseSnapshotBundle } from "./snapshots.ts";
+import { decodeCanonicalCBOR, encodeCanonicalCBOR } from "./model/cbor.ts";
+import { decodeLogicalRow, type LogicalRow } from "./model/collection.ts";
+
+/** A row a path read answers when its path names one: the row as the root holds it, which the bundle doesn't prove. */
+export interface PathReadRow {
+  model: string;
+  row: LogicalRow;
+}
 
 /**
  * Path reads (tree operations §1.2.4): the directory objects from an accepted
@@ -90,8 +98,18 @@ export async function pathReadObjects(
     await addIndex(directory);
     return objects;
   }
+  // A collection's folder, table or row: its head log entry, which gives its row count and
+  // rows hash, and nothing further back (reading and watching §1.2.4).
+  const addLog = async (of: ProtocolDirectory) => {
+    if (of.collection) await load(of.collection.log);
+  };
   for (const [index, component] of components.entries()) {
     const last = index === components.length - 1;
+    const named = namedEntries(directory, component);
+    if (!named.length && directory.collection) {
+      await addLog(directory);
+      return objects;
+    }
     if (!last) {
       const entry = directory.entries.find((candidate) => candidate.name === component);
       const object = entry ? entryObject(entry) : null;
@@ -101,11 +119,15 @@ export async function pathReadObjects(
       directory = decodeProtocolDirectory(bytes);
       continue;
     }
-    for (const entry of namedEntries(directory, component)) {
+    for (const entry of named) {
       const object = entryObject(entry);
       if (!object) continue;
       const bytes = await load(object.hash);
-      if (bytes && object.directory) await addIndex(decodeProtocolDirectory(bytes));
+      if (bytes && object.directory) {
+        const child = decodeProtocolDirectory(bytes);
+        await addIndex(child);
+        await addLog(child);
+      }
     }
   }
   return objects;
@@ -117,9 +139,31 @@ export class PathReadMissingRoot extends Error {
   }
 }
 
-/** The bundle a path read answers with: the snapshot bundle's exact shape (sparse). */
-export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>): Uint8Array {
-  return encodeSparseSnapshotBundle(objects);
+/**
+ * The bundle a path read answers with: the snapshot bundle's exact shape (sparse), and,
+ * when the path names a collection's row, `rows`: that row, or none when the root has no
+ * such row.
+ */
+export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>, rows?: readonly PathReadRow[]): Uint8Array {
+  const bundle = encodeSparseSnapshotBundle(objects);
+  if (!rows) return bundle;
+  const value = decodeCanonicalCBOR(bundle) as Record<string, unknown>;
+  return encodeCanonicalCBOR({ ...value, rows: rows.map(({ model, row }) => ({ model, row })) });
+}
+
+/** A path read's bundle split into its objects' bundle and its rows, checked to be canonical and well formed. */
+function splitPathReadBundle(bytes: Uint8Array): { objects: Uint8Array; rows: PathReadRow[] | null } {
+  const value = decodeCanonicalCBOR(bytes, { tags: [0, 1004] });
+  if (!value || typeof value !== "object" || Array.isArray(value) || value instanceof Uint8Array || !("rows" in value)) return { objects: bytes, rows: null };
+  const { rows, ...rest } = value as Record<string, unknown>;
+  if (!Array.isArray(rows) || rows.length > 1) throw new Error("Path read rows must be an array of at most one row");
+  return {
+    objects: encodeCanonicalCBOR(rest),
+    rows: rows.map((item, i) => {
+      if (!item || typeof item !== "object" || Array.isArray(item) || Object.keys(item).length !== 2 || typeof (item as { model?: unknown }).model !== "string") throw new Error(`Path read rows[${i}] must be { model, row }`);
+      return { model: (item as { model: string }).model, row: decodeLogicalRow((item as { row: unknown }).row, `rows[${i}].row`) };
+    }),
+  };
 }
 
 /**
@@ -128,7 +172,13 @@ export function encodePathReadBundle(objects: Map<ObjectHash, Uint8Array>): Uint
  * reaches (no more, and none it needed is missing).
  */
 export async function decodePathReadBundle(root: ObjectHash, path: string, bytes: Uint8Array): Promise<Map<ObjectHash, Uint8Array>> {
-  return checkPathReadObjects(root, path, decodeSparseSnapshotBundle(bytes));
+  return (await decodePathReadAnswer(root, path, bytes)).objects;
+}
+
+/** A path read's checked objects, and its row when the path names one (null when it doesn't). */
+export async function decodePathReadAnswer(root: ObjectHash, path: string, bytes: Uint8Array): Promise<{ objects: Map<ObjectHash, Uint8Array>; rows: PathReadRow[] | null }> {
+  const split = splitPathReadBundle(bytes);
+  return { objects: await checkPathReadObjects(root, path, decodeSparseSnapshotBundle(split.objects)), rows: split.rows };
 }
 
 async function checkPathReadObjects(root: ObjectHash, path: string, supplied: Map<ObjectHash, Uint8Array>): Promise<Map<ObjectHash, Uint8Array>> {

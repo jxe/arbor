@@ -803,11 +803,11 @@ export async function serveHost(options: {
           let path: string;
           try { path = decodePathReadPath(pathRead[3] ?? "/"); }
           catch { return protocolError("invalid-request", "The path is not a valid logical path", 400); }
-          const objects = await overstoryd.pathRead(tree.id, root, path);
-          if (!objects) return notFound("Snapshot not found");
+          const read = await overstoryd.pathRead(tree.id, root, path);
+          if (!read) return notFound("Snapshot not found");
           // The root and the path name the body: it is as immutable as the snapshot.
           // The path is percent-encoded as in the URL, since a header holds only ASCII.
-          return new Response(encodePathReadBundle(objects) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, `${root}${encodePathReadPath(path)}`) });
+          return new Response(encodePathReadBundle(read.objects, read.rows) as Uint8Array<ArrayBuffer>, { headers: immutableHeaders(request, `${root}${encodePathReadPath(path)}`) });
         }
         const updates = /^\/\.overstory\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {

@@ -47,7 +47,7 @@ import {
 import { updateRequestDigests } from "./updates/intent.ts";
 import { CONFIGURATION_PARAMETER, parseTreeReference, treeConfigurationID } from "./config/tree-config.ts";
 import { decodeSnapshotBundle } from "./snapshots.ts";
-import { decodePathReadBundle, encodePathReadPath } from "./path-read.ts";
+import { decodePathReadAnswer, encodePathReadPath, type PathReadRow } from "./path-read.ts";
 
 
 /** Three missed keepalives. */
@@ -514,12 +514,17 @@ export class ProtocolClient {
    * `path` and the objects of the entries it names, checked against the walk.
    */
   async pathRead(tree: string, root: string, path: string): Promise<Map<ObjectHash, Uint8Array>> {
+    return (await this.pathReadAnswer(tree, root, path)).objects;
+  }
+
+  /** A path read's objects, and the row it names, if any, as the host answers it (unproved). */
+  async pathReadAnswer(tree: string, root: string, path: string): Promise<{ objects: Map<ObjectHash, Uint8Array>; rows: PathReadRow[] | null }> {
     if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
     const response = await this.checked(await this.request(
       `/.overstory/trees/${encodeURIComponent(tree)}/snapshots/${root}/path${encodePathReadPath(path)}`,
       { headers: { ...this.headers(), accept: "application/cbor" } },
     ));
-    return decodePathReadBundle(root, path, new Uint8Array(await response.arrayBuffer()));
+    return decodePathReadAnswer(root, path, new Uint8Array(await response.arrayBuffer()));
   }
 
   async resolve(path: string): Promise<LocatorResolution> {

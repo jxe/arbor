@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, pathReadObjects, type ObjectHash, type ProtocolClient, type ProtocolDirectoryEntry } from "@ovst/protocol";
 import { serveHost } from "@ovst/overstoryd";
 import { deviceClient, testAccount } from "../../helpers/devices.ts";
+import { collectionDirectory, idRow } from "../../support/collection-trees.ts";
 
 // Clients 003: a path read answers one page and the directories above it in
 // one round trip, and a payload-free watch sends frames without objects.
@@ -54,9 +55,13 @@ beforeAll(async () => {
     { name: "_index.md", file: tripsIndex, created: 0, modified: 0 },
     { name: "photo.bin", file: photo, created: 0, modified: 0 },
   ]) }));
+  // /Games: a collection whose rows are its children.
+  const games = collectionDirectory("main table Game:\n  name Text\n", { Game: [idRow("chess", { name: "Chess" }), idRow("go", { name: "Go" })] }, objects);
+  hashes.games = games;
+  hashes.gamesLog = decodeProtocolDirectory(objects.get(games)!).collection!.log;
   const directory = encodeProtocolDirectory({
     ...top,
-    entries: sorted([...top.entries, { name: "Trips", directory: trips }, { name: "Notes.md", file: notes, created: 0, modified: 0 }]),
+    entries: sorted([...top.entries, { name: "Games", directory: games }, { name: "Trips", directory: trips }, { name: "Notes.md", file: notes, created: 0, modified: 0 }]),
   });
   root = add("root", directory);
   await client.submitUpdate(community, head.tree.update, { root, objects });
@@ -130,6 +135,18 @@ describe("path reads", () => {
     const short = new Map(objects);
     short.delete(hashes.trips!);
     await expect(decodePathReadBundle(root, "/Trips/Paris", encodePathReadBundle(short))).rejects.toThrow(/missing/);
+  });
+});
+
+describe("path reads in a collection", () => {
+  test("a collection's folder brings its head log entry, and a row is answered as the root holds it, unproved", async () => {
+    const folder = await client.pathReadAnswer(community, root, "/Games");
+    expect(new Set(folder.objects.keys())).toEqual(new Set([root, hashes.games!, hashes.gamesLog!]));
+    expect(folder.rows).toBeNull();
+    const chess = await client.pathReadAnswer(community, root, "/Games/chess");
+    expect(new Set(chess.objects.keys())).toEqual(new Set([root, hashes.games!, hashes.gamesLog!]));
+    expect(chess.rows!.map((r) => [r.model, r.row.fields.name])).toEqual([["Game", "Chess"]]);
+    expect((await client.pathReadAnswer(community, root, "/Games/nope")).rows).toEqual([]);
   });
 });
 
