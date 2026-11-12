@@ -15,7 +15,7 @@ in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 ## Performance 007: collections as a log of row changes — 2026-11-12
 
 **Built in TypeScript, on branch** `claude/project-thread-kn7ley` (spec c85fd736, a241223b;
-code 3f45468f, 0b35befa, b4c56697). Joe's decisions of 2026-11-12: the `collection`
+code 3f45468f, 0b35befa, b4c56697, 72d6b29f). Joe's decisions of 2026-11-12: the `collection`
 reference (version 2) names the head of a log of `log` objects, changes entries holding each
 changed row's new form and snapshot entries naming a SQLite file the host writes; each entry
 carries the row count and an LtHash16 rows hash, and the logical hash is the fingerprint plus
@@ -33,8 +33,13 @@ rows hash (collections §1, data model §5).
   changes since the last snapshot as it has rows, and at least 1,000
   (`collection-snapshots.ts`), in an update it makes itself. Merges append to the current
   head's log.
-- Not yet: the host's database as the working form, mutations as SQL transactions, Story
-  Sync replicas with a base, the Swift client (it still reads table chunks), the switch.
+- Story Sync keeps a private base database per SQLite projection (the rows it last
+  applied, under its state directory's `collection-bases/`) and finds other programs'
+  edits as the rows the projection differs from it in, in SQL (72d6b29f); the triggers and
+  change log it used to install are gone, and an old one is dropped on the next write.
+- Not yet: the host's database as the working form, mutations as SQL transactions, a
+  projection started from the snapshot file, the Swift client (it still reads table
+  chunks), the switch.
 
 ## Entry times with the content — 2026-11-10
 

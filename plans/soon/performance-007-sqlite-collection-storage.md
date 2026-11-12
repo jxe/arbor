@@ -131,7 +131,7 @@ After the switch a collection is never held as table and rows chunks on the host
 
 ## Steps
 
-The log, rows hash, path reads and host snapshots are built
+The log, rows hash, path reads, host snapshots and Story Sync's base are built
 ([status](../../status.md#performance-007-collections-as-a-log-of-row-changes--2026-11-12)).
 
 1. Host: the database as the working form. Accepting an update of row operations applies
@@ -140,7 +140,8 @@ The log, rows hash, path reads and host snapshots are built
    catch-up before views go.
 2. Mutations as SQL transactions, checked against the in-memory evaluator on every Supplies
    mutation.
-3. Story Sync: projections as replicas with a base; Replica mode pulls entries.
+3. Story Sync: a new SQLite projection starts from the host's snapshot file when the
+   layout matches, then applies the entries after it (the base diff is built).
 4. Swift: Story reads logs and snapshots instead of table chunks (on Joe's Mac).
 5. Switch: the Protocol 003 migration turns each existing collection into a log; this
    branch merges after the flag day.
