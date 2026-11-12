@@ -33,6 +33,32 @@ view SameOwner() {
   } for={l in List} orderBy={l.name}
 }
 
+rule mine(l List):
+  l.owner == me
+rule mine(l List):
+  me in l.contributors.person
+
+view Conditions(who Person, since Text, names Text[], minimum Int) {
+  equal: { name } for={l in List} where={l.owner == who}
+  notEqual: { name } for={l in List} where={l.owner != who}
+  enumValue: { name } for={l in List} where={l.visibility == Public and not l.openToEdits}
+  either: { name } for={l in List} where={l.name == "Open" or l.kind == Tagged}
+  dates: { name } for={l in List} where={l.modified > since}
+  inList: { name } for={l in List} where={l.name in names}
+  notInList: { name } for={l in List} where={l.name ∉ names}
+  joined: { name } for={l in List} where={l.name + "!" == "Open!"}
+  lengths: { name } for={l in List} where={length(l.name) >= minimum}
+  fallbackValue: { name } for={l in List} where={(l.about ?? "none") == "none"}
+  through: { name } for={p in Practice} where={who in p.authors}
+  chain: { name } for={l in List} where={who in l.items.practice.authors}
+  rule: { name } for={l in List} where={mine(l)}
+  flag: { name } for={l in List} where={l.openToEdits}
+  text: { name } for={l in List} where={l.about != null}
+  signedIn: { name } for={l in List} where={me != null}
+  arithmetic: { name } for={p in Practice} where={length(p.name) * 2 - 1 > 10}
+  firstOpen: { name } for={l in List} where={l.visibility == Public} orderBy={l.name} limit={1}
+}
+
 view Owners():
   <Stack for={l in List} orderBy={l.name}>
     <Text for={o in List} where={o.owner == l.owner, o != l}>{o.name} {count(i in Item where i.list == o)}</Text>
@@ -294,6 +320,9 @@ describe("beetle over SQLite", () => {
     [SCHEMA, null, "ByOwner", {}, false],
     ["/supplies/more.beetle", null, "SameOwner", {}, true],
     ["/supplies/more.beetle", null, "Owners", {}, false],
+    ["/supplies/more.beetle", BOB, "Conditions", { who: BOB, since: "2026-11-01T12:00:00.000Z", names: ["Open", "Rituals"], minimum: 6 }, true],
+    ["/supplies/more.beetle", null, "Conditions", { who: CARA, since: "2026-11-01", names: [], minimum: 7 }, true],
+    ["/supplies/more.beetle", ALICE, "Conditions", { who: ALICE, since: "2027", names: ["Secret"], minimum: 0 }, true],
   ];
   for (const [path, me, name, input, data] of cases) {
     test(`${path}${name ? `?view=${name}` : ""} ${JSON.stringify(input)} answers the same from SQLite`, () => {
@@ -322,6 +351,25 @@ describe("beetle over SQLite", () => {
     expect(store.statements[0]!.sql).toContain('order by ("r0c0k"."name" is null), "r0c0k"."name", "r0c0k"."id" limit 1');
   });
 
+  test("conditions are stated in SQL where the translation is exact", () => {
+    const { sqlite, store } = both("/supplies/more.beetle", BOB);
+    sqlite.data("Conditions", { who: BOB, since: "2026-11-01T12:00:00.000Z", names: ["Open", "Rituals"], minimum: 6 });
+    expect(store.statements).toHaveLength(1);
+    const sql = store.statements[0]!.sql;
+    for (const fragment of [
+      `("q"."owner" is 'tr_bob')`,
+      `not (("q"."owner" is 'tr_bob'))`,
+      `"q"."visibility" is 'Public'`,
+      `coalesce("q"."modified" > '2026-11-01T12:00:00.000Z', 0)`,
+      `from json_each('["Open","Rituals"]')`,
+      `(coalesce("q"."name", '') || coalesce('!', ''))`,
+      `coalesce(length("q"."name") >= 6, 0)`,
+      `exists (select 1 from "Practice_authors" as "q_1" where "q_1"."practice" is "q"."id" and "q_1"."person" is 'tr_bob')`,
+      `coalesce("q"."openToEdits", 0) != 0`,
+      `limit 1`,
+    ]) expect(sql).toContain(fragment);
+  });
+
   test("many reads at once go in batches a statement can hold, and each answers its later read", () => {
     const { store } = both("/supplies/List.beetle", null);
     const keys = Array.from({ length: 150 }, (_, i) => (i % 3 === 0 ? "L1" : `missing-${i}`));
@@ -336,7 +384,7 @@ describe("beetle over SQLite", () => {
     const { sqlite, store } = both("/supplies/List.beetle", BOB);
     sqlite.view("", { id: "L1" });
     const lists = store.statements.filter((s) => s.sql.includes('from "List"'));
-    expect(lists.every((s) => s.sql.includes('from "List" where "id" is ?'))).toBe(true);
+    expect(lists.every((s) => s.sql.includes(`from "List" as "q" where ("q"."id" is 'L1')`))).toBe(true);
     expect(lists.length).toBeGreaterThan(0);
     expect(lists.every((s) => s.sql.includes("where"))).toBe(true);
   });
@@ -344,8 +392,7 @@ describe("beetle over SQLite", () => {
   test("a for whose conditions and ordering are all on the row's columns reads only what its limit keeps", () => {
     const { sqlite, store } = both("/supplies/Feeds.beetle", null);
     sqlite.data("ListsByOwner", { owner: ALICE });
-    expect(store.statements[0]!.sql).toContain('from (select * from "List" where "owner" is ? order by ("modified" is null) desc, "modified" desc, "id" limit 20) as "r0"');
-    expect(store.statements[0]!.parameters).toEqual([ALICE]);
+    expect(store.statements[0]!.sql).toContain(`from (select * from "List" as "q" where ("q"."owner" is 'tr_alice') order by ("modified" is null) desc, "modified" desc, "id" limit 20) as "r0"`);
   });
 
   /** The logical rows that differ between two sets of logical tables, by model and key. */

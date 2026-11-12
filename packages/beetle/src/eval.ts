@@ -10,6 +10,7 @@
 
 import type { Attribute, Binding, Child, DataRecord, Element, Expr, OrderTerm, Param, TextPart, ViewDecl } from "./ast.ts";
 import { ruleCondition } from "./plan.ts";
+import { translateWhere, type LeafValue } from "./sql.ts";
 import { bindingShape, comprehensionShape, ReadShape, viewShapes, type ViewShapes } from "./shape.ts";
 import { compileProgram, type Checker, type Program } from "./check.ts";
 import { canonical, compareRows, EnumValue, Row, Store, StoreSchema, type PersonFields, type PrefetchRead, type RowQuery } from "./store.ts";
@@ -434,7 +435,7 @@ export class Evaluator {
     const source = c.binding.source;
     if (source.kind === "name" && !env.has(source.name) && this.checker.models.get(source.name)?.kind === "data") {
       const shape = this.tableShape(c.binding, () => comprehensionShape(this.checker, c));
-      const rows = shape.empty ? null : this.storeOf(source.name)?.query(source.name, { where: [], order: [] }, shape);
+      const rows = shape.empty ? null : this.storeOf(source.name)?.query(source.name, { condition: null, order: [] }, shape);
       if (rows) return [...rows];
     }
     return this.members(this.expr(source, env));
@@ -605,10 +606,11 @@ export class Evaluator {
     const narrowed = this.narrowed(bindings, where, order, limit, env, shape);
     for (const [i, b] of bindings.entries()) {
       const next: Env[] = [];
-      for (const e of envs) for (const m of i === 0 && narrowed ? narrowed : this.members(this.expr(b.source, e))) next.push(new Map(e).set(b.name, m));
+      for (const e of envs) for (const m of i === 0 && narrowed ? narrowed.rows : this.members(this.expr(b.source, e))) next.push(new Map(e).set(b.name, m));
       envs = next;
     }
-    envs = envs.filter((e) => where.every((c) => truthy(this.expr(c, e))));
+    // A store that answered an exact translation kept exactly the rows the conditions keep.
+    if (!narrowed?.exact) envs = envs.filter((e) => where.every((c) => truthy(this.expr(c, e))));
     if (order.length) {
       const keyed = envs.map((e, i) => ({ e, i, keys: order.map((t) => this.expr(t.value, e)) }));
       keyed.sort((x, y) => {
@@ -630,23 +632,26 @@ export class Evaluator {
   /**
    * The rows a `for`'s first binding ranges over, narrowed by its store when it binds a
    * table: the conditions and orderings on that row's own columns, stated as a RowQuery.
-   * The evaluator still applies every condition, ordering and limit to what comes back,
-   * so a store only has to return a superset of the matches.
+   * The evaluator still applies every ordering and limit to what comes back, and every
+   * condition unless the translation was exact, so a store answering an inexact query only
+   * has to return a superset of the matches.
    */
-  private narrowed(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env, shape?: ReadShape): readonly Row[] | null {
+  private narrowed(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env, shape?: ReadShape): { rows: readonly Row[]; exact: boolean } | null {
     const planned = this.rowQuery(bindings, where, order, limit, env);
     if (!planned) return null;
     // With nothing to narrow by, a store still reads the rows at once with what follows from them.
-    if (!planned.query.where.length && planned.query.limit === undefined && (!shape || shape.empty)) return null;
-    return planned.store.query(planned.model, planned.query, shape);
+    if (!planned.query.condition && planned.query.limit === undefined && (!shape || shape.empty)) return null;
+    const rows = planned.store.query(planned.model, planned.query, shape);
+    return rows ? { rows, exact: planned.exact && planned.query.condition !== null } : null;
   }
 
   /**
-   * A `for`'s first binding as a RowQuery over its table: its conditions on the row's own
-   * columns, and its ordering and limit when everything can be stated. With `env` null,
-   * only whether any condition could narrow it, without evaluating anything.
+   * A `for`'s first binding as a RowQuery over its table: its conditions as SQL where they
+   * can be stated, and its ordering and limit when the conditions are exact and the
+   * ordering is on the row's own columns. With `env` null, only whether anything narrows
+   * it, without evaluating anything.
    */
-  private rowQuery(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env | null): { store: Store; model: string; query: RowQuery; narrows: boolean } | null {
+  private rowQuery(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env | null): { store: Store; model: string; query: RowQuery; narrows: boolean; exact: boolean } | null {
     const first = bindings[0];
     if (!first || first.source.kind !== "name" || env?.has(first.source.name)) return null;
     const model = this.checker.models.get(first.source.name);
@@ -654,48 +659,48 @@ export class Evaluator {
     const store = this.storeOf(first.source.name);
     if (!store) return null;
     const name = first.name;
-    const conjuncts: Expr[] = [];
-    const split = (e: Expr) => { if (e.kind === "binary" && e.operator === "and") { split(e.left); split(e.right); } else conjuncts.push(e); };
-    where.forEach(split);
-    const free = (e: Expr) => !usedNamesOf(e).has(name) && !bindings.some((b) => usedNamesOf(e).has(b.name));
-    /** The column a field of the bound row is stored in, and how a value compares with it. */
-    const column = (e: Expr): { column: string; reference: boolean } | null => {
-      if (e.kind !== "field" || e.object.kind !== "name" || e.object.name !== name) return null;
-      const place = store.schema.place(first.source.kind === "name" ? first.source.name : "", e.name);
-      if (place.kind === "column") return { column: place.column, reference: false };
-      if (place.kind === "reference" && place.columns.length === 1) return { column: place.columns[0]!, reference: true };
-      return null;
-    };
-    const cell = (v: Value, reference: boolean): { ok: true; value: unknown } | { ok: false } => {
-      if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") return { ok: true, value: v };
-      if (reference && v instanceof EnumValue) return { ok: true, value: v.name };
-      if (reference && v instanceof Row && v.key.length === 1) return { ok: true, value: v.keyValue };
-      return { ok: false };
-    };
-    const query: RowQuery = { where: [], order: [] };
-    let all = true;
-    let narrows = !!limit;
-    for (const c of conjuncts) {
-      if (c.kind === "binary" && (c.operator === "==" || c.operator === "!=")) {
-        const [col, other] = column(c.left) ? [column(c.left), c.right] : [column(c.right), c.left];
-        if (col && free(other)) {
-          narrows = true;
-          if (!env) continue;
-          const v = cell(this.expr(other, env), col.reference);
-          if (v.ok) { query.where.push({ column: col.column, op: c.operator === "==" ? "=" : "!=", value: v.value }); continue; }
-        }
+    const value = (e: Expr): { ok: true; value: Value } | { ok: false } => {
+      try {
+        return { ok: true, value: this.expr(e, env!) };
+      } catch {
+        return { ok: false };
       }
-      all = false;
-    }
-    if (env && all && limit && bindings.length === 1) {
+    };
+    const translated = translateWhere({
+      schema: store.schema,
+      rules: this.checker.rules,
+      model: first.source.name,
+      self: name,
+      bound: new Set(bindings.map((b) => b.name)),
+      leaf: (e) => {
+        if (!env) return { value: null, type: "any" };
+        const v = value(e);
+        return v.ok ? leafOf(v.value) : null;
+      },
+      leafCondition: (e) => {
+        if (!env) return { value: null, type: "any" };
+        const v = value(e);
+        return v.ok ? { value: truthy(v.value) ? 1 : 0, type: "number" } : null;
+      },
+    }, where);
+    const query: RowQuery = { condition: translated.condition, order: [] };
+    if (env && translated.exact && limit && bindings.length === 1) {
+      const column = (e: Expr): string | null => {
+        if (e.kind !== "field" || e.object.kind !== "name" || e.object.name !== name) return null;
+        const place = store.schema.place(first.source.kind === "name" ? first.source.name : "", e.name);
+        return place.kind === "column" ? place.column : null;
+      };
       const terms = order.map((t) => ({ col: column(t.value), desc: t.desc }));
       const n = this.expr(limit, env);
-      if (terms.every((t) => t.col && !t.col.reference) && typeof n === "number") {
-        query.order = terms.map((t) => ({ column: t.col!.column, desc: t.desc }));
+      if (terms.every((t) => t.col) && typeof n === "number") {
+        query.order = terms.map((t) => ({ column: t.col!, desc: t.desc }));
         query.limit = Math.max(0, Math.floor(n));
       }
     }
-    return { store, model: first.source.name, query, narrows };
+    // Without values, a condition on the row may still narrow once its leaves are known.
+    const usesRow = () => where.some((e) => { const uses = new Set<string>(); exprNames(e, uses); return uses.has(name); });
+    const narrows = translated.condition !== null && (env !== null || usesRow()) || !!limit;
+    return { store, model: first.source.name, query, narrows, exact: translated.exact && bindings.length === 1 };
   }
 
   // ---------------------------------------------------------------- reading ahead
@@ -740,27 +745,57 @@ export class Evaluator {
     for (const line of decl.lines) if (line.kind === "state" || line.kind === "keep") unknown.add(line.name);
     const wholes = new Set<string>();
     const visited = new Set<unknown>();
-    const binding = (b: Binding, where: Expr[], order: OrderTerm[], limit: Expr | undefined, top: boolean, own: () => ReadShape) => {
-      if (b.source.kind !== "name") return;
+    /** Reads a binding makes; true when it binds one row known now, so what's inside it is read as at the top. */
+    const binding = (b: Binding, where: Expr[], order: OrderTerm[], limit: Expr | undefined, top: boolean, own: () => ReadShape): boolean => {
+      if (b.source.kind !== "name") return false;
       const name = b.source.name;
-      if (name === "Person" && !unknown.has(name)) { add(this.storeOf("Person"), { kind: "people" }); return; }
+      if (name === "Person" && !unknown.has(name)) {
+        add(this.storeOf("Person"), { kind: "people" });
+        // `person in Person where person.id == id`: the one person is known from the input.
+        if (!top) return false;
+        for (const c of where) {
+          if (c.kind !== "binary" || c.operator !== "==") continue;
+          const id = (x: Expr) => x.kind === "field" && x.name === "id" && x.object.kind === "name" && x.object.name === b.name;
+          const other = id(c.left) ? c.right : id(c.right) ? c.left : null;
+          if (!other) continue;
+          const uses = new Set<string>();
+          exprNames(other, uses);
+          if (uses.has(b.name) || [...uses].some((n) => unknown.has(n))) continue;
+          try {
+            const v = this.expr(other, env);
+            if (typeof v === "string") { env.set(b.name, this.person(v)); return true; }
+          } catch {
+            // Left for the view to find.
+          }
+        }
+        return false;
+      }
       const planned = this.rowQuery([b], where, order, limit, null);
-      if (!planned) return;
+      if (!planned) return false;
       const shape = this.tableShape(b, own);
-      if (!planned.narrows) {
-        if (!wholes.has(name)) { wholes.add(name); add(planned.store, { kind: "query", model: name, query: { where: [], order: [] }, shape }); }
-        return;
+      const whole = () => {
+        if (!wholes.has(name)) { wholes.add(name); add(planned.store, { kind: "query", model: name, query: { condition: null, order: [] }, shape }); }
+      };
+      // At the top, with everything its conditions name known now, it's read as the view will ask.
+      if (top) {
+        const uses = new Set<string>();
+        for (const e of [...where, ...order.map((t) => t.value), ...(limit ? [limit] : [])]) exprNames(e, uses);
+        const known = ![...uses].some((n) => unknown.has(n) || (!env.has(n) && n !== b.name && this.checker.models.get(n) === undefined && this.builtin(n) === undefined && !this.checker.rules.has(n) && !this.checker.enumOfValue(n)));
+        if (known) {
+          try {
+            const query = this.rowQuery([b], where, order, limit, env);
+            if (query) {
+              if (query.query.condition || query.query.limit !== undefined) add(query.store, { kind: "query", model: name, query: query.query, shape });
+              else whole();
+              return false;
+            }
+          } catch {
+            // Its conditions can't be worked out yet; it's read when the view gets there.
+          }
+        }
       }
-      if (!top) return;
-      const uses = new Set<string>();
-      for (const e of [...where, ...order.map((t) => t.value), ...(limit ? [limit] : [])]) exprNames(e, uses);
-      if ([...uses].some((n) => unknown.has(n))) return;
-      try {
-        const query = this.rowQuery([b], where, order, limit, env);
-        if (query) add(query.store, { kind: "query", model: name, query: query.query, shape });
-      } catch {
-        // Its conditions can't be worked out yet; it's read when the view gets there.
-      }
+      if (!planned.narrows) whole();
+      return false;
     };
     const expr = (e: Expr): void => {
       switch (e.kind) {
@@ -793,10 +828,10 @@ export class Evaluator {
       let inner = top;
       if (forValue?.kind === "for") {
         const where = get("where"), order = get("orderBy"), limit = get("limit");
-        binding(forValue.bindings[0]!, where?.kind === "where" ? where.conditions : [], order?.kind === "orderBy" ? order.terms : [],
+        const one = binding(forValue.bindings[0]!, where?.kind === "where" ? where.conditions : [], order?.kind === "orderBy" ? order.terms : [],
           limit?.kind === "expr" ? limit.expr : undefined, top, () => bindingShape(this.checker, el, forValue.bindings[0]!));
         for (const b of forValue.bindings.slice(1)) binding(b, [], [], undefined, false, () => new ReadShape());
-        inner = false;
+        inner = one && forValue.bindings.length === 1;
       }
       attributes(el.attributes);
       for (const child of el.children ?? []) {
@@ -820,9 +855,9 @@ export class Evaluator {
           let inner = top;
           if (forValue?.kind === "for") {
             const where = get("where"), order = get("orderBy"), limit = get("limit");
-            binding(forValue.bindings[0]!, where?.kind === "where" ? where.conditions : [], order?.kind === "orderBy" ? order.terms : [],
+            const one = binding(forValue.bindings[0]!, where?.kind === "where" ? where.conditions : [], order?.kind === "orderBy" ? order.terms : [],
               limit?.kind === "expr" ? limit.expr : undefined, top, () => bindingShape(this.checker, entry, forValue.bindings[0]!));
-            inner = false;
+            inner = one && forValue.bindings.length === 1;
           }
           attributes(entry.attributes);
           record(entry.record, inner);
@@ -1055,8 +1090,31 @@ function exprNames(e: Expr, used: Set<string>): void {
 
 export { compareRows };
 
-function usedNamesOf(e: Expr): Set<string> {
-  const used = new Set<string>();
-  exprNames(e, used);
-  return used;
+
+/** A value as a condition's leaf: rows by their key, enum values by name, lists as JSON of those. */
+export function leafOf(v: Value): LeafValue | null {
+  const plain = (x: Value): { ok: true; value: unknown; type: LeafValue["type"] } | { ok: false } => {
+    if (x === null) return { ok: true, value: null, type: "null" };
+    if (typeof x === "number") return { ok: true, value: x, type: "number" };
+    if (typeof x === "string") return { ok: true, value: x, type: "text" };
+    if (typeof x === "boolean") return { ok: true, value: x, type: "bool" };
+    if (x instanceof Row) {
+      const key = x.keyValue;
+      return x.key.length === 1 && (typeof key === "string" || typeof key === "number") ? { ok: true, value: key, type: `row:${x.model}` } : { ok: false };
+    }
+    if (x instanceof EnumValue) return { ok: true, value: x.name, type: `enum:${x.enumName}` };
+    return { ok: false };
+  };
+  if (Array.isArray(v)) {
+    if (v.length > 1000) return null;
+    const items: unknown[] = [];
+    for (const x of v) {
+      const p = plain(x);
+      if (!p.ok) return null;
+      items.push(typeof p.value === "boolean" ? (p.value ? 1 : 0) : p.value);
+    }
+    return { value: items, type: "array" };
+  }
+  const p = plain(v);
+  return p.ok ? { value: p.value, type: p.type } : null;
 }

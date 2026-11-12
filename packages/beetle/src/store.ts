@@ -12,6 +12,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { ReadShape } from "./shape.ts";
+import type { Condition } from "./sql.ts";
 import {
   layoutOf,
   logicalFromRows,
@@ -170,13 +171,13 @@ export class StoreSchema {
 }
 
 /**
- * A narrowing the evaluator asks of a store for one `for` over a table: conditions on the
- * table's own columns, and, when every condition and ordering could be stated, the
- * ordering and the count it keeps. `=` and `!=` compare as Beetle does, with null equal
- * to null.
+ * A narrowing the evaluator asks of a store for one `for` over a table: its conditions as
+ * SQL (see `sql.ts`), which keep every row Beetle would keep, and, when they are exact and
+ * the ordering is on the row's own columns, the ordering and the count it keeps.
  */
 export interface RowQuery {
-  where: { column: string; op: "=" | "!="; value: Cell }[];
+  /** Null for every row. Each leaf holds its value. */
+  condition: Condition | null;
   order: { column: string; desc: boolean }[];
   limit?: number;
 }

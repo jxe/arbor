@@ -8,34 +8,24 @@ import type { Attribute, Binding, DataRecord, Element, Expr, ViewDecl } from "./
 import type { Checker } from "./check.ts";
 import { ruleCondition } from "./plan.ts";
 
-/** One side of a condition in a correlated read. */
-export type ConditionSide =
-  /** A field of the row being read. */
-  | { self: string }
-  /** The outer row (`field` absent) or one of its fields. */
-  | { outer: true; field?: string }
-  | { literal: string | number | boolean | null }
-  /** Anything else: a parameter, a call, another row. */
-  | { other: true };
-
 /**
- * A `for` over a table nested where an outer row is bound, whose conditions compare the
- * table's fields with that row's fields or with literals. A store can read it inside the
- * outer row's statement, one answer per outer row (a correlated subquery).
+ * A `for` over a table nested where an outer row is bound, whose conditions use that row
+ * (and no other bound row). A store can read it inside the outer row's statement, one
+ * answer per outer row (a correlated subquery), when it can state the conditions in SQL.
  */
 export interface CorrelatedRead {
   model: string;
-  /** Each `==`/`!=` condition, as the evaluator splits `and`. */
-  conditions: Array<{ op: "==" | "!="; left: ConditionSide; right: ConditionSide }>;
-  /** True when some condition isn't a comparison: then the evaluator keeps no ordering or limit. */
-  partial: boolean;
-  order: Array<{ field: string | null; desc: boolean }>;
-  limit: number | null;
-  /** True when the `for` binds more than one name, so the evaluator keeps no ordering or limit. */
-  joined: boolean;
-  shape: ReadShape;
-  /** The binding it is read for, so a view walked twice adds it once. */
+  /** The binding it is read for: its name, and the view adds it once however often it is walked. */
   binding: Binding;
+  /** Every name the `for` binds. */
+  bound: ReadonlySet<string>;
+  /** The outer row's name, as the conditions use it. */
+  outer: string;
+  where: Expr[];
+  order: Array<{ value: Expr; desc: boolean }>;
+  limit: Expr | null;
+  rules: Checker["rules"];
+  shape: ReadShape;
 }
 
 /** The fields read from a row, each with what is read from the rows it reaches. */
@@ -108,37 +98,22 @@ class Walker {
    * A `for`'s first binding over a table whose conditions name exactly one outer row: read
    * once per outer row, inside that row's own read.
    */
-  private correlate(b: Binding, filter: Filter, aliases: Aliases, joined: boolean): ReadShape | null {
+  private correlate(b: Binding, bindings: Binding[], filter: Filter, aliases: Aliases): ReadShape | null {
     if (b.source.kind !== "name" || aliases.has(b.source.name) || this.checker.models.get(b.source.name)?.kind !== "data") return null;
-    const conjuncts: Expr[] = [];
-    const split = (e: Expr) => { if (e.kind === "binary" && e.operator === "and") { split(e.left); split(e.right); } else conjuncts.push(e); };
-    filter.where.forEach(split);
-    let outer: string | null = null;
-    const side = (e: Expr): ConditionSide => {
-      if (e.kind === "field" && e.object.kind === "name" && e.object.name === b.name) return { self: e.name };
-      if (e.kind === "literal") return { literal: e.value };
-      const root = e.kind === "name" ? e.name : e.kind === "field" && e.object.kind === "name" ? e.object.name : null;
-      if (root && root !== b.name && aliases.has(root) && (outer === null || outer === root)) {
-        outer = root;
-        return e.kind === "field" ? { outer: true, field: e.name } : { outer: true };
-      }
-      return { other: true };
-    };
-    const conditions: CorrelatedRead["conditions"] = [];
-    let partial = false;
-    for (const c of conjuncts) {
-      if (c.kind === "binary" && (c.operator === "==" || c.operator === "!=")) conditions.push({ op: c.operator, left: side(c.left), right: side(c.right) });
-      else partial = true;
-    }
-    if (outer === null) return null;
-    const limit = filter.limit?.kind === "literal" && typeof filter.limit.value === "number" ? filter.limit.value : null;
-    if (filter.limit && limit === null) partial = true;
-    const holder = aliases.get(outer)!;
+    const bound = new Set(bindings.map((x) => x.name));
+    const used = new Set<string>();
+    const visit = (e: Expr) => namesOf(e, used);
+    filter.where.forEach(visit);
+    filter.order.forEach((t) => visit(t.value));
+    if (filter.limit) visit(filter.limit);
+    const outers = [...used].filter((n) => !bound.has(n) && aliases.has(n));
+    if (outers.length !== 1) return null;
+    const holder = aliases.get(outers[0]!)!;
     const known = holder.correlated.find((r) => r.binding === b);
     if (known) return known.shape;
     const read: CorrelatedRead = {
-      model: b.source.name, conditions, partial, joined, limit, shape: new ReadShape(), binding: b,
-      order: filter.order.map((t) => ({ field: t.value.kind === "field" && t.value.object.kind === "name" && t.value.object.name === b.name ? t.value.name : null, desc: t.desc })),
+      model: b.source.name, binding: b, bound, outer: outers[0]!, where: filter.where, order: filter.order, limit: filter.limit,
+      rules: this.checker.rules, shape: new ReadShape(),
     };
     holder.correlated.push(read);
     return read.shape;
@@ -149,7 +124,7 @@ class Walker {
     const inner = new Map(aliases);
     for (const [i, b] of bindings.entries()) {
       this.expr(b.source, inner);
-      const shape = this.chain(b.source, inner) ?? (i === 0 && filter ? this.correlate(b, filter, inner, bindings.length > 1) : null) ?? this.tableShape(b.source, inner);
+      const shape = this.chain(b.source, inner) ?? (i === 0 && filter ? this.correlate(b, bindings, filter, inner) : null) ?? this.tableShape(b.source, inner);
       if (shape) inner.set(b.name, shape);
       else inner.delete(b.name);
     }
@@ -312,4 +287,21 @@ export function comprehensionShape(checker: Checker, e: Extract<Expr, { kind: "c
   e.where.forEach((c) => walker.expr(c, aliases));
   elementShapes.set(e, shape);
   return shape;
+}
+
+/** Every name an expression uses. */
+function namesOf(e: Expr, out: Set<string>): void {
+  switch (e.kind) {
+    case "name": out.add(e.name); break;
+    case "template": e.parts.forEach((p) => typeof p !== "string" && namesOf(p, out)); break;
+    case "list": e.items.forEach((x) => namesOf(x, out)); break;
+    case "record": e.entries.forEach((y) => namesOf(y.value, out)); break;
+    case "field": namesOf(e.object, out); break;
+    case "call": e.args.forEach((a) => namesOf(a.value, out)); break;
+    case "unary": namesOf(e.operand, out); break;
+    case "binary": namesOf(e.left, out); namesOf(e.right, out); break;
+    case "choice": namesOf(e.test, out); namesOf(e.then, out); namesOf(e.otherwise, out); break;
+    case "comprehension": namesOf(e.binding.source, out); e.where.forEach((c) => namesOf(c, out)); break;
+    default: break;
+  }
 }

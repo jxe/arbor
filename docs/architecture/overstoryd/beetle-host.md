@@ -28,9 +28,14 @@ one chunk. A copy that is new, unreadable or from another schema is built from t
 accepted rows. It is a cache,
 written without waiting on the disk. The view reads it through `@ovst/beetle/sqlite`'s
 `SQLiteStore`, which asks SQLite only for what the view reaches: a `for` over a table is
-narrowed by its conditions on the table's own columns (with its `orderBy` and `limit`
-when every condition and ordering can be stated), and keys and relationships are looked
-up by their columns. Each read also carries the view's read shape (`shape.ts`, found from
+narrowed by its conditions, translated to SQL (`sql.ts`: comparisons with null-safe `is`,
+`and`/`or`/`not`, membership through relationships and lists, rules inlined, arithmetic,
+text joins, `??`, `length`), with its `orderBy` and `limit` when every condition was
+translated exactly and the ordering is on the row's own columns. Each condition has a
+translation that keeps every row Beetle keeps and one that keeps only rows it keeps; where
+they differ (case-folding beyond ASCII, values of mixed types, Person fields from profile
+cards) the looser one narrows and the evaluator checks the rows. Keys and relationships are
+looked up by their columns. Each read also carries the view's read shape (`shape.ts`, found from
 the source): the relationships the view follows from those rows, at any depth, through
 drawn views and rules. SQLite answers the rows and everything the shape follows in one
 statement, as nested JSON (`json_object`/`json_group_array` subqueries), and the store
@@ -40,10 +45,11 @@ view runs, the evaluator asks for every read it knows from the source and input 
 people, each table it ranges over with no condition that narrows it (once, with one shape
 for every place it does), and its top-level `for`s narrowed by their inputs. SQLite answers
 them all in one statement (`select json_array(…)`, batched past 100 reads). Every Supplies
-view takes one statement; a read the source can't predict (a `for` narrowed by a value
-another read gives) is made when the evaluator gets to it. The evaluator still applies every condition itself, so a narrowing
-only has to keep every match; the in-memory store answers the same and is what the tests
-compare against.
+view takes one statement. A `for` narrowed by one outer row's fields is read inside that
+row's JSON as a correlated subquery, with its ordering and limit. Anything else the source
+can't predict is read when the evaluator gets to it. The evaluator applies a condition
+itself unless the store answered its exact translation; the in-memory store answers the
+same and is what the tests compare against.
 People are virtual `Person` rows: their name, handle and
 bio come from profile cards the caller may read, and read as null otherwise.
 

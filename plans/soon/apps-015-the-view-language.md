@@ -124,8 +124,8 @@ introspection. `serveHost({ beetle })` replaces `serveHost({ collections })`.
 The TypeScript SQLite plan engine went too. Joe wants reads in SQL (2026-11-12, and chose
 the host's SQLite copies first), so Beetle reads SQLite itself instead: `@ovst/beetle/sqlite`
 (`SQLiteStore`, with `introspectStoreSchema` moved in) answers the evaluator's reads with
-SQL, narrowing a `for` over a table by its conditions on the table's own columns, with
-`orderBy` and `limit` when all of it can be stated (`RowQuery`). The host keeps a SQLite
+SQL, narrowing a `for` over a table by its conditions translated to SQL (`sql.ts`), with
+`orderBy` and `limit` when the translation is exact (`RowQuery`). The host keeps a SQLite
 copy per collection (`beetle-materialized.ts`), caught up to the head before a view
 reads it from only the chunks that changed. Mutations run over the same copies: writes go
 into an `OverlayStore`, and row operations come from the touched rows (`editedLogical`). The in-memory store stays, for collections not in SQLite and as the
