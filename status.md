@@ -37,7 +37,8 @@ rows hash (collections §1, data model §5).
   median 479 ms (main 441), note edit 289 ms (main 234), adding the collection 770 ms (main
   623). Two costs it found are fixed: base64 checked by a regular expression took
   superlinear time on a large object, and walks decoded a log's large first entry every
-  time (now once per entry).
+  time (now once per entry). A Supplies mutation takes 11 to 13 ms end to end on the host
+  (`tests/performance/beetle-mutation-cost.ts`).
 - Story Sync keeps a private base database per SQLite projection (the rows it last
   applied, under its state directory's `collection-bases/`) and finds other programs'
   edits as the rows the projection differs from it in, in SQL (72d6b29f); the triggers and

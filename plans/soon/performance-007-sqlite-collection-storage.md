@@ -139,7 +139,9 @@ The log, rows hash, path reads, host snapshots and Story Sync's base are built
    of replaying the log, and a snapshot is `VACUUM INTO` of it; the in-memory states and the
    catch-up before views go.
 2. Mutations as SQL transactions, checked against the in-memory evaluator on every Supplies
-   mutation.
+   mutation. Measured first (2026-11-12, `tests/performance/beetle-mutation-cost.ts`): a
+   Supplies mutation takes 11 to 13 ms end to end, update acceptance included, so this
+   waits for a collection where mutations are slow.
 3. Story Sync: a new SQLite projection starts from the host's snapshot file when the
    layout matches, then applies the entries after it (the base diff is built).
 4. Swift: Story reads logs and snapshots instead of table chunks (on Joe's Mac).
