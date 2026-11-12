@@ -28,7 +28,7 @@ narrowed by its conditions on the table's own columns (with its `orderBy` and `l
 when every condition and ordering can be stated), and keys and relationships are looked
 up by their columns. The evaluator still applies every condition itself, so a narrowing
 only has to keep every match; the in-memory store answers the same and is what the tests
-compare against. Mutations still read the whole collection in memory, since they diff it.
+compare against.
 People are virtual `Person` rows: their name, handle and
 bio come from profile cards the caller may read, and read as null otherwise.
 
@@ -42,8 +42,12 @@ evaluator.
 
 ## Mutations
 
-A mutation gathers its facts over the head's rows, applies them to a copy, and diffs the
-logical rows before and after into row operations, stamped with the mutation's time. It
+A mutation gathers its facts over the same SQLite copies at the head and writes into an
+`OverlayStore` over them, which leaves the copy as it is. Its row operations come from the
+rows it touched (`editedLogical`): each written row's own logical row and the rows a
+relationship holds it in (a join row's owner, an ordered connection's holder), each
+converted from just its neighborhood, before and after, and stamped with the mutation's
+time. No whole collection is read. It
 submits them as one update guarded on the head it read, as its caller; a head that moved
 runs it again. Public errors (`unauthorized`, `forbidden`, `missing`, `invalid`,
 `conflict`) answer 401, 403, 404, 422 and 409 and write nothing. Receipts are kept in

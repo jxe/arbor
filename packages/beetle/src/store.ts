@@ -13,8 +13,10 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import {
   layoutOf,
+  logicalFromRows,
   relationshipsOf,
   PERSON_RELATION,
+  type LogicalTables,
   type CheckResult,
   type Relationship,
   type RowsByTable,
@@ -344,6 +346,200 @@ export class Store {
       }
     }
   }
+}
+
+/**
+ * Writes over another store, which they leave as it is: what a mutation writes to. Reads
+ * see the writes; the base is read only for what the writes don't cover, so a store that
+ * reads SQLite on demand is still read on demand. `edits` says which rows changed.
+ */
+export class OverlayStore extends Store {
+  /** Written rows by table and key text; null for a deleted row. */
+  private readonly own = new Map<string, Map<string, Row | null>>();
+  /** The base's version of each written row, or null for a new one. */
+  private readonly original = new Map<string, Map<string, Row | null>>();
+
+  constructor(readonly base: Store) {
+    super(base.schema, {}, base.personFields);
+  }
+
+  override person(id: string): Row {
+    return this.base.person(id);
+  }
+
+  override rowsOf(table: string): readonly Row[] {
+    const own = this.own.get(table);
+    const base = this.base.rowsOf(table);
+    if (!own) return base;
+    const out = base.filter((r) => !own.has(r.keyText));
+    for (const row of own.values()) if (row) out.push(row);
+    return out.sort(compareRows);
+  }
+
+  override match(table: string, columns: readonly string[], values: readonly Cell[]): readonly Row[] {
+    const base = this.base.match(table, columns, values);
+    const own = this.own.get(table);
+    if (!own) return base;
+    const wanted = values.map((v) => canonical(v ?? null));
+    const out = base.filter((r) => !own.has(r.keyText));
+    for (const row of own.values()) if (row && columns.every((c, i) => canonical(row.data[c] ?? null) === wanted[i])) out.push(row);
+    return out.sort(compareRows);
+  }
+
+  override query(model: string, query: RowQuery): readonly Row[] | null {
+    const table = this.schema.tableOf(model);
+    return table && this.own.has(table) ? null : this.base.query(model, query);
+  }
+
+  override data(): RowsByTable {
+    return Object.fromEntries(this.schema.layout.map((t) => [t.name, this.rowsOf(t.name).map((r) => ({ ...r.data }))]));
+  }
+
+  override clone(): Store {
+    return new OverlayStore(this);
+  }
+
+  private write(table: string, keyText: string, row: Row | null): void {
+    let own = this.own.get(table);
+    if (!own) this.own.set(table, (own = new Map()));
+    let original = this.original.get(table);
+    if (!original) this.original.set(table, (original = new Map()));
+    if (!original.has(keyText)) original.set(keyText, own.has(keyText) ? null : this.base.match(table, this.schema.keyOf(table), this.keyCells(table, keyText))[0] ?? null);
+    own.set(keyText, row);
+  }
+
+  /** A row's key cells from its key text, which is the canonical list of them. */
+  private keyCells(_table: string, keyText: string): Cell[] {
+    return JSON.parse(keyText) as Cell[];
+  }
+
+  override insert(table: string, data: RowData): Row {
+    const t = this.schema.byName.get(table)!;
+    const row = new Row(t.stores, t.name, t.primaryKey, { ...data });
+    this.write(table, row.keyText, row);
+    return row;
+  }
+
+  override update(row: Row, values: RowData): void {
+    // A row this overlay wrote changes in place; a base row is copied, so the base stays as it was.
+    if (this.own.get(row.table)?.get(row.keyText) === row) {
+      const keyBefore = row.keyText;
+      Object.assign(row.data, values);
+      if (row.keyText !== keyBefore) throw new Error("A row's key can't change");
+      return;
+    }
+    const copy = new Row(row.model, row.table, row.key, { ...row.data, ...values });
+    if (copy.keyText !== row.keyText) throw new Error("A row's key can't change");
+    this.write(row.table, row.keyText, copy);
+  }
+
+  override delete(rows: readonly Row[]): void {
+    const queue = [...rows];
+    while (queue.length) {
+      const row = queue.shift()!;
+      if (!this.match(row.table, row.key, row.key.map((k) => row.data[k])).length) continue;
+      this.write(row.table, row.keyText, null);
+      for (const t of this.schema.layout) {
+        for (const fk of t.foreignKeys) {
+          if (fk.table !== row.table) continue;
+          const referring = this.match(t.name, fk.columns, fk.refColumns.map((c) => row.data[c] ?? null));
+          if (!referring.length) continue;
+          if (fk.onDelete === "cascade") queue.push(...referring);
+          else if (fk.onDelete === "set null") for (const r of [...referring]) this.update(r, Object.fromEntries(fk.columns.map((c) => [c, null])));
+          else throw new StoreRefusal("conflict", `${row.model} is still referred to by ${t.stores}`);
+        }
+      }
+    }
+  }
+
+  /** Each row the writes changed: the base's version (null if new) and the written one (null if deleted). */
+  edits(): Array<{ table: string; before: Row | null; after: Row | null }> {
+    const out: Array<{ table: string; before: Row | null; after: Row | null }> = [];
+    for (const [table, own] of this.own) {
+      for (const [keyText, after] of own) {
+        const before = this.original.get(table)?.get(keyText) ?? null;
+        if (!before && !after) continue;
+        if (before && after && canonical(before.data) === canonical(after.data)) continue;
+        out.push({ table, before, after });
+      }
+    }
+    return out;
+  }
+}
+
+/**
+ * The logical rows a set of edits touches, before and after: each edited row's own model
+ * row, and every row a relationship holds it in (the owner of a join row or of an ordered
+ * connection). Each is converted from its neighborhood alone (its own row, its join rows
+ * and their far ends, and the rows its to-many ends reach), so a mutation's row
+ * operations come from the rows it touched, not from whole collections. The set may hold
+ * rows that didn't change; comparing before with after leaves them out.
+ */
+export function editedLogical(before: Store, after: Store, edits: ReturnType<OverlayStore["edits"]>, now: number): { before: LogicalTables; after: LogicalTables } {
+  const schema = before.schema;
+  // The rows whose logical rows may have changed, named by columns that find them.
+  const owners = new Map<string, { table: string; columns: string[]; values: Cell[] }>();
+  const own = (table: string, columns: string[], values: Cell[]) => {
+    if (table === PERSON_RELATION || !schema.byName.has(table) || values.some((v) => v === null || v === undefined)) return;
+    owners.set(`${table}\0${canonical(columns)}\0${canonical(values)}`, { table, columns, values });
+  };
+  for (const e of edits) {
+    const t = schema.byName.get(e.table)!;
+    for (const row of [e.before, e.after]) {
+      if (!row) continue;
+      if (!t.ends) own(e.table, t.primaryKey, t.primaryKey.map((k) => row.data[k]));
+      for (const r of schema.relationships) {
+        if (r.through?.relation === e.table) own(r.source, r.through.source.map((p) => p.source), r.through.source.map((p) => row.data[p.through]));
+        else if (r.direct && r.cardinality === "many" && r.target === e.table) own(r.source, r.direct.map((p) => p.source), r.direct.map((p) => row.data[p.target]));
+      }
+    }
+  }
+  const wanted = new Set<string>();
+  const gather = (store: Store) => {
+    const rows = new Map<string, Map<string, Row>>();
+    const add = (row: Row) => {
+      if (row.table === PERSON_RELATION) return;
+      let m = rows.get(row.table);
+      if (!m) rows.set(row.table, (m = new Map()));
+      m.set(row.keyText, row);
+    };
+    for (const { table, columns, values } of owners.values()) {
+      for (const row of store.match(table, columns, values)) {
+        add(row);
+        wanted.add(`${table}\0${row.keyText}`);
+        for (const r of schema.relationships) {
+          if (r.source !== table) continue;
+          if (r.through) {
+            for (const join of store.match(r.through.relation, r.through.source.map((p) => p.through), r.through.source.map((p) => row.data[p.source] ?? null))) {
+              add(join);
+              if (r.target !== PERSON_RELATION) for (const far of store.match(r.target, r.through.target.map((p) => p.target), r.through.target.map((p) => join.data[p.through] ?? null))) add(far);
+            }
+          } else if (r.direct && r.cardinality === "many") {
+            for (const target of store.follow(row, r)) add(target);
+          }
+        }
+      }
+    }
+    return rows;
+  };
+  const convert = (rows: Map<string, Map<string, Row>>): LogicalTables => {
+    const data: RowsByTable = Object.fromEntries([...rows].map(([t, m]) => [t, [...m.values()].map((r) => ({ ...r.data }))]));
+    const logical = logicalFromRows(schema.result, schema.layout.filter((t) => t.name in data), data, { now });
+    const out: LogicalTables = {};
+    for (const [model, list] of Object.entries(logical)) {
+      const table = schema.tableOf(model);
+      if (!table) continue;
+      const keyColumns = schema.keyOf(table);
+      const kept = list.filter((row) => {
+        const key = new Map(row.key as Array<[string, unknown]>);
+        return wanted.has(`${table}\0${canonical(keyColumns.map((c) => key.get(c) ?? null))}`);
+      });
+      if (kept.length) out[model] = kept;
+    }
+    return out;
+  };
+  const was = gather(before), is = gather(after);
+  return { before: convert(was), after: convert(is) };
 }
 
 /** A write the rows can't take, as a public error code. */

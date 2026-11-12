@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { layoutOf, logicalFromRows, rowsFromLogical, setupSql, type RowsByTable } from "@ovst/usl";
-import { BeetleError, compileProgram, Evaluator, runMutation, StoreSchema, type ViewNode } from "@ovst/beetle";
+import { layoutOf, logicalFromRows, rowsFromLogical, setupSql, type LogicalTables, type RowsByTable } from "@ovst/usl";
+import { BeetleError, compileProgram, editedLogical, Evaluator, runMutation, StoreSchema, type ViewNode } from "@ovst/beetle";
 import { SQLiteStore } from "@ovst/beetle/sqlite";
 import { exampleFiles } from "../support/beetle-vectors.ts";
 
@@ -298,5 +298,48 @@ describe("beetle over SQLite", () => {
     expect(store.statements[0]!.sql).toBe('select * from "List" where "owner" is ? order by ("modified" is null) desc, "modified" desc, "id" limit 20');
     expect(store.statements[0]!.parameters).toEqual([ALICE]);
   });
-});
 
+  /** The logical rows that differ between two sets of logical tables, by model and key. */
+  function changes(before: LogicalTables, after: LogicalTables): Record<string, [unknown, unknown]> {
+    const out: Record<string, [unknown, unknown]> = {};
+    const index = (tables: LogicalTables) => new Map(Object.entries(tables).flatMap(([model, list]) => list.map((row) => [`${model} ${JSON.stringify(row.key)}`, row] as const)));
+    const b = index(before), a = index(after);
+    for (const key of new Set([...b.keys(), ...a.keys()])) {
+      const x = b.get(key) ?? null, y = a.get(key) ?? null;
+      if (JSON.stringify(x) !== JSON.stringify(y)) out[key] = [x, y];
+    }
+    return out;
+  }
+
+  const mutations: Array<[string, string, string, unknown]> = [
+    ["/supplies/mutations.beetle", BOB, "toggleListReaction", { l: "L1" }],
+    ["/supplies/mutations.beetle", ALICE, "toggleListReaction", { l: "L1" }],
+    ["/supplies/mutations.beetle", ALICE, "createList", { name: "New", visibility: "Private" }],
+    ["/supplies/mutations.beetle", ALICE, "renameList", { l: "L1", name: "Mine" }],
+    ["/supplies/mutations.beetle", BOB, "setListPractice", { l: "L3", p: "P1", included: true }],
+    ["/supplies/mutations.beetle", CARA, "setListPractice", { l: "L3", p: "P2", included: true }],
+    ["/supplies/mutations.beetle", BOB, "setListPractice", { l: "L3", p: "P3", included: false }],
+    ["/supplies/mutations.beetle", ALICE, "reorderList", { l: "L1", practices: ["P1", "P3", "P2"] }],
+    ["/supplies/mutations.beetle", ALICE, "setPracticeTag", { l: "L1", p: "P2", t: { list: "L1", id: "T1" }, included: true }],
+    ["/supplies/mutations.beetle", ALICE, "deleteListTag", { l: "L1", t: { list: "L1", id: "T1" } }],
+    ["/supplies/mutations.beetle", BOB, "createPractice", { name: "Songs", about: "Sing", addToList: "L3" }],
+    ["/supplies/mutations.beetle", BOB, "duplicateList", { original: "L1" }],
+    ["/supplies/more.beetle", ALICE, "renameAll", { owner: BOB, prefix: "Bob's " }],
+  ];
+  for (const [path, me, name, input] of mutations) {
+    test(`${name} ${JSON.stringify(input)} as ${me}: the touched rows give the same logical changes as whole collections`, () => {
+      const whole = runMutation(evaluator(path, me), name, input, { mutationID: "m-1" });
+      const { result, layout } = evaluator(path, me).stores.get(SCHEMA)!.schema;
+      const expected = changes(logicalFromRows(result, layout, rows(), { now: 1 }), logicalFromRows(result, layout, whole.rows[SCHEMA]!, { now: 1 }));
+      expect(Object.keys(expected).length).toBeGreaterThan(0);
+      const { sqlite, store } = both(path, me);
+      const outcome = runMutation(sqlite, name, input, { mutationID: "m-1" });
+      const { before, after } = outcome.changed[SCHEMA]!;
+      expect(before).toBe(store);
+      const touched = editedLogical(before, after, after.edits(), 1);
+      expect(changes(touched.before, touched.after)).toEqual(expected);
+      // The SQLite rows themselves are as they were.
+      expect(store.data()).toEqual(new SQLiteStore(store.schema, database(rows()), store.personFields).data());
+    });
+  }
+});

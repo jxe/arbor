@@ -16,6 +16,7 @@ import {
   pageSource,
   parseView,
   resolvePath,
+  editedLogical,
   runMutation,
   Store,
   StoreSchema,
@@ -42,10 +43,10 @@ import {
   type ViewsRequest,
   type ViewsRuntime,
 } from "@ovst/protocol";
-import { loadDirectoryCollection, rowOperationsBetween } from "@ovst/collection-schema";
+import { directoryCollectionSchema, loadDirectoryCollection, rowOperationsBetween, type LogicalSchema } from "@ovst/collection-schema";
 import { SQLiteStore } from "@ovst/beetle/sqlite";
 import { Materialization } from "./beetle-materialized.ts";
-import { logicalFromRows, rowsFromLogical, type LogicalTables, type RowsByTable } from "@ovst/usl";
+import { rowsFromLogical, type LogicalTables, type RowsByTable } from "@ovst/usl";
 import type { HostDaemon, UpdateCaller } from "./overstoryd.ts";
 
 type Read = (hash: ObjectHash) => Promise<Uint8Array>;
@@ -84,8 +85,7 @@ interface Loaded {
   path: string;
   directory: ObjectHash;
   rows: RowsByTable;
-  logical: { models: Parameters<typeof rowOperationsBetween>[0]; result: Parameters<typeof logicalFromRows>[0] };
-  layout: Parameters<typeof logicalFromRows>[1];
+  layout: StoreSchema["layout"];
 }
 
 class Lru<V> {
@@ -245,7 +245,6 @@ export class BeetleHost implements AsyncDisposable {
         path,
         directory: at.hash,
         rows: rowsFromLogical(collection.schema.result, store.layout, collection.tables),
-        logical: { models: collection.schema.models, result: collection.schema.result },
         layout: store.layout,
       };
       this.collections.set(at.hash, loaded);
@@ -303,12 +302,12 @@ export class BeetleHost implements AsyncDisposable {
    * An evaluator for a view at `root` over the SQLite copies, or null when a copy moved past
    * `root` while another was caught up (the caller asks again at the new head).
    */
-  private async sqliteEvaluator(tree: string, root: ObjectHash, checked: Checked, caller: UpdateCaller | undefined, me: string | null, now: Date, people: Set<string>): Promise<Evaluator | null> {
-    const copies = new Map<string, { copy: Materialization; directory: string }>();
+  private async sqliteEvaluator(tree: string, root: ObjectHash, checked: Checked, caller: UpdateCaller | undefined, me: string | null, now: Date, people?: Set<string>): Promise<{ ev: Evaluator; sources: Map<string, { path: string; directory: ObjectHash }> } | null> {
+    const copies = new Map<string, { copy: Materialization; path: string; directory: string }>();
     for (const schemaPath of checked.program.checker.schemas.keys()) {
       const path = schemaPath.slice(0, schemaPath.lastIndexOf("/")) || "/";
       const copy = await this.materialize(tree, path, root);
-      if (copy) copies.set(schemaPath, { copy, directory: copy.directory });
+      if (copy) copies.set(schemaPath, { copy, path, directory: copy.directory });
     }
     // Everything below runs without yielding, so no copy changes while the view reads it.
     if ([...copies.values()].some(({ copy, directory }) => copy.directory !== directory)) return null;
@@ -319,20 +318,8 @@ export class BeetleHost implements AsyncDisposable {
       const schema = new StoreSchema(entry.result);
       stores.set(schemaPath, found ? new SQLiteStore(schema, found.copy.database, person) : new Store(schema, {}, person));
     }
-    return new Evaluator(checked.program, stores, { me, now, person });
-  }
-
-  /** The bound collections' rows at `root`. */
-  private async rows(root: ObjectHash, program: Program): Promise<Map<string, Loaded>> {
-    const out = new Map<string, Loaded>();
-    for (const schemaPath of program.checker.schemas.keys()) {
-      const path = schemaPath.slice(0, schemaPath.lastIndexOf("/")) || "/";
-      const at = await this.directoryAt(root, path);
-      if (!at?.directory.collection) continue;
-      const loaded = await this.loadRows(path, at);
-      if (loaded) out.set(schemaPath, loaded);
-    }
-    return out;
+    const sources = new Map([...copies].map(([schemaPath, c]) => [schemaPath, { path: c.path, directory: c.directory as ObjectHash }]));
+    return { ev: new Evaluator(checked.program, stores, { me, now, person }), sources };
   }
 
   /** A person's card fields, as the caller may read them. */
@@ -348,15 +335,6 @@ export class BeetleHost implements AsyncDisposable {
         portrait: null,
       };
     };
-  }
-
-  private evaluator(checked: Checked, loaded: Map<string, Loaded>, caller: UpdateCaller | undefined, me: string | null, now: Date, people?: Set<string>): Evaluator {
-    const person = this.personFields(caller, people);
-    const stores = new Map<string, Store>();
-    for (const [schemaPath, entry] of checked.program.checker.schemas) {
-      stores.set(schemaPath, new Store(new StoreSchema(entry.result), loaded.get(schemaPath)?.rows ?? {}, person));
-    }
-    return new Evaluator(checked.program, stores, { me, now, person });
   }
 
   // ---------------------------------------------------------------- views
@@ -382,7 +360,7 @@ export class BeetleHost implements AsyncDisposable {
           if (at.root !== head.root && (await this.check(at.root as ObjectHash, mount.handle.path)).version !== checked.version) {
             throw new BeetleRefusal("not-found", "The view handle or version is not active", 404);
           }
-          ev = await this.sqliteEvaluator(tree, at.root as ObjectHash, checked, context.caller, context.user?.profile ?? null, new Date(), people);
+          ev = (await this.sqliteEvaluator(tree, at.root as ObjectHash, checked, context.caller, context.user?.profile ?? null, new Date(), people))?.ev ?? null;
         }
         const decl = ev.declaredView(mount.handle.name);
         if (!decl) throw new BeetleRefusal("not-found", `${mount.handle.path} has no view ${mount.handle.name || "(unnamed)"}`, 404);
@@ -432,8 +410,18 @@ export class BeetleHost implements AsyncDisposable {
       const checked = await this.check(head.root as ObjectHash, request.handle.path);
       if (checked.version !== request.handle.version) throw new BeetleRefusal("not-found", "The mutation handle or version is not active", 404);
       if (!checked.program.checker.mutations.has(request.handle.name)) throw new BeetleRefusal("not-found", `There is no mutation ${request.handle.name}`, 404);
-      const loaded = await this.rows(head.root as ObjectHash, checked.program);
-      const sources = [...loaded.values()].map((l) => ({ path: l.path, directory: l.directory })).sort((a, b) => a.path.localeCompare(b.path));
+      // The logical models of each bound collection, read before the copies so nothing yields after them.
+      const models = new Map<string, LogicalSchema>();
+      for (const schemaPath of checked.program.checker.schemas.keys()) {
+        const path = schemaPath.slice(0, schemaPath.lastIndexOf("/")) || "/";
+        const at = await this.directoryAt(head.root as ObjectHash, path);
+        if (at?.directory.collection) models.set(schemaPath, await directoryCollectionSchema(at.directory, this.read));
+      }
+      const now = this.options.now?.() ?? new Date();
+      const run = await this.sqliteEvaluator(tree, head.root as ObjectHash, checked, caller, context.user?.profile ?? null, now);
+      if (!run) continue;
+      // From here to the submit nothing yields, so the copies stay at the head.
+      const sources = [...run.sources.values()].sort((a, b) => a.path.localeCompare(b.path));
       const requestDigest = semanticRequestDigest({ version: "mutate-v1", handle: request.handle, input: request.input ?? null, sources: sources.map((s) => ({ tree, path: s.path })) });
       const stored = this.receipts.query("select request_digest, request_json, receipt_json from receipts where tree = ? and subject = ? and mutation_id = ?")
         .get(tree, subject, request.mutationID) as { request_digest: string; request_json: string | null; receipt_json: string | null } | null;
@@ -445,23 +433,24 @@ export class BeetleHost implements AsyncDisposable {
         const resubmitted = await this.submit(tree, pending.update, caller);
         if (resubmitted) return this.settle(tree, subject, request.mutationID, pending.rows, requestDigest, resubmitted);
         this.receipts.query("delete from receipts where tree = ? and subject = ? and mutation_id = ?").run(tree, subject, request.mutationID);
+        continue; // run it again over the copies at the new head
       }
-      const now = this.options.now?.() ?? new Date();
-      const ev = this.evaluator(checked, loaded, caller, context.user?.profile ?? null, now);
       let outcome;
       try {
-        outcome = runMutation(ev, request.handle.name, request.input ?? null, { mutationID: `${tree}\0${subject}\0${request.mutationID}` });
+        outcome = runMutation(run.ev, request.handle.name, request.input ?? null, { mutationID: `${tree}\0${subject}\0${request.mutationID}` });
       } catch (error) {
         if (error instanceof BeetleError) throw refusalOf(error);
         throw error;
       }
       const operations: RowOperation[] = [];
-      for (const [schemaPath, after] of Object.entries(outcome.rows)) {
-        const l = loaded.get(schemaPath);
-        if (!l) throw new BeetleRefusal("invalid", "A mutation writes only collections in its tree", 422);
-        const before = logicalFromRows(l.logical.result, l.layout, l.rows, { now: now.getTime() });
-        const next = stamp(logicalFromRows(l.logical.result, l.layout, after, { now: now.getTime() }), before, now.getTime());
-        const ops = rowOperationsBetween(l.logical.models, before, next, { material: { kind: "basis", path: l.path, object: l.directory } });
+      for (const [schemaPath, { before: was, after: written }] of Object.entries(outcome.changed)) {
+        const source = run.sources.get(schemaPath);
+        const logical = models.get(schemaPath);
+        if (!source || !logical) throw new BeetleRefusal("invalid", "A mutation writes only collections in its tree", 422);
+        // Only the rows the mutation touched, and the rows that hold them, become logical rows.
+        const touched = editedLogical(was, written, written.edits(), now.getTime());
+        const next = stamp(touched.after, touched.before, now.getTime());
+        const ops = rowOperationsBetween(logical.models, touched.before, next, { material: { kind: "basis", path: source.path, object: source.directory } });
         if (!ops) throw new BeetleRefusal("internal-error", "The mutation's changes can't be stated as row operations", 500);
         operations.push(...ops);
       }

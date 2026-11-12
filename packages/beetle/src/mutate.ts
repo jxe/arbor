@@ -6,7 +6,7 @@
 
 import type { Line, MutationDecl } from "./ast.ts";
 import { Action, BeetleError, equal, Evaluator, identity, truthy, type Value } from "./eval.ts";
-import { canonical, derivedID, EnumValue, Row, Store, StoreRefusal, type RowData } from "./store.ts";
+import { canonical, derivedID, EnumValue, OverlayStore, Row, Store, StoreRefusal, type RowData } from "./store.ts";
 import type { RowsByTable } from "@ovst/usl";
 
 type Env = Map<string, Value>;
@@ -23,8 +23,10 @@ export interface MutationOptions {
 }
 
 export interface MutationOutcome {
-  /** Each bound collection's rows afterwards, by schema path; only collections it changed. */
-  rows: Record<string, RowsByTable>;
+  /** Each bound collection's rows afterwards, by schema path; only collections it changed. Read whole on demand. */
+  readonly rows: Record<string, RowsByTable>;
+  /** Each changed collection's store before and its writes over it, by schema path: what row operations come from. */
+  changed: Record<string, { before: Store; after: OverlayStore }>;
   /** The rows it wrote, by table: each one's key. */
   writes: Record<string, unknown[]>;
   /** Of those, the rows it deleted, by table. */
@@ -171,10 +173,10 @@ class MutationRun {
 
   /** Applies the gathered facts to a copy of the rows. */
   apply(): MutationOutcome {
-    const after = new Map<Store, Store>();
+    const after = new Map<Store, OverlayStore>();
     const copy = (s: Store) => {
       let c = after.get(s);
-      if (!c) after.set(s, (c = s.clone()));
+      if (!c) after.set(s, (c = new OverlayStore(s)));
       return c;
     };
     const writes: Record<string, unknown[]> = {};
@@ -223,7 +225,7 @@ class MutationRun {
         give(pendingOf(store, fact.row, exists), fact.field, fact.value);
       } else {
         const store = this.store(fact.model);
-        for (const row of store.rows(fact.model)) {
+        for (const row of this.candidates(store, fact.model, fact.fields)) {
           if (Object.entries(fact.fields).every(([f, v]) => equal(this.ev.field(row, f), v))) deleted.set(`${row.table}\0${row.keyText}`, { store, row });
         }
       }
@@ -265,12 +267,32 @@ class MutationRun {
       if (error instanceof StoreRefusal) throw new BeetleError(error.code, error.message);
       throw error;
     }
-    const rows: Record<string, RowsByTable> = {};
+    const changed: MutationOutcome["changed"] = {};
     for (const [path, store] of this.ev.stores) {
       const c = after.get(store);
-      if (c) rows[path] = c.data();
+      if (c) changed[path] = { before: store, after: c };
     }
-    return { rows, writes, deleted: removed };
+    return {
+      get rows() { return Object.fromEntries(Object.entries(changed).map(([path, c]) => [path, c.after.data()])); },
+      changed,
+      writes,
+      deleted: removed,
+    };
+  }
+
+  /** The rows a `not` fact may name: those its stored-column fields match, or every row when a field isn't one. */
+  private candidates(store: Store, model: string, fields: Record<string, Value>): readonly Row[] {
+    const table = store.schema.tableOf(model)!;
+    const columns: string[] = [];
+    const values: unknown[] = [];
+    for (const [field, value] of Object.entries(fields)) {
+      const place = store.schema.place(model, field);
+      if (place.kind !== "column" && place.kind !== "reference") return store.rows(model);
+      const cells = this.columns(store, model, field, value);
+      if (!cells) return store.rows(model);
+      for (const [c, v] of Object.entries(cells)) { columns.push(c); values.push(v); }
+    }
+    return columns.length ? store.match(table, columns, values) : store.rows(model);
   }
 
   /** The fields a new row isn't given, from their defaults. */
