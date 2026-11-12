@@ -7,7 +7,7 @@
 import type { Database } from "bun:sqlite";
 import { PERSON_RELATION, type Column, type Table } from "@ovst/usl";
 import { canonical, compareRows, Row, Store, type Cell, type PersonFields, type PrefetchRead, type RowQuery, type StoreSchema } from "../store.ts";
-import type { ReadShape } from "../shape.ts";
+import type { ConditionSide, CorrelatedRead, ReadShape } from "../shape.ts";
 
 /** How many relationships deep one statement follows. */
 const MAX_NESTING = 4;
@@ -18,6 +18,13 @@ const NESTED = "→";
 
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
+/** A literal value as SQL, as the layout stores it: flags as 1/0. */
+function sqlLiteral(value: string | number | boolean | null): string {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return value ? "1" : "0";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "null";
+  return literal(value);
+}
 
 /** A value as the layout stores it in SQLite: flags as 0/1. */
 function stored(value: Cell): unknown {
@@ -61,7 +68,7 @@ export class SQLiteStore extends Store {
       // One statement: each row as JSON, with the rows the shape follows from it nested in it.
       const sql = `select ${this.rowJSON(table, "r0", shape, 1)} as row from ${quote(table.name)} as "r0"${where ? ` where ${where}` : ""}${tail}`;
       this.statements.push({ sql, parameters });
-      return (this.database.query(sql).all(...(parameters as never[])) as Array<{ row: string }>).map((r) => this.loadJSON(table, JSON.parse(r.row) as Record<string, unknown>));
+      return (this.database.query(sql).all(...(parameters as never[])) as Array<{ row: string }>).map((r) => this.loadJSON(table, JSON.parse(r.row) as Record<string, unknown>, shape));
     }
     const sql = `select * from ${quote(table.name)}${where ? ` where ${where}` : ""}${tail}`;
     this.statements.push({ sql, parameters });
@@ -119,21 +126,114 @@ export class SQLiteStore extends Store {
         }
         parts.push(`${literal(NESTED + field)}, json((${sub}))`);
       }
+      shape.correlated.forEach((read, k) => {
+        const plan = this.correlation(table, read);
+        if (!plan) return;
+        const c = `${alias}c${k}`;
+        const conditions = (as: string) => plan.where.map((w) => `${quote(as)}.${quote(w.column)} ${w.op === "=" ? "is" : "is not"} ${"outer" in w ? `${quote(alias)}.${quote(w.outer)}` : sqlLiteral(w.value)}`).join(" and ");
+        let where = conditions(c);
+        if (plan.limit !== undefined) {
+          const d = `${c}k`;
+          const terms = plan.order.map((o) => `(${quote(d)}.${quote(o.column)} is null)${o.desc ? " desc" : ""}, ${quote(d)}.${quote(o.column)}${o.desc ? " desc" : ""}`);
+          terms.push(...plan.target.primaryKey.map((k2) => `${quote(d)}.${quote(k2)}`));
+          const key = (as: string) => plan.target.primaryKey.map((k2) => `${quote(as)}.${quote(k2)}`).join(", ");
+          where += ` and (${key(c)}) in (select ${key(d)} from ${quote(plan.target.name)} as ${quote(d)} where ${conditions(d)} order by ${terms.join(", ")} limit ${plan.limit})`;
+        }
+        const sub = `select json_group_array(${this.rowJSON(plan.target, c, read.shape, depth + 1)}) from ${quote(plan.target.name)} as ${quote(c)} where ${where}`;
+        parts.push(`${literal(`${NESTED}?${k}`)}, json((${sub}))`);
+      });
     }
     return `json_object(${parts.join(", ")})`;
   }
 
+  /**
+   * A correlated read as the RowQuery the evaluator will ask for once per outer row, with
+   * the outer row's columns in place of values: the same conditions it lowers, in the same
+   * order, and its ordering and limit when it keeps them. Null when the evaluator would
+   * lower a value this can't state, so the read is left for it to make.
+   */
+  private correlation(outer: Table, read: CorrelatedRead): {
+    target: Table;
+    where: Array<{ column: string; op: "=" | "!=" } & ({ outer: string } | { value: string | number | boolean | null })>;
+    order: Array<{ column: string; desc: boolean }>;
+    limit?: number;
+  } | null {
+    const name = this.schema.tableOf(read.model);
+    if (!name || !this.schema.byName.has(name)) return null;
+    const target = this.table(name);
+    const column = (side: ConditionSide): { column: string; reference: boolean } | null => {
+      if (!("self" in side)) return null;
+      const place = this.schema.place(read.model, side.self);
+      if (place.kind === "column") return { column: place.column, reference: false };
+      if (place.kind === "reference" && place.columns.length === 1) return { column: place.columns[0]!, reference: true };
+      return null;
+    };
+    type Value = { outer: string } | { value: string | number | boolean | null } | "not-lowered" | "unknown";
+    const value = (side: ConditionSide, reference: boolean): Value => {
+      if ("literal" in side) return { value: side.literal };
+      if ("other" in side) return "unknown";
+      if ("self" in side) return "not-lowered";
+      if (!side.field) {
+        // The outer row itself: its key, when the column holds a reference to a one-column key.
+        return reference && outer.primaryKey.length === 1 ? { outer: outer.primaryKey[0]! } : "not-lowered";
+      }
+      const place = this.schema.place(outer.stores, side.field);
+      if (place.kind === "column") {
+        const c = outer.columns.find((x) => x.name === place.column);
+        return c && !c.array ? { outer: place.column } : "not-lowered";
+      }
+      if (place.kind === "reference" && place.columns.length === 1 && reference) return { outer: place.columns[0]! };
+      return "unknown";
+    };
+    const where: Array<{ column: string; op: "=" | "!=" } & ({ outer: string } | { value: string | number | boolean | null })> = [];
+    let all = !read.partial;
+    for (const c of read.conditions) {
+      const left = column(c.left);
+      const [col, other] = left ? [left, c.right] : [column(c.right), c.left];
+      if (!col) { all = false; continue; }
+      const v = value(other, col.reference);
+      if (v === "unknown") return null;
+      if (v === "not-lowered") { all = false; continue; }
+      where.push({ column: col.column, op: c.op === "==" ? "=" : "!=", ...v });
+    }
+    if (!where.length || !where.some((w) => "outer" in w)) return null;
+    const text = target.primaryKey.every((k) => target.columns.find((c) => c.name === k)?.type === "text");
+    if (all && read.limit !== null && !read.joined && text) {
+      const terms = read.order.map((o) => (o.field === null ? null : { col: column({ self: o.field }), desc: o.desc }));
+      if (terms.every((t) => t?.col && !t.col.reference)) {
+        return { target, where, order: terms.map((t) => ({ column: t!.col!.column, desc: t!.desc })), limit: Math.max(0, Math.floor(read.limit)) };
+      }
+    }
+    return { target, where, order: [] };
+  }
+
   /** A row read as JSON, and the reads nested in it remembered as their own matches. */
-  private loadJSON(table: Table, json: Record<string, unknown>): Row {
+  private loadJSON(table: Table, json: Record<string, unknown>, shape: ReadShape | undefined): Row {
     const row = this.rowOf(table, json);
     for (const [name, value] of Object.entries(json)) {
       if (!name.startsWith(NESTED) || !Array.isArray(value)) continue;
-      const r = this.followed(table, name.slice(NESTED.length));
+      if (name.startsWith(`${NESTED}?`)) {
+        const read = shape?.correlated[Number(name.slice(NESTED.length + 1))];
+        const plan = read ? this.correlation(table, read) : null;
+        if (!read || !plan) continue;
+        const query: RowQuery = {
+          where: plan.where.map((w) => ({ column: w.column, op: w.op, value: "outer" in w ? row.data[w.outer] ?? null : w.value })),
+          order: plan.order,
+          ...(plan.limit !== undefined ? { limit: plan.limit } : {}),
+        };
+        const key = this.querySQL(plan.target, query).key;
+        const rows = value.map((v) => this.loadJSON(plan.target, v as Record<string, unknown>, read.shape)).sort(compareRows);
+        if (!this.found.has(key)) this.found.set(key, rows);
+        continue;
+      }
+      const field = name.slice(NESTED.length);
+      const inner = shape?.fields.get(field);
+      const r = this.followed(table, field);
       if (!r) continue;
       if (r.direct) {
         const target = this.table(r.target);
         this.remember(target.name, r.direct.map((p) => p.target), r.direct.map((p) => row.data[p.source] ?? null),
-          value.map((v) => this.loadJSON(target, v as Record<string, unknown>)));
+          value.map((v) => this.loadJSON(target, v as Record<string, unknown>, inner)));
       } else {
         const through = r.through!;
         const join = this.table(through.relation);
@@ -142,7 +242,7 @@ export class SQLiteStore extends Store {
           if (r.target !== PERSON_RELATION && Array.isArray(j.far)) {
             const target = this.table(r.target);
             this.remember(target.name, through.target.map((p) => p.target), through.target.map((p) => joinRow.data[p.through] ?? null),
-              j.far.map((v) => this.loadJSON(target, v as Record<string, unknown>)));
+              j.far.map((v) => this.loadJSON(target, v as Record<string, unknown>, inner)));
           }
           return joinRow;
         });
@@ -221,7 +321,7 @@ export class SQLiteStore extends Store {
       parameters.push(...params);
       return `json((select json_group_array(${this.rowJSON(table, "r0", shape, 1)}) from (select * from ${quote(table.name)}${where ? ` where ${where}` : ""}${tail}) as "r0"))`;
     };
-    const load = (table: Table, value: unknown) => (Array.isArray(value) ? value : []).map((v) => this.loadJSON(table, v as Record<string, unknown>)).sort(compareRows);
+    const load = (table: Table, value: unknown, shape: ReadShape | undefined) => (Array.isArray(value) ? value : []).map((v) => this.loadJSON(table, v as Record<string, unknown>, shape)).sort(compareRows);
     for (const read of reads) {
       if (read.kind === "people") {
         const union = this.peopleSQL();
@@ -237,7 +337,7 @@ export class SQLiteStore extends Store {
         const q = this.querySQL(table, read.query);
         if (this.found.has(q.key)) continue;
         parts.push(rows(table, q.where, q.parameters, q.tail, read.shape));
-        after.push((value) => { if (!this.found.has(q.key)) this.found.set(q.key, load(table, value)); });
+        after.push((value) => { if (!this.found.has(q.key)) this.found.set(q.key, load(table, value, read.shape)); });
       } else {
         const columns = this.schema.keyOf(name);
         const values = columns.length === 1 ? [read.key] : columns.map((c) => (read.key as Record<string, Cell> | null)?.[c]);
@@ -245,7 +345,7 @@ export class SQLiteStore extends Store {
         const key = this.matchKey(name, columns, values);
         if (this.found.has(key)) continue;
         parts.push(rows(table, columns.map((c) => `${quote(c)} is ?`).join(" and "), values.map(stored), "", read.shape));
-        after.push((value) => { if (!this.found.has(key)) this.found.set(key, load(table, value)); });
+        after.push((value) => { if (!this.found.has(key)) this.found.set(key, load(table, value, read.shape)); });
       }
     }
     if (!parts.length) return;

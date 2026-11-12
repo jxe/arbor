@@ -8,9 +8,41 @@ import type { Attribute, Binding, DataRecord, Element, Expr, ViewDecl } from "./
 import type { Checker } from "./check.ts";
 import { ruleCondition } from "./plan.ts";
 
+/** One side of a condition in a correlated read. */
+export type ConditionSide =
+  /** A field of the row being read. */
+  | { self: string }
+  /** The outer row (`field` absent) or one of its fields. */
+  | { outer: true; field?: string }
+  | { literal: string | number | boolean | null }
+  /** Anything else: a parameter, a call, another row. */
+  | { other: true };
+
+/**
+ * A `for` over a table nested where an outer row is bound, whose conditions compare the
+ * table's fields with that row's fields or with literals. A store can read it inside the
+ * outer row's statement, one answer per outer row (a correlated subquery).
+ */
+export interface CorrelatedRead {
+  model: string;
+  /** Each `==`/`!=` condition, as the evaluator splits `and`. */
+  conditions: Array<{ op: "==" | "!="; left: ConditionSide; right: ConditionSide }>;
+  /** True when some condition isn't a comparison: then the evaluator keeps no ordering or limit. */
+  partial: boolean;
+  order: Array<{ field: string | null; desc: boolean }>;
+  limit: number | null;
+  /** True when the `for` binds more than one name, so the evaluator keeps no ordering or limit. */
+  joined: boolean;
+  shape: ReadShape;
+  /** The binding it is read for, so a view walked twice adds it once. */
+  binding: Binding;
+}
+
 /** The fields read from a row, each with what is read from the rows it reaches. */
 export class ReadShape {
   readonly fields = new Map<string, ReadShape>();
+  /** Reads of other tables made once per row, narrowed by its fields. */
+  readonly correlated: CorrelatedRead[] = [];
 
   child(name: string): ReadShape {
     let c = this.fields.get(name);
@@ -19,11 +51,28 @@ export class ReadShape {
   }
 
   get empty(): boolean {
-    return this.fields.size === 0;
+    return this.fields.size === 0 && this.correlated.length === 0;
   }
 }
 
 type Aliases = ReadonlyMap<string, ReadShape>;
+
+/** A `for`'s conditions, ordering and limit. */
+interface Filter {
+  where: Expr[];
+  order: Array<{ value: Expr; desc: boolean }>;
+  limit: Expr | null;
+}
+
+function filterOf(attributes: Attribute[]): Filter {
+  const get = (name: string) => attributes.find((a) => a.name === name)?.value;
+  const where = get("where"), order = get("orderBy"), limit = get("limit");
+  return {
+    where: where?.kind === "where" ? where.conditions : [],
+    order: order?.kind === "orderBy" ? order.terms : [],
+    limit: limit?.kind === "expr" ? limit.expr : null,
+  };
+}
 
 const MAX_DEPTH = 8;
 
@@ -55,12 +104,52 @@ class Walker {
     return null;
   }
 
+  /**
+   * A `for`'s first binding over a table whose conditions name exactly one outer row: read
+   * once per outer row, inside that row's own read.
+   */
+  private correlate(b: Binding, filter: Filter, aliases: Aliases, joined: boolean): ReadShape | null {
+    if (b.source.kind !== "name" || aliases.has(b.source.name) || this.checker.models.get(b.source.name)?.kind !== "data") return null;
+    const conjuncts: Expr[] = [];
+    const split = (e: Expr) => { if (e.kind === "binary" && e.operator === "and") { split(e.left); split(e.right); } else conjuncts.push(e); };
+    filter.where.forEach(split);
+    let outer: string | null = null;
+    const side = (e: Expr): ConditionSide => {
+      if (e.kind === "field" && e.object.kind === "name" && e.object.name === b.name) return { self: e.name };
+      if (e.kind === "literal") return { literal: e.value };
+      const root = e.kind === "name" ? e.name : e.kind === "field" && e.object.kind === "name" ? e.object.name : null;
+      if (root && root !== b.name && aliases.has(root) && (outer === null || outer === root)) {
+        outer = root;
+        return e.kind === "field" ? { outer: true, field: e.name } : { outer: true };
+      }
+      return { other: true };
+    };
+    const conditions: CorrelatedRead["conditions"] = [];
+    let partial = false;
+    for (const c of conjuncts) {
+      if (c.kind === "binary" && (c.operator === "==" || c.operator === "!=")) conditions.push({ op: c.operator, left: side(c.left), right: side(c.right) });
+      else partial = true;
+    }
+    if (outer === null) return null;
+    const limit = filter.limit?.kind === "literal" && typeof filter.limit.value === "number" ? filter.limit.value : null;
+    if (filter.limit && limit === null) partial = true;
+    const holder = aliases.get(outer)!;
+    const known = holder.correlated.find((r) => r.binding === b);
+    if (known) return known.shape;
+    const read: CorrelatedRead = {
+      model: b.source.name, conditions, partial, joined, limit, shape: new ReadShape(), binding: b,
+      order: filter.order.map((t) => ({ field: t.value.kind === "field" && t.value.object.kind === "name" && t.value.object.name === b.name ? t.value.name : null, desc: t.desc })),
+    };
+    holder.correlated.push(read);
+    return read.shape;
+  }
+
   /** Bind names that come from chains, for the expressions after them. */
-  private bind(bindings: Binding[], aliases: Aliases): Map<string, ReadShape> {
+  private bind(bindings: Binding[], aliases: Aliases, filter?: Filter): Map<string, ReadShape> {
     const inner = new Map(aliases);
-    for (const b of bindings) {
+    for (const [i, b] of bindings.entries()) {
       this.expr(b.source, inner);
-      const shape = this.chain(b.source, inner) ?? this.tableShape(b.source, inner);
+      const shape = this.chain(b.source, inner) ?? (i === 0 && filter ? this.correlate(b, filter, inner, bindings.length > 1) : null) ?? this.tableShape(b.source, inner);
       if (shape) inner.set(b.name, shape);
       else inner.delete(b.name);
     }
@@ -122,7 +211,7 @@ class Walker {
   /** An element's reads: its `for` binds first, then everything else sees its names. */
   element(el: Element, aliases: Aliases): void {
     const forValue = el.attributes.find((a) => a.name === "for")?.value;
-    const inner = forValue?.kind === "for" ? this.bind(forValue.bindings, aliases) : aliases;
+    const inner = forValue?.kind === "for" ? this.bind(forValue.bindings, aliases, filterOf(el.attributes)) : aliases;
     for (const a of el.attributes) if (a.name !== "for") this.attribute(a, a.name === "fallback" ? aliases : inner);
     for (const child of el.children ?? []) {
       if (child.kind === "element") this.element(child.element, inner);
@@ -160,7 +249,7 @@ class Walker {
         case "record": {
           const forValue = entry.attributes.find((a) => a.name === "for")?.value;
           const bindings = forValue?.kind === "for" ? forValue.bindings : [];
-          const inner = bindings.length ? this.bind(bindings, aliases) : aliases;
+          const inner = bindings.length ? this.bind(bindings, aliases, filterOf(entry.attributes)) : aliases;
           for (const a of entry.attributes) if (a.name !== "for") this.attribute(a, inner);
           this.record(entry.record, inner, bindings.length ? inner.get(bindings[0]!.name) ?? null : about);
           break;

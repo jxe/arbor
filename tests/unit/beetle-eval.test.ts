@@ -25,6 +25,18 @@ mutation renameAll(owner Person, prefix Text):
 mutation existsAndNot(l List, p Practice):
   Item(list: l, practice: p)
   not Item(list: l, practice: p)
+
+view SameOwner() {
+  lists: {
+    name
+    others: { name } for={o in List} where={o.owner == l.owner and o.id != l.id} orderBy={o.name} limit={1}
+  } for={l in List} orderBy={l.name}
+}
+
+view Owners():
+  <Stack for={l in List} orderBy={l.name}>
+    <Text for={o in List} where={o.owner == l.owner, o != l}>{o.name} {count(i in Item where i.list == o)}</Text>
+  </Stack>
 `;
 const read = (path: string) => files[path];
 const SCHEMA = "/supplies/data/schema.beetle";
@@ -280,6 +292,8 @@ describe("beetle over SQLite", () => {
     ["/supplies/Feeds.beetle", null, "ListsByOwner", { owner: ALICE }, true],
     ["/supplies/Feeds.beetle", null, "OnePractice", { id: "P1" }, true],
     [SCHEMA, null, "ByOwner", {}, false],
+    ["/supplies/more.beetle", null, "SameOwner", {}, true],
+    ["/supplies/more.beetle", null, "Owners", {}, false],
   ];
   for (const [path, me, name, input, data] of cases) {
     test(`${path}${name ? `?view=${name}` : ""} ${JSON.stringify(input)} answers the same from SQLite`, () => {
@@ -295,6 +309,17 @@ describe("beetle over SQLite", () => {
       if (data) sqlite.data(name, input); else sqlite.view(name, input);
       expect([path, name, store.statements.length]).toEqual([path, name, 1]);
     }
+  });
+
+  test("a for narrowed by an outer row's fields is read inside the outer row's statement, with its ordering and limit", () => {
+    const { sqlite, store } = both("/supplies/more.beetle", null);
+    expect(sqlite.data("SameOwner", {})).toEqual({ lists: [
+      { name: "Open", others: [{ name: "Secret" }] },
+      { name: "Rituals", others: [] },
+      { name: "Secret", others: [{ name: "Open" }] },
+    ] });
+    expect(store.statements).toHaveLength(1);
+    expect(store.statements[0]!.sql).toContain('order by ("r0c0k"."name" is null), "r0c0k"."name", "r0c0k"."id" limit 1');
   });
 
   test("many reads at once go in batches a statement can hold, and each answers its later read", () => {
