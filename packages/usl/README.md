@@ -3,7 +3,7 @@
 Ultimate Schema Language (`.usl`), Overstory's schema language
 ([spec](../../docs/overstory-spec/1.5-beetle.md)). A collection's or
 database's `schema.usl` is compiled here: `collection-schema` builds row
-validation from its data-file layout, and `apps-runtime` checks SQLite
+validation from its data-file layout, and `@ovst/beetle/sqlite` checks SQLite
 databases and derives query relationships from its database layout.
 
 - `compileUsl(source)`: parse (`parseUsl`) and check (`checkUsl`). Returns

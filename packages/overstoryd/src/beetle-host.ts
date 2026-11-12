@@ -43,6 +43,8 @@ import {
   type ViewsRuntime,
 } from "@ovst/protocol";
 import { loadDirectoryCollection, rowOperationsBetween } from "@ovst/collection-schema";
+import { SQLiteStore } from "@ovst/beetle/sqlite";
+import { Materialization } from "./beetle-materialized.ts";
 import { logicalFromRows, rowsFromLogical, type LogicalTables, type RowsByTable } from "@ovst/usl";
 import type { HostDaemon, UpdateCaller } from "./overstoryd.ts";
 
@@ -125,8 +127,11 @@ export class BeetleHost implements AsyncDisposable {
   private readonly checked = new Lru<Checked>();
   private readonly collections = new Lru<Loaded>();
   private readonly receipts: Database;
+  /** The SQLite copies of collections views read, by tree and collection path. */
+  private readonly materialized = new Map<string, Materialization>();
+  private readonly turns = new Map<string, Promise<unknown>>();
 
-  constructor(readonly daemon: HostDaemon, dataRoot: string, private readonly options: BeetleHostOptions) {
+  constructor(readonly daemon: HostDaemon, private readonly dataRoot: string, private readonly options: BeetleHostOptions) {
     mkdirSync(join(dataRoot, "beetle"), { recursive: true });
     this.receipts = new Database(join(dataRoot, "beetle", "receipts.sqlite3"), { create: true, strict: true });
     this.receipts.exec("pragma journal_mode = wal");
@@ -229,6 +234,94 @@ export class BeetleHost implements AsyncDisposable {
     }
   }
 
+  /** A collection directory's rows in its database layout, cached by the directory's hash. */
+  private async loadRows(path: string, at: { directory: ProtocolDirectory; hash: ObjectHash }): Promise<Loaded | null> {
+    let loaded = this.collections.get(at.hash);
+    if (!loaded) {
+      const collection = await loadDirectoryCollection(at.directory, this.read);
+      if (!collection) return null;
+      const store = new StoreSchema(collection.schema.result);
+      loaded = {
+        path,
+        directory: at.hash,
+        rows: rowsFromLogical(collection.schema.result, store.layout, collection.tables),
+        logical: { models: collection.schema.models, result: collection.schema.result },
+        layout: store.layout,
+      };
+      this.collections.set(at.hash, loaded);
+    }
+    return loaded;
+  }
+
+  /** Run `work` as the only change to one copy. */
+  private turn<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const next = (this.turns.get(key) ?? Promise.resolve()).catch(() => {}).then(work);
+    this.turns.set(key, next);
+    return next.finally(() => { if (this.turns.get(key) === next) this.turns.delete(key); });
+  }
+
+  /**
+   * The SQLite copy of the collection at `path`, caught up to `root`: reopened from disk,
+   * moved row by row from the directory it last held, or built from the accepted rows.
+   */
+  private materialize(tree: string, path: string, root: ObjectHash): Promise<Materialization | null> {
+    const key = `${tree}\0${path}`;
+    return this.turn(key, async () => {
+      const at = await this.directoryAt(root, path);
+      if (!at?.directory.collection) return null;
+      const schema = at.directory.entries.find((e) => e.name === "schema.beetle")?.file;
+      if (!schema) return null;
+      const folder = join(this.dataRoot, "beetle", "materialized", tree, encodeURIComponent(path));
+      let copy = this.materialized.get(key) ?? Materialization.reopen(folder) ?? undefined;
+      if (copy && copy.schema === schema && copy.directory === at.hash) {
+        this.materialized.set(key, copy);
+        return copy;
+      }
+      const after = await this.loadRows(path, at);
+      if (!after) return null;
+      if (copy && copy.schema === schema) {
+        try {
+          const was = decodeProtocolDirectory(await this.read(copy.directory as ObjectHash));
+          const before = await this.loadRows(path, { directory: was, hash: copy.directory as ObjectHash });
+          if (before) {
+            copy.apply(after.layout, before.rows, after.rows, at.hash);
+            this.materialized.set(key, copy);
+            return copy;
+          }
+        } catch (error) {
+          console.error("overstoryd: a collection copy could not catch up; rebuilding it", error);
+        }
+      }
+      copy?.close();
+      copy = Materialization.build(folder, after.layout, after.rows, at.hash, schema);
+      this.materialized.set(key, copy);
+      return copy;
+    });
+  }
+
+  /**
+   * An evaluator for a view at `root` over the SQLite copies, or null when a copy moved past
+   * `root` while another was caught up (the caller asks again at the new head).
+   */
+  private async sqliteEvaluator(tree: string, root: ObjectHash, checked: Checked, caller: UpdateCaller | undefined, me: string | null, now: Date, people: Set<string>): Promise<Evaluator | null> {
+    const copies = new Map<string, { copy: Materialization; directory: string }>();
+    for (const schemaPath of checked.program.checker.schemas.keys()) {
+      const path = schemaPath.slice(0, schemaPath.lastIndexOf("/")) || "/";
+      const copy = await this.materialize(tree, path, root);
+      if (copy) copies.set(schemaPath, { copy, directory: copy.directory });
+    }
+    // Everything below runs without yielding, so no copy changes while the view reads it.
+    if ([...copies.values()].some(({ copy, directory }) => copy.directory !== directory)) return null;
+    const person = this.personFields(caller, people);
+    const stores = new Map<string, Store>();
+    for (const [schemaPath, entry] of checked.program.checker.schemas) {
+      const found = copies.get(schemaPath);
+      const schema = new StoreSchema(entry.result);
+      stores.set(schemaPath, found ? new SQLiteStore(schema, found.copy.database, person) : new Store(schema, {}, person));
+    }
+    return new Evaluator(checked.program, stores, { me, now, person });
+  }
+
   /** The bound collections' rows at `root`. */
   private async rows(root: ObjectHash, program: Program): Promise<Map<string, Loaded>> {
     const out = new Map<string, Loaded>();
@@ -236,21 +329,8 @@ export class BeetleHost implements AsyncDisposable {
       const path = schemaPath.slice(0, schemaPath.lastIndexOf("/")) || "/";
       const at = await this.directoryAt(root, path);
       if (!at?.directory.collection) continue;
-      let loaded = this.collections.get(at.hash);
-      if (!loaded) {
-        const collection = await loadDirectoryCollection(at.directory, this.read);
-        if (!collection) continue;
-        const store = new StoreSchema(collection.schema.result);
-        loaded = {
-          path,
-          directory: at.hash,
-          rows: rowsFromLogical(collection.schema.result, store.layout, collection.tables),
-          logical: { models: collection.schema.models, result: collection.schema.result },
-          layout: store.layout,
-        };
-        this.collections.set(at.hash, loaded);
-      }
-      out.set(schemaPath, loaded);
+      const loaded = await this.loadRows(path, at);
+      if (loaded) out.set(schemaPath, loaded);
     }
     return out;
   }
@@ -295,7 +375,15 @@ export class BeetleHost implements AsyncDisposable {
         const checked = await this.check(head.root as ObjectHash, mount.handle.path);
         if (checked.version !== mount.handle.version) throw new BeetleRefusal("not-found", "The view handle or version is not active", 404);
         const people = new Set<string>();
-        const ev = this.evaluator(checked, await this.rows(head.root as ObjectHash, checked.program), context.caller, context.user?.profile ?? null, new Date(), people);
+        let ev: Evaluator | null = null;
+        for (let attempt = 0; !ev; attempt++) {
+          if (attempt === 5) throw new BeetleRefusal("unavailable", "The tree kept changing while the view ran", 503, true);
+          const at = this.daemon.currentUpdate(tree)!;
+          if (at.root !== head.root && (await this.check(at.root as ObjectHash, mount.handle.path)).version !== checked.version) {
+            throw new BeetleRefusal("not-found", "The view handle or version is not active", 404);
+          }
+          ev = await this.sqliteEvaluator(tree, at.root as ObjectHash, checked, context.caller, context.user?.profile ?? null, new Date(), people);
+        }
         const decl = ev.declaredView(mount.handle.name);
         if (!decl) throw new BeetleRefusal("not-found", `${mount.handle.path} has no view ${mount.handle.name || "(unnamed)"}`, 404);
         if (decl.data) return { value: ev.data(mount.handle.name, mount.input), people };
@@ -451,6 +539,9 @@ export class BeetleHost implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    await Promise.allSettled([...this.turns.values()]);
+    for (const copy of this.materialized.values()) copy.close();
+    this.materialized.clear();
     this.receipts.close();
   }
 }

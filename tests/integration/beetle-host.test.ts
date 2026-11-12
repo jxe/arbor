@@ -1,12 +1,14 @@
 // Apps 015 steps 2 and 4: Beetle views and mutations run on the host, in process. Done
 // when: a `.beetle` view streams its tree over the accepted rows and answers again when a
 // mutation or a device's edit changes them; a data view streams its JSON and follows a
-// profile edit; a schema's own view streams too; a mutation commits as one row-only
-// update guarded on the head it read, with its receipt and retry; its public errors reach
-// the caller with their codes; and a handle with another code version is refused.
+// profile edit; a schema's own view streams too; views read the host's SQLite copy of
+// the collection; a mutation commits as one row-only update guarded on the head it read,
+// with its receipt and retry; its public errors reach the caller with their codes; and a
+// handle with another code version is refused.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
@@ -238,6 +240,8 @@ describe.serial("Beetle on the host", () => {
       expect(result.error).toBeUndefined();
       expect(result.value.lists.map((l: any) => l.name).sort()).toEqual(["Community care", "Quiet experiments"]);
       expect(result.value.lists.find((l: any) => l.name === "Community care").size).toBeGreaterThan(0);
+      // It read the host's SQLite copy of the collection, built from the accepted rows.
+      expect(existsSync(join(dataRoot, "beetle", "materialized", tree, encodeURIComponent("/supplies/data"), "_store.sqlite3"))).toBe(true);
     } finally { controller.abort(); }
   }, 30_000);
 

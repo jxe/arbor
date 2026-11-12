@@ -251,7 +251,9 @@ of the trees `OVERSTORYD_BEETLE` names, in process, over each tree's accepted ro
   "not active".
 - **Rollback.** Unset `OVERSTORYD_BEETLE` and restart: the routes answer
   `unsupported-operation` and nothing else changes. `<data>/beetle/receipts.sqlite3`
-  holds mutation receipts and is kept with the host's data.
+  holds mutation receipts and is kept with the host's data;
+  `<data>/beetle/materialized` holds the SQLite copies views read, a cache that is
+  rebuilt when deleted. Nothing evicts idle copies yet.
 
 ### Health and readiness
 

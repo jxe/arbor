@@ -121,9 +121,19 @@ materializations (`collections.ts`), `OVERSTORYD_ACTIVATIONS`, and every part of
 `packages/apps-runtime` except Story Sync's projection-provider types and SQLite
 introspection. `serveHost({ beetle })` replaces `serveHost({ collections })`.
 
-The SQLite plan engine went too, against this step's first wording: with the views gone
-nothing ran it, and its tests were all written through the TypeScript authoring layer.
-Lowering Beetle plans to SQL, if a large collection needs it, is new work. Host
+The TypeScript SQLite plan engine went too. Joe wants reads in SQL (2026-11-12, and chose
+the host's SQLite copies first), so Beetle reads SQLite itself instead: `@ovst/beetle/sqlite`
+(`SQLiteStore`, with `introspectStoreSchema` moved in) answers the evaluator's reads with
+SQL, narrowing a `for` over a table by its conditions on the table's own columns, with
+`orderBy` and `limit` when all of it can be stated (`RowQuery`). The host keeps a SQLite
+copy per collection (`beetle-materialized.ts`), caught up row by row to the head before a
+view reads it. The in-memory store stays, for collections not in SQLite and as the
+reference (`beetle-eval.test.ts` checks both answer every Supplies view the same).
+`apps-runtime` is gone: the projection-provider types live in story-sync. Left: idle copies
+are never evicted; a catch-up diffs whole collections; mutations read whole collections in
+memory; relationship reads are one statement per row (batching them, and narrowing
+`count`/`exists` comprehensions, would cut statements). Joe noted the overstoryd/Beetle
+interface should differ from the first cut; the row-store contract is that change. Host
 declared views (`~views` served by the sidecar's built-in list view) went with it: a
 `view` in `schema.beetle` replaces them (`data/schema.beetle?view=ByOwner`), and Story's
 own `~views` presentation is unchanged. `host-collections.test.ts`'s cases that still

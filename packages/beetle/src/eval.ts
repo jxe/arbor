@@ -11,7 +11,7 @@
 import type { Attribute, Binding, Child, DataRecord, Element, Expr, OrderTerm, Param, TextPart, ViewDecl } from "./ast.ts";
 import { ruleCondition } from "./plan.ts";
 import { compileProgram, type Checker, type Program } from "./check.ts";
-import { canonical, compareRows, EnumValue, Row, Store, StoreSchema, type PersonFields } from "./store.ts";
+import { canonical, compareRows, EnumValue, Row, Store, StoreSchema, type PersonFields, type RowQuery } from "./store.ts";
 import type { RowsByTable } from "@ovst/usl";
 
 /** A mutation call or a `set` an attribute or event holds, which a client runs. */
@@ -565,9 +565,10 @@ export class Evaluator {
   /** The matches of a `for`: one environment per combination its `where` keeps, ordered and cut. */
   matches(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env): Env[] {
     let envs: Env[] = [env];
-    for (const b of bindings) {
+    const narrowed = this.narrowed(bindings, where, order, limit, env);
+    for (const [i, b] of bindings.entries()) {
       const next: Env[] = [];
-      for (const e of envs) for (const m of this.members(this.expr(b.source, e))) next.push(new Map(e).set(b.name, m));
+      for (const e of envs) for (const m of i === 0 && narrowed ? narrowed : this.members(this.expr(b.source, e))) next.push(new Map(e).set(b.name, m));
       envs = next;
     }
     envs = envs.filter((e) => where.every((c) => truthy(this.expr(c, e))));
@@ -587,6 +588,62 @@ export class Evaluator {
       if (typeof n === "number") envs = envs.slice(0, Math.max(0, Math.floor(n)));
     }
     return envs;
+  }
+
+  /**
+   * The rows a `for`'s first binding ranges over, narrowed by its store when it binds a
+   * table: the conditions and orderings on that row's own columns, stated as a RowQuery.
+   * The evaluator still applies every condition, ordering and limit to what comes back,
+   * so a store only has to return a superset of the matches.
+   */
+  private narrowed(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env): readonly Row[] | null {
+    const first = bindings[0];
+    if (!first || first.source.kind !== "name" || env.has(first.source.name)) return null;
+    const model = this.checker.models.get(first.source.name);
+    if (!model || model.kind !== "data") return null;
+    const store = this.storeOf(first.source.name);
+    if (!store) return null;
+    const name = first.name;
+    const conjuncts: Expr[] = [];
+    const split = (e: Expr) => { if (e.kind === "binary" && e.operator === "and") { split(e.left); split(e.right); } else conjuncts.push(e); };
+    where.forEach(split);
+    const free = (e: Expr) => !usedNamesOf(e).has(name) && !bindings.some((b) => usedNamesOf(e).has(b.name));
+    /** The column a field of the bound row is stored in, and how a value compares with it. */
+    const column = (e: Expr): { column: string; reference: boolean } | null => {
+      if (e.kind !== "field" || e.object.kind !== "name" || e.object.name !== name) return null;
+      const place = store.schema.place(first.source.kind === "name" ? first.source.name : "", e.name);
+      if (place.kind === "column") return { column: place.column, reference: false };
+      if (place.kind === "reference" && place.columns.length === 1) return { column: place.columns[0]!, reference: true };
+      return null;
+    };
+    const cell = (v: Value, reference: boolean): { ok: true; value: unknown } | { ok: false } => {
+      if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") return { ok: true, value: v };
+      if (reference && v instanceof EnumValue) return { ok: true, value: v.name };
+      if (reference && v instanceof Row && v.key.length === 1) return { ok: true, value: v.keyValue };
+      return { ok: false };
+    };
+    const query: RowQuery = { where: [], order: [] };
+    let all = true;
+    for (const c of conjuncts) {
+      if (c.kind === "binary" && (c.operator === "==" || c.operator === "!=")) {
+        const [col, other] = column(c.left) ? [column(c.left), c.right] : [column(c.right), c.left];
+        if (col && free(other)) {
+          const v = cell(this.expr(other, env), col.reference);
+          if (v.ok) { query.where.push({ column: col.column, op: c.operator === "==" ? "=" : "!=", value: v.value }); continue; }
+        }
+      }
+      all = false;
+    }
+    if (all && limit && bindings.length === 1) {
+      const terms = order.map((t) => ({ col: column(t.value), desc: t.desc }));
+      const n = this.expr(limit, env);
+      if (terms.every((t) => t.col && !t.col.reference) && typeof n === "number") {
+        query.order = terms.map((t) => ({ column: t.col!.column, desc: t.desc }));
+        query.limit = Math.max(0, Math.floor(n));
+      }
+    }
+    if (!query.where.length && query.limit === undefined) return null;
+    return store.query(first.source.name, query);
   }
 
   private element(el: Element, env: Env, out: Array<ViewNode | string>): void {
@@ -808,3 +865,9 @@ function exprNames(e: Expr, used: Set<string>): void {
 }
 
 export { compareRows };
+
+function usedNamesOf(e: Expr): Set<string> {
+  const used = new Set<string>();
+  exprNames(e, used);
+  return used;
+}

@@ -48,7 +48,6 @@
     "@ovst/overstoryd-merge": "workspace:*",
     "@ovst/merge-protocol": "workspace:*",
     "@ovst/tree-merge": "workspace:*",
-    "@ovst/apps-runtime": "workspace:*",
     "@ovst/collection-schema": "workspace:*",
     "@ovst/usl": "workspace:*",
     "@ovst/beetle": "workspace:*",

@@ -10,7 +10,7 @@ import {
   type LoadedProjectionSlice,
   type ProjectionDefinition,
   type ProjectionDescriptor,
-} from "@ovst/apps-runtime/collections";
+} from "./contract.ts";
 export class PostgresProjectionDriver implements ProjectionProvider {
   readonly kinds = ["postgres"] as const;
   constructor(private connections = new ConnectionStore()) {}

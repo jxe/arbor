@@ -9,7 +9,7 @@ import {
   sha256,
   stableKeyFromProperties,
 } from "@ovst/protocol";
-import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type StoreSchema } from "@ovst/apps-runtime";
+import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type IntrospectedStore as StoreSchema } from "@ovst/beetle/sqlite";
 import {
   type ProjectionProvider,
   decodeProviderCursor,
@@ -22,7 +22,7 @@ import {
   type ProjectionDescriptor,
   type ProjectionWriteTarget,
   type ProviderChildRecord,
-} from "@ovst/apps-runtime/collections";
+} from "./contract.ts";
 interface LoadedSQLiteTable {
   columns: string[];
   rows: ProviderChildRecord[];

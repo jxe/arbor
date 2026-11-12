@@ -160,6 +160,18 @@ export class StoreSchema {
   }
 }
 
+/**
+ * A narrowing the evaluator asks of a store for one `for` over a table: conditions on the
+ * table's own columns, and, when every condition and ordering could be stated, the
+ * ordering and the count it keeps. `=` and `!=` compare as Beetle does, with null equal
+ * to null.
+ */
+export interface RowQuery {
+  where: { column: string; op: "=" | "!="; value: Cell }[];
+  order: { column: string; desc: boolean }[];
+  limit?: number;
+}
+
 /** One collection's rows, indexed on demand, and read along the schema's relationships. */
 export class Store {
   private readonly tables = new Map<string, Row[]>();
@@ -183,6 +195,16 @@ export class Store {
     if (model === "Person") return this.allPeople();
     const table = this.schema.tableOf(model);
     return table ? this.rowsOf(table) : [];
+  }
+
+  /**
+   * Rows of a model's table among which every match of `query` is, in key order, or null
+   * to have the evaluator read them all. With `limit`, a store that returns rows holds at
+   * least the first `limit` matches in the evaluator's order (nulls last ascending, ties
+   * in key order). A store in memory reads them all.
+   */
+  query(_model: string, _query: RowQuery): readonly Row[] | null {
+    return null;
   }
 
   /** Every table's rows as plain data, the form `RowsByTable` takes. */

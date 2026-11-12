@@ -1,7 +1,7 @@
 # @ovst/overstoryd
 
 The reference Overstory host and the `overstoryd` command. It depends on
-`protocol`, `object-store`, `apps-runtime`, and `merge-protocol` (the JSON
+`protocol`, `object-store`, `beetle` (whose views and mutations it runs), and `merge-protocol` (the JSON
 contract with its merge sidecar, whose code it never imports); nothing
 depends on it except tests and the deployment tooling.
 

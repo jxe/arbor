@@ -1,6 +1,5 @@
 // Apps 015: overstoryd runs views and mutations by interpreting Beetle in process, and
-// runs no authored JavaScript. Its closure has no compiler, React or QuickJS, and no
-// TypeScript authoring runtime.
+// runs no authored JavaScript. Its closure has no compiler, React or QuickJS.
 
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile, rm, writeFile, mkdtemp } from "node:fs/promises";
@@ -27,7 +26,7 @@ async function closure(entrypoint: string): Promise<string[]> {
   }
 }
 
-const EXECUTION = /packages\/apps-runtime\/|node_modules\/(?:react|react-dom|typescript|esbuild|@babel|quickjs[^/]*|vite|sucrase)\//i;
+const EXECUTION = /node_modules\/(?:react|react-dom|typescript|esbuild|@babel|quickjs[^/]*|vite|sucrase)\//i;
 
 describe("overstoryd runs no authored JavaScript", () => {
   test("its closure, from its command and its library, has Beetle's interpreter and no compiler, React or QuickJS", async () => {
@@ -39,8 +38,6 @@ describe("overstoryd runs no authored JavaScript", () => {
   }, 60_000);
 
   test("it names no module it can't see", async () => {
-    const manifest = JSON.parse(await readFile(join(root, "packages/overstoryd/package.json"), "utf8")) as { dependencies: Record<string, string> };
-    expect(Object.keys(manifest.dependencies)).not.toContain("@ovst/apps-runtime");
     // A computed dynamic import would hide from the closure above.
     for (const name of await readdir(join(root, "packages/overstoryd/src"), { recursive: true })) {
       if (!String(name).endsWith(".ts")) continue;

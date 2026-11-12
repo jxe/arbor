@@ -26,7 +26,7 @@ import {
   type ProjectionDescriptor,
   type ProjectionWriteTarget,
   type ProviderChildRecord,
-} from "@ovst/apps-runtime/collections";
+} from "./contract.ts";
 /** The schema facts a projection needs; an unschematized collection has none of them. */
 type SchemaView = Pick<CollectionSchema, "columns" | "childName" | "revision"> & { primaryKey: readonly string[] | null; schema: CollectionSchema | null };
 const NO_SCHEMA: SchemaView = { columns: [], primaryKey: null, childName: { from: "primaryKey" }, revision: revisionOf("") as CollectionSchema["revision"], schema: null };

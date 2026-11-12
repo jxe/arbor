@@ -9,11 +9,11 @@
     "./state": "./src/state/index.ts"
   },
   "dependencies": {
+    "@ovst/beetle": "workspace:*",
     "@ovst/protocol": "workspace:*",
     "@ovst/client": "workspace:*",
     "@ovst/working-tree": "workspace:*",
     "@ovst/fs": "workspace:*",
-    "@ovst/apps-runtime": "workspace:*",
     "@ovst/collection-schema": "workspace:*",
     "@ovst/usl": "workspace:*",
     "@ovst/object-store": "workspace:*"

@@ -1,7 +1,7 @@
 import { readFile, realpath } from "node:fs/promises";
 import { canonicalCBORHash } from "@ovst/protocol";
 import { columnType, formatDiagnostic, layoutOf, PERSON_RELATION, relationshipsOf } from "@ovst/usl";
-import { compileSchema } from "@ovst/beetle";
+import { compileSchema } from "../schema.ts";
 import { compareShapes, inspectSqlite, sqliteAffinity } from "@ovst/usl/verify";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
@@ -61,7 +61,7 @@ export interface RelationshipMetadata {
   };
 }
 
-export interface StoreSchema {
+export interface IntrospectedStore {
   version: 1;
   relations: Record<string, RelationMetadata>;
   relationships: Record<string, RelationshipMetadata>;
@@ -226,7 +226,7 @@ export function inspectSQLite(database: Database): Record<string, RelationMetada
  * files; executable-document databases normally use introspectStoreSchema,
  * which checks the database against its schema.beetle and adds relationships.
  */
-export function introspectSQLiteDatabase(source: string | Database): StoreSchema {
+export function introspectSQLiteDatabase(source: string | Database): IntrospectedStore {
   const database = typeof source === "string"
     ? new Database(source, { readonly: true, strict: true })
     : source;
@@ -329,7 +329,7 @@ function fieldTypesOf(schema: ReturnType<typeof compileSchema>, tables: ReturnTy
 export async function introspectStoreSchema(
   location: Pick<ResolvedDatabaseLocation, "databasePath" | "schemaPath">,
   fixtureDatabase?: Database,
-): Promise<StoreSchema> {
+): Promise<IntrospectedStore> {
   const source = await readFile(location.schemaPath, "utf8");
   const schema = compileSchema(source);
   if (schema.diagnostics.length > 0) throw new Error(`Invalid ${formatDiagnostic(basename(location.schemaPath), schema.diagnostics[0]!)}`);

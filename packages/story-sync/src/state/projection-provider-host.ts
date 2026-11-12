@@ -17,7 +17,7 @@ import {
   type ProjectionProviderKind,
   type ProjectionWriteTarget,
   type ProviderChildRecord,
-} from "@ovst/apps-runtime/collections";
+} from "./providers/contract.ts";
 import { CollectionSchemaCache } from "@ovst/collection-schema";
 function rowSummary(
   row: ProviderChildRecord,

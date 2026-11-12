@@ -17,10 +17,19 @@ head's answers "not active". Checked programs are cached by root and path.
 
 ## Rows
 
-Each collection a program binds (a `schema.beetle` it uses) is read from the head's
-directory as logical rows (`loadDirectoryCollection`) and laid out as database rows,
-cached by the collection directory's hash. There is no materialization on disk: the
-rows are the accepted state. People are virtual `Person` rows: their name, handle and
+Views read each collection a program binds (a `schema.beetle` it uses) from the host's
+SQLite copy of it, `<data>/beetle/materialized/<tree>/<path>/_store.sqlite3` in the
+schema's database layout (`beetle-materialized.ts`). Before a view runs, the copy is caught
+up to the head: moved row by row from the collection directory it last held, or built
+from the accepted rows when it is new, unreadable or from another schema. It is a cache,
+written without waiting on the disk. The view reads it through `@ovst/beetle/sqlite`'s
+`SQLiteStore`, which asks SQLite only for what the view reaches: a `for` over a table is
+narrowed by its conditions on the table's own columns (with its `orderBy` and `limit`
+when every condition and ordering can be stated), and keys and relationships are looked
+up by their columns. The evaluator still applies every condition itself, so a narrowing
+only has to keep every match; the in-memory store answers the same and is what the tests
+compare against. Mutations still read the whole collection in memory, since they diff it.
+People are virtual `Person` rows: their name, handle and
 bio come from profile cards the caller may read, and read as null otherwise.
 
 ## Views

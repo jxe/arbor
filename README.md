@@ -27,10 +27,10 @@ as `@ovst/<name>`; Swift packages live under `swift/Packages/`.
   `protocol`, `object-store`, `client`, `fs`; Swift `Overstory`,
   `OverstoryObjectStore`, `OverstoryClient`, `OverstoryWorkingTree`.
 - **overstoryd, the host**: serves communities, accounts, hosted trees, and
-  public pages over HTTPS, accepts updates, and runs two sidecars: the merge
-  tool for every accepted update and the executable-document runtime for
-  queries and mutations. `overstoryd`, `overstoryd-merge`, `merge-protocol` (the JSON contract
-  between the two), `tree-merge` (the snapshot tree merge), `apps-runtime`.
+  public pages over HTTPS, accepts updates, runs the merge sidecar for every
+  accepted update, and runs Beetle views and mutations in process. `overstoryd`,
+  `overstoryd-merge`, `merge-protocol` (the JSON contract between the two), `tree-merge`
+  (the snapshot tree merge), `beetle`.
 - **Story Sync, the local daemon**, with the `story` command: keeps placed
   folders on a Mac synchronized with their hosts and serves them to local
   clients over loopback. `story-sync`, `cli` (whose `daemon-client.ts` is the
@@ -54,7 +54,7 @@ flowchart TB
     M["overstoryd-merge<br/>merge sidecar"]
     MP["merge-protocol<br/>JSON contract"]
     TM["tree-merge<br/>snapshot tree merge"]
-    AR["apps-runtime<br/>queries and mutations"]
+    AR["beetle<br/>views and mutations"]
   end
   subgraph story["Story Sync, the local daemon (loopback)"]
     direction LR

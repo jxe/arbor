@@ -7,7 +7,7 @@ import type {
 } from "@ovst/protocol";
 import { canonicalNodePath, isPageID, markdownStableKey, ProtocolError } from "@ovst/protocol";
 import type { WorkspaceDiscovery, WorkspaceFS } from "@ovst/fs";
-import { ProjectionProviderError } from "@ovst/apps-runtime/collections";
+import { ProjectionProviderError } from "./state/providers/contract.ts";
 import { basename } from "node:path";
 import { EventBus } from "./events.ts";
 import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";

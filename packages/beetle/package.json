@@ -9,7 +9,8 @@
     "directory": "packages/beetle"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./sqlite": "./src/sqlite/index.ts"
   },
   "bin": {
     "beetle": "./src/cli.ts"
@@ -20,6 +21,7 @@
   ],
   "dependencies": {
     "@noble/hashes": "^2.2.0",
-    "@ovst/usl": "workspace:*"
+    "@ovst/usl": "workspace:*",
+    "@ovst/protocol": "workspace:*"
   }
 }

@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { collectionSchemaName, type Diagnostic } from "@ovst/protocol";
-import type { ProjectionDefinition, ProjectionProviderKind } from "@ovst/apps-runtime/collections";
+import type { ProjectionDefinition, ProjectionProviderKind } from "./contract.ts";
 const fixedStores = [
   ["_store.csv", "csv"],
   ["_store.json", "json"],

@@ -57,7 +57,7 @@ their file name without one (Story Sync's file provider).
 | Story Sync providers and snapshots | `schema.beetle` discovery, CSV conversion, row validation and writes, collection descriptors |
 | Story Sync generated types | `collectionTypeDeclarations` |
 
-A `schema.beetle` beside `_store.sqlite3` is read by `apps-runtime`
+A `schema.beetle` beside `_store.sqlite3` is read by `@ovst/beetle/sqlite`
 (`introspectStoreSchema`), not here: the database must implement the schema's
 database layout, and connections become query relationships.
 

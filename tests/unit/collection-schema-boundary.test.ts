@@ -74,7 +74,6 @@ describe("collection schema package boundary", () => {
     ]);
     expect(closure.some((path) => path.startsWith("packages/collection-schema/"))).toBe(true);
     expect(closure.filter((path) => QUICKJS.test(path))).toEqual([]);
-    expect(closure.filter((path) => path.startsWith("packages/apps-runtime/src/collections/") && !path.endsWith("types.ts") && !path.endsWith("index.ts"))).toEqual([]);
   });
 
   test("collection acceptance, projection, merge, and local reads run with QuickJS unavailable", async () => {

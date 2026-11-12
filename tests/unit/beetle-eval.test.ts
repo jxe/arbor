@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { logicalFromRows, rowsFromLogical, type RowsByTable } from "@ovst/usl";
-import { BeetleError, compileProgram, Evaluator, runMutation, type ViewNode } from "@ovst/beetle";
+import { Database } from "bun:sqlite";
+import { layoutOf, logicalFromRows, rowsFromLogical, setupSql, type RowsByTable } from "@ovst/usl";
+import { BeetleError, compileProgram, Evaluator, runMutation, StoreSchema, type ViewNode } from "@ovst/beetle";
+import { SQLiteStore } from "@ovst/beetle/sqlite";
 import { exampleFiles } from "../support/beetle-vectors.ts";
 
 const files = exampleFiles();
@@ -236,3 +238,65 @@ describe("beetle mutations", () => {
     expect(again.Item!.filter((i) => i.list === "L3").map((i) => [i.practice, i.items_position])).toEqual([["P1", 1], ["P3", 0]]);
   });
 });
+
+describe("beetle over SQLite", () => {
+  /** Supplies' rows written to a SQLite file in the database layout. */
+  function database(data: RowsByTable): Database {
+    const program = compileProgram(files[SCHEMA]!, { path: SCHEMA, read });
+    const result = program.checker.schemas.get(SCHEMA)!.result;
+    const db = new Database(":memory:", { strict: true });
+    const layout = layoutOf(result, { store: "database" });
+    db.exec(setupSql(layout, "sqlite"));
+    for (const table of layout) {
+      for (const row of data[table.name] ?? []) {
+        const columns = Object.keys(row);
+        db.query(`insert into "${table.name}" (${columns.map((c) => `"${c}"`).join(", ")}) values (${columns.map(() => "?").join(", ")})`)
+          .run(...columns.map((c) => (typeof row[c] === "boolean" ? (row[c] ? 1 : 0) : row[c] ?? null)) as never[]);
+      }
+    }
+    return db;
+  }
+
+  function both(path: string, me: string | null) {
+    const memory = evaluator(path, me);
+    const program = compileProgram(files[path]!, { path, read });
+    const person = (id: string) => people[id] ?? null;
+    const store = new SQLiteStore(new StoreSchema(program.checker.schemas.get(SCHEMA)!.result), database(rows()), person);
+    const sqlite = new Evaluator(program, new Map([[SCHEMA, store]]), { me, now: new Date("2026-11-11T12:00:00Z"), person });
+    return { memory, sqlite, store };
+  }
+
+  const cases: Array<[string, string | null, string, Record<string, unknown>, boolean]> = [
+    ["/supplies/List.beetle", BOB, "", { id: "L1" }, false],
+    ["/supplies/List.beetle", BOB, "", { id: "nope" }, false],
+    ["/supplies/List.beetle", null, "", { id: "L1" }, false],
+    ["/supplies/Home.beetle", null, "", {}, false],
+    ["/supplies/Profile.beetle", null, "", { id: BOB }, false],
+    ["/supplies/Feeds.beetle", null, "ListsByOwner", { owner: ALICE }, true],
+    ["/supplies/Feeds.beetle", null, "OnePractice", { id: "P1" }, true],
+    [SCHEMA, null, "ByOwner", {}, false],
+  ];
+  for (const [path, me, name, input, data] of cases) {
+    test(`${path}${name ? `?view=${name}` : ""} ${JSON.stringify(input)} answers the same from SQLite`, () => {
+      const { memory, sqlite } = both(path, me);
+      if (data) expect(sqlite.data(name, input)).toEqual(memory.data(name, input));
+      else expect(sqlite.view(name, input)).toEqual(memory.view(name, input));
+    });
+  }
+
+  test("a for over a table reads only the rows its conditions keep", () => {
+    const { sqlite, store } = both("/supplies/List.beetle", BOB);
+    sqlite.view("", { id: "L1" });
+    const lists = store.statements.filter((s) => s.sql.startsWith('select * from "List"'));
+    expect(lists.length).toBeGreaterThan(0);
+    expect(lists.every((s) => s.sql.includes("where"))).toBe(true);
+  });
+
+  test("a for whose conditions and ordering are all on the row's columns reads only what its limit keeps", () => {
+    const { sqlite, store } = both("/supplies/Feeds.beetle", null);
+    sqlite.data("ListsByOwner", { owner: ALICE });
+    expect(store.statements[0]!.sql).toBe('select * from "List" where "owner" is ? order by ("modified" is null) desc, "modified" desc, "id" limit 20');
+    expect(store.statements[0]!.parameters).toEqual([ALICE]);
+  });
+});
+
