@@ -29,10 +29,15 @@ rows hash (collections §1, data model §5).
   through `useSnapshotDatabase` (`@ovst/beetle/sqlite` `sqliteSnapshots`).
 - Path reads of a collection bring its head entry, and a row path answers the row itself,
   unproved (reading and watching).
-- overstoryd snapshots a collection after an update leaves its log with at least as many
-  changes since the last snapshot as it has rows, and at least 1,000
+- overstoryd snapshots a collection after an update leaves its log with more than twice as
+  many changes since the last snapshot as it has rows, and at least 1,000
   (`collection-snapshots.ts`), in an update it makes itself. Merges append to the current
   head's log.
+- `tests/performance/collection-sync.ts` (5,000 rows, 10 edits) is level with main: row edit
+  median 479 ms (main 441), note edit 289 ms (main 234), adding the collection 770 ms (main
+  623). Two costs it found are fixed: base64 checked by a regular expression took
+  superlinear time on a large object, and walks decoded a log's large first entry every
+  time (now once per entry).
 - Story Sync keeps a private base database per SQLite projection (the rows it last
   applied, under its state directory's `collection-bases/`) and finds other programs'
   edits as the rows the projection differs from it in, in SQL (72d6b29f); the triggers and

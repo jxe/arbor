@@ -208,7 +208,11 @@ test("a derived change on a stale base merges field by field like a stated one",
 test("a log that outgrows its rows gets a snapshot entry from the host, and later changes follow it", async () => {
   await stop();
   await start({ collectionSnapshotChanges: 2 });
-  const first = await submit(await rowChange(root, set("a", "title", "A", "A1") as never));
+  // Two rows: a snapshot comes once the log holds more than four changes since its start.
+  const warm = await submit(await rowChange(root, (c) => [...set("a", "done", null, true, "w1")(c as never), ...set("b", "done", null, true, "w2")(c as never)]));
+  await remember(warm.root);
+  expect((await client.descriptor(tree)).tree.update).toBe(warm.id);
+  const first = await submit(await rowChange(warm.root, set("a", "title", "A", "A1") as never), warm.id);
   // The host's own update follows: same rows, a snapshot entry at the log's head.
   let head = await client.descriptor(tree);
   for (let i = 0; i < 100 && head.tree.update === first.id; i++) { await Bun.sleep(20); head = await client.descriptor(tree); }
@@ -224,7 +228,7 @@ test("a log that outgrows its rows gets a snapshot entry from the host, and late
   // A change authored before the snapshot merges onto it.
   const second = await submit(await rowChange(first.root, set("b", "title", "B", "B1") as never), first.id);
   await remember(second.root);
-  expect(await rows(second.root)).toEqual([{ id: "a", title: "A1", tags: ["x"] }, { id: "b", title: "B1" }]);
+  expect(await rows(second.root)).toEqual([{ id: "a", title: "A1", done: true, tags: ["x"] }, { id: "b", title: "B1", done: true }]);
   expect(decodeProtocolLog(objects.get(log(second.root))!).previous).toBe(log(head.tree.root));
   await running.overstoryd.verifyIntegrity();
 });

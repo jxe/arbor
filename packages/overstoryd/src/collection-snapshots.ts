@@ -1,6 +1,7 @@
 // Collections §1.1: the tree's host snapshots a collection when the changes in its log
-// since the last snapshot outgrow its rows, so a replica or a cold load applies at most
-// about as many changes as the collection has rows. A snapshot is an entry naming a SQLite
+// since the last snapshot outgrow its rows, twice over, so a replica or a cold load applies
+// at most about twice as many changes as the collection has rows. (A log's first entry
+// often holds every row; it is as good as a snapshot, and doesn't call for one.) A snapshot is an entry naming a SQLite
 // file of every row, with the same row count and rows hash as the entry before it, written
 // in an accepted update the host makes itself with no other effect.
 
@@ -9,7 +10,7 @@ import { changesSinceSnapshot, loadDirectoryCollection, snapshotEntry, type Coll
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 
-/** A collection is snapshotted once its log since the last snapshot holds at least this many changes, and at least as many as it has rows. */
+/** A collection is snapshotted once its log since the last snapshot holds at least this many changes, and more than twice as many as it has rows. */
 export const SNAPSHOT_MIN_CHANGES = 1_000;
 
 /** The collection folders whose log `after` changed from `before`, as path names. Only changed directories are read. */
@@ -49,7 +50,7 @@ export async function snapshotCollections(
     const pending = await changesSinceSnapshot(directory.collection.log, read);
     if (pending < minChanges) continue;
     const collection = await loadDirectoryCollection(directory, read, schemas);
-    if (!collection || pending < collection.state.rows) continue;
+    if (!collection || pending <= 2 * collection.state.rows) continue;
     const snapshot = snapshotEntry(collection.schema, collection.state);
     objects.set(snapshot.file.hash as ObjectHash, snapshot.file.bytes);
     objects.set(snapshot.hash as ObjectHash, snapshot.bytes);

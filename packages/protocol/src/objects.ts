@@ -106,9 +106,28 @@ export function protocolDirectoryReferences(directory: ProtocolDirectory): Array
  */
 export function protocolObjectReferences(kind: ProtocolObjectKind, bytes: Uint8Array): Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> {
   if (kind === "directory") return protocolDirectoryReferences(decodeProtocolDirectory(bytes));
-  if (kind === "log") return logEntryReferences(decodeProtocolLog(bytes));
+  if (kind === "log") return logReferences(bytes);
   if (kind === "page") decodeProtocolPage(bytes);
   return [];
+}
+
+/**
+ * A log entry's references, decoded and checked once per entry: a walk meets a log's large
+ * first entry or a snapshot entry on every pass, and a changes entry with every row of a
+ * collection costs far more to decode than to hash.
+ */
+const LARGE_LOG = 16 * 1024;
+const logReferenceCache = new Map<string, Array<{ kind: ProtocolObjectKind; hash: ObjectHash }>>();
+function logReferences(bytes: Uint8Array): Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> {
+  if (bytes.length < LARGE_LOG) return logEntryReferences(decodeProtocolLog(bytes));
+  const key = hashObject(bytes);
+  let references = logReferenceCache.get(key);
+  if (!references) {
+    references = logEntryReferences(decodeProtocolLog(bytes));
+    if (logReferenceCache.size >= 1024) logReferenceCache.delete(logReferenceCache.keys().next().value!);
+    logReferenceCache.set(key, references);
+  }
+  return references.map((reference) => ({ ...reference }));
 }
 
 export type ResolvedProtocolLogicalNode = (

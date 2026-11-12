@@ -121,12 +121,12 @@ export function encodeBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
 }
 
+/** Standard padded base64, checked by encoding the bytes again: any other spelling (a
+ * stray character, missing padding, the URL alphabet) encodes differently. A regular
+ * expression over the whole text costs superlinear time on a large object. */
 export function decodeBase64(value: string): Uint8Array {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
-    throw new Error("Object bytes must use standard padded base64");
-  }
   const bytes = new Uint8Array(Buffer.from(value, "base64"));
-  if (encodeBase64(bytes) !== value) throw new Error("Object bytes are not canonical base64");
+  if (encodeBase64(bytes) !== value) throw new Error("Object bytes must use standard padded base64");
   return bytes;
 }
 
