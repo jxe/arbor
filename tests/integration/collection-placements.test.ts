@@ -7,8 +7,9 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { materializeTree, resolveSnapshot, snapshotDirectory } from "@ovst/fs";
-import { deriveRowOperations } from "@ovst/collection-schema";
-import type { ObjectHash } from "@ovst/protocol";
+import { deriveRowOperations, loadDirectoryCollection, snapshotEntry, useSnapshotDatabase } from "@ovst/collection-schema";
+import { sqliteSnapshots } from "@ovst/beetle/sqlite";
+import { decodeProtocolDirectory, encodeProtocolDirectory, hashObject, type ObjectHash } from "@ovst/protocol";
 import { CollectionProjections, type CollectionProjectionForm } from "@ovst/story-sync/state";
 import { layoutOf } from "@ovst/usl";
 import { compileSchema } from "@ovst/beetle";
@@ -31,6 +32,7 @@ ordered List.games[] <-> Game.lists[]
 `;
 const ITEMS = "main table Item:\n  title Text\n  count Int\n  done  Bool?\n  note  Text?\n";
 
+useSnapshotDatabase(sqliteSnapshots);
 let sandbox: string;
 beforeAll(async () => { sandbox = await mkdtemp(join(tmpdir(), "story-collection-placements-")); });
 afterAll(async () => { await rm(sandbox, { recursive: true, force: true }); });
@@ -148,6 +150,23 @@ describe("a SQLite placement's base", () => {
     const objects = new Map([...accepted.objects, ...scanned.objects]);
     expect((await deriveRowOperations(accepted.root, scanned.root, async (hash) => objects.get(hash)!, TEST_AT))?.operations)
       .toEqual([expect.objectContaining({ kind: "set", model: "Game", field: "name", before: "Baduk", value: "Weiqi" })]);
+  });
+
+  test("a new database starts as the host's snapshot file", async () => {
+    const objects = new Map(tree.objects);
+    const items = decodeProtocolDirectory(objects.get(tree.collection)!);
+    const collection = (await loadDirectoryCollection(items, async (hash) => objects.get(hash)!))!;
+    const snapshot = snapshotEntry(collection.schema, collection.state);
+    objects.set(snapshot.hash as ObjectHash, snapshot.bytes);
+    objects.set(snapshot.file.hash as ObjectHash, snapshot.file.bytes);
+    const folder = encodeProtocolDirectory({ ...items, collection: { ...items.collection!, log: snapshot.hash } });
+    objects.set(hashObject(folder), folder);
+    const top = decodeProtocolDirectory(objects.get(tree.root)!);
+    const root = encodeProtocolDirectory({ ...top, entries: top.entries.map((e) => (e.name === "items" ? { name: "items", directory: hashObject(folder) } : e)) });
+    objects.set(hashObject(root), root);
+    const placed = await place("sqlite-from-snapshot", { root: hashObject(root), objects }, { kind: "sqlite" });
+    expect(new Uint8Array(await readFile(join(placed.items, "_store.sqlite3")))).toEqual(new Uint8Array(snapshot.file.bytes));
+    expect((await placed.scan()).root).toBe(hashObject(root));
   });
 
   test("an earlier Story Sync's change log is dropped by the next write", async () => {

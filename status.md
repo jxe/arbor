@@ -42,10 +42,10 @@ rows hash (collections §1, data model §5).
 - Story Sync keeps a private base database per SQLite projection (the rows it last
   applied, under its state directory's `collection-bases/`) and finds other programs'
   edits as the rows the projection differs from it in, in SQL (72d6b29f); the triggers and
-  change log it used to install are gone, and an old one is dropped on the next write.
-- Not yet: the host's database as the working form, mutations as SQL transactions, a
-  projection started from the snapshot file, the Swift client (it still reads table
-  chunks), the switch.
+  change log it used to install are gone, and an old one is dropped on the next write. A
+  new SQLite projection starts as the host's snapshot file when the log reaches one.
+- Not yet: the host's database as the working form, mutations as SQL transactions, the
+  Swift client (it still reads table chunks), the switch.
 
 ## Entry times with the content — 2026-11-10
 

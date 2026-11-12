@@ -19,6 +19,7 @@ import {
   type ObjectHash,
   type ProtocolDirectory,
   collectionSchemaName,
+  decodeProtocolLog,
 } from "@ovst/protocol";
 import { writeAtomic } from "@ovst/protocol/file-ops";
 import {
@@ -178,6 +179,17 @@ function applyChanges(database: Database, tables: readonly CollectionSchema[], c
     for (const [before] of change.update) byKey.delete(keyTuple(schema, before));
     for (const row of [...change.insert, ...change.update.map(([, row]) => row)]) byKey.set(keyTuple(schema, row), row);
   }
+}
+
+/** The snapshot file the log at `head` starts from, if it reaches one within a few thousand entries. */
+async function snapshotFile(head: ObjectHash, load: Load): Promise<Uint8Array | undefined> {
+  let at: ObjectHash | null = head;
+  for (let i = 0; at && i < 5_000; i++) {
+    const entry = decodeProtocolLog(await load(at));
+    if ("snapshot" in entry) return load(entry.snapshot as ObjectHash);
+    at = entry.previous as ObjectHash | null;
+  }
+  return undefined;
 }
 
 /** The database's rows as Story Sync last read or wrote them. */
@@ -372,7 +384,11 @@ export class CollectionProjections {
     const detected = detectForm(existsSync(directory) ? await readdir(directory) : [], files);
     const form = detected && detected !== "mixed" ? detected : this.options.form?.(directory) ?? { kind: "files", format: "jsonl" } as const;
     if (detected === "mixed") throw new Error(`${directory} holds more than one projection of its collection`);
-    if (form.kind === "sqlite") await this.writeSQLite(directory, database, schemaBytes, rowsFromLogical(collection.schema.result, database, collection.tables));
+    if (form.kind === "sqlite") {
+      // A new database starts as the host's snapshot file, already checked against its rows hash, when the log reaches one.
+      const start = existsSync(join(directory, DATABASE_FILE)) ? undefined : await snapshotFile(collection.reference.log as ObjectHash, load);
+      await this.writeSQLite(directory, database, schemaBytes, rowsFromLogical(collection.schema.result, database, collection.tables), start);
+    }
     else await this.writeFiles(directory, form.format, files, schemaBytes, rowsFromLogical(collection.schema.result, files, collection.tables));
     this.last.set(directory, { tables: collection.tables, fingerprint: collection.schema.fingerprint, state: collection.state });
     await rm(join(directory, LEFTOVER_SCHEMA), { force: true });
@@ -498,10 +514,11 @@ export class CollectionProjections {
    * missing, in one transaction, and make the base hold them too. A row another program
    * changed since the last scan is an edit not yet published, and is left for the next scan.
    */
-  private async writeSQLite(directory: string, tables: Table[], schemaBytes: Uint8Array, wanted: RowsByTable): Promise<void> {
+  private async writeSQLite(directory: string, tables: Table[], schemaBytes: Uint8Array, wanted: RowsByTable, start?: Uint8Array): Promise<void> {
     const set = this.schemas.compileTables(schemaBytes, "database");
     const schemaHash = hashBytes(schemaBytes);
     const path = join(directory, DATABASE_FILE);
+    if (start && !existsSync(path)) await writeAtomic(path, start);
     const created = !existsSync(path);
     // Work out the changes read-only first, so a database that already holds
     // the rows is never opened for writing (which would touch its files).
