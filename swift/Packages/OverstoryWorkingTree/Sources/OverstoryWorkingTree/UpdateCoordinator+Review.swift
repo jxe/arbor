@@ -275,12 +275,12 @@ extension UpdateCoordinator {
         while let (hash, kind) = pending.popLast() {
             guard seen.insert(hash).inserted, let object = objects[hash] else { continue }
             kept.append(object)
-            // A collection's tables and rows are structure, kept like directories.
+            // A collection's log entries and snapshot file are structure, kept like directories.
             guard kind == .directory, case let .directory(entries, collection) = try ProtocolObjectCodec.decode(object.bytes, kind: kind) else {
                 for child in try ProtocolObjectCodec.references(object.bytes, kind: kind) { pending.append(child) }
                 continue
             }
-            for table in collection?.tables ?? [] { pending.append((table.table, .table)) }
+            if let collection { pending.append((collection.log, .log)) }
             for entry in entries {
                 if let directory = entry.directory { pending.append((directory, .directory)); continue }
                 guard let file = entry.hash, seen.insert(file).inserted, let object = objects[file] else { continue }

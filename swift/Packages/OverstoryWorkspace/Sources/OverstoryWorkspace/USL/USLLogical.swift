@@ -1,9 +1,10 @@
 import Foundation
 
 // A collection's rows in their logical form (spec 06 §2.2), as the tree holds
-// them, turned into the rows of a layout's tables. A port of the
-// logical-to-rows direction of `packages/usl/src/logical.ts` and of
-// `rowsFromRecords` in `records.ts`; the rules are at the top of logical.ts.
+// them, and the rows of a layout's tables, each turned into the other. A port
+// of `logicalFromRows` and `rowsFromLogical` in `packages/usl/src/logical.ts`
+// and of `recordsFromRows` and `rowsFromRecords` in `records.ts`; the rules
+// are at the top of logical.ts.
 
 /// One field of a row's key, with its value.
 public struct USLKeyPart: Sendable, Equatable {
@@ -44,6 +45,8 @@ private struct LogicalField {
     var name: String
     var type: String
     var kind: Kind
+    /// `members` and value arrays: a sequence rather than a set.
+    var ordered = false
 }
 
 private struct LogicalModel {
@@ -91,11 +94,11 @@ private func logicalModels(_ result: USLCheckResult) -> [LogicalModel] {
         var fields: [LogicalField] = []
         for f in model.fields where !model.key.contains(f.name) {
             if uslValueTypes.contains(f.type) {
-                fields.append(LogicalField(name: f.name, type: f.type, kind: .value))
+                fields.append(LogicalField(name: f.name, type: f.type, kind: .value, ordered: f.ordered))
             } else if f.origin == .end {
                 fields.append(LogicalField(name: f.name, type: f.type, kind: .reference))
             } else if holdsHere(result, model, f.name) {
-                fields.append(LogicalField(name: f.name, type: f.type, kind: f.arity == .many ? .members : .reference))
+                fields.append(LogicalField(name: f.name, type: f.type, kind: f.arity == .many ? .members : .reference, ordered: f.ordered))
             }
         }
         out.append(LogicalModel(name: model.name, keyFields: keyFields, fields: fields))
@@ -289,4 +292,217 @@ public func uslRowsFromRecords(_ tables: [USLTable], records: [String: [[String:
         out[join.name] = rows.values
     }
     return out
+}
+
+// MARK: - Rows to logical (`logicalFromRows`, `recordsFromRows`)
+
+/// The logical tables that rows of `layout` (a `uslLayout` result) hold, each
+/// table in stable-key order. Rows a store doesn't time get `now`. Values are
+/// taken as the store gives them; validating them against the schema is the
+/// caller's.
+public func uslLogicalFromRows(_ result: USLCheckResult, layout: [USLTable], rows: USLRowsByTable, now: String) throws -> USLLogicalTables {
+    if !result.diagnostics.isEmpty { throw USLLayoutError(message: "The schema has errors; check it first", location: nil) }
+    var layoutTables: [String: USLTable] = [:]
+    for t in layout where t.ends == nil { layoutTables[t.stores] = t }
+    let modelList = logicalModels(result)
+    var models: [String: LogicalModel] = [:]
+    for m in modelList { models[m.name] = m }
+
+    func keyColumns(_ target: String) throws -> [(field: String, column: String)] {
+        guard let table = layoutTables[target], let model = result.models.first(where: { $0.name == target }) else { return [("id", "id")] }
+        return try model.key.map { k in
+            let columns = table.fields.first { $0.name == k }?.columns ?? [k]
+            guard columns.count == 1 else {
+                throw USLLayoutError(message: "`\(target).\(k)` refers to a key of several fields, which logical collections don't hold yet", location: target)
+            }
+            return (k, columns[0])
+        }
+    }
+    /// A record's reference (one value, or an object of key columns) as a logical key value.
+    func referenceIn(_ target: String, _ value: JSONValue) throws -> JSONValue {
+        guard layoutTables[target] != nil else { return value }
+        let columns = try keyColumns(target)
+        guard columns.count > 1, case let .object(members) = value else { return value }
+        return .array(columns.map { .array([.string($0.field), members[$0.column] ?? .null]) })
+    }
+    func keyOf(_ model: LogicalModel, _ record: [String: JSONValue]) throws -> [USLKeyPart] {
+        try model.keyFields.map { f in
+            let value = record[f.name] ?? .null
+            return USLKeyPart(name: f.name, value: f.kind == .reference ? try referenceIn(f.type, value) : value)
+        }
+    }
+    func keyValue(_ model: LogicalModel, _ record: [String: JSONValue]) throws -> JSONValue {
+        let key = try keyOf(model, record)
+        return key.count == 1 ? key[0].value : .array(key.map { .array([.string($0.name), $0.value]) })
+    }
+
+    let records = uslRecordsFromRows(layout, rows: rows)
+    // Each n:m connection's pairs, from whichever end a store carries them on,
+    // as members by "Model.field" and the row's key value text.
+    var members: [String: [String: [JSONValue]]] = [:]
+    func add(_ id: String, _ key: JSONValue, _ member: JSONValue) { members[id, default: [:]][key.jsonText, default: []].append(member) }
+    for conn in result.connections where conn.a.arity == .many && conn.b.arity == .many {
+        for (end, other) in [(conn.a, conn.b), (conn.b, conn.a)] {
+            guard let model = models[end.model] else { continue }
+            for record in records[end.model] ?? [] {
+                guard let list = record[end.field]?.arrayValue else { continue }
+                let selfValue = try keyValue(model, record)
+                for item in list {
+                    let member = try referenceIn(other.model, item)
+                    add("\(end.model).\(end.field)", selfValue, member)
+                    add("\(other.model).\(other.field)", member, selfValue)
+                }
+            }
+        }
+    }
+    // An ordered end of a connection model: its rows, in position order, are the members.
+    for conn in result.models {
+        guard let model = models[conn.name] else { continue }
+        for end in conn.ends where end.ordered {
+            let position = "\(end.field)_position"
+            let ordered = (records[conn.name] ?? []).enumerated().sorted {
+                let x = $0.element[position]?.numberValue ?? .nan, y = $1.element[position]?.numberValue ?? .nan
+                return x < y || (!(y < x) && $0.offset < $1.offset)
+            }.map(\.element)
+            for record in ordered {
+                add("\(end.model).\(end.field)", try referenceIn(end.model, record[end.as] ?? .null), try keyValue(model, record))
+            }
+        }
+    }
+    var out: USLLogicalTables = [:]
+    for model in modelList {
+        var rowsOut: [USLLogicalRow] = []
+        for record in records[model.name] ?? [] {
+            let key = try keyOf(model, record)
+            let keyText = try keyValue(model, record).jsonText
+            var fields: [String: JSONValue] = [:]
+            for f in model.fields {
+                var value = record[f.name]
+                if f.kind == .members {
+                    // The row's own array keeps its order; otherwise the pairs the other end carries.
+                    var list = try value?.arrayValue.map { try $0.map { try referenceIn(f.type, $0) } }
+                        ?? members["\(model.name).\(f.name)"]?[keyText] ?? []
+                    if f.ordered {
+                        var seen = Set<String>()
+                        list = list.filter { seen.insert($0.jsonText).inserted }
+                    }
+                    value = .array(list)
+                } else if f.kind == .reference, let held = value, !held.isNull {
+                    value = try referenceIn(f.type, held)
+                }
+                guard let value, !value.isNull else { continue }
+                if case let .array(list) = value {
+                    if list.isEmpty { continue }
+                    fields[f.name] = f.ordered ? value : .array(uslSet(list))
+                } else {
+                    fields[f.name] = value
+                }
+            }
+            let created = timestampText(record["created"]) ?? now
+            let modified = timestampText(record["modified"]) ?? created
+            rowsOut.append(USLLogicalRow(key: key, fields: fields, created: created, modified: modified))
+        }
+        out[model.name] = rowsOut.sorted { compareText($0.keyText, $1.keyText) < 0 }
+    }
+    return out
+}
+
+extension USLLogicalRow {
+    /// The row's stable key: the canonical JSON of its key pairs.
+    public var keyText: String { uslKeyText(key) }
+}
+
+/// A row's stable key from its key pairs: their canonical JSON (spec 03 §2).
+public func uslKeyText(_ key: [USLKeyPart]) -> String {
+    JSONValue.array(key.map { .array([.string($0.name), $0.value]) }).jsonText
+}
+
+/// Sorts and dedupes a set's members by their canonical JSON.
+private func uslSet(_ values: [JSONValue]) -> [JSONValue] {
+    var byText: [String: JSONValue] = [:]
+    for value in values { byText[value.jsonText] = value }
+    return byText.keys.sorted { compareText($0, $1) < 0 }.map { byText[$0]! }
+}
+
+/// A stored row time as text: stores hold RFC 3339 text; a number is Unix milliseconds.
+private func timestampText(_ value: JSONValue?) -> String? {
+    switch value {
+    case let .string(text)? where !text.isEmpty: return text
+    case let .number(ms)? where ms.isFinite:
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date(timeIntervalSince1970: ms / 1000))
+    default: return nil
+    }
+}
+
+/// The record `row` of `table` (a model's table) stores, with its timestamps.
+private func recordOf(_ t: LayoutTables, _ table: USLTable, _ row: USLRow) -> [String: JSONValue] {
+    var record: [String: JSONValue] = [:]
+    var held = Set<String>()
+    for field in table.fields {
+        held.formUnion(field.columns)
+        let columns = table.columns.filter { field.columns.contains($0.name) }
+        guard let first = columns.first, columns.contains(where: { row[$0.name] != nil }) else { continue }
+        record[field.name] = field.target != nil && !first.array ? readKey(row, field.columns, t.keyColumnsOf(field)) : row[field.columns[0]] ?? .null
+    }
+    for column in table.columns where !held.contains(column.name) {
+        if let value = row[column.name] { record[column.name] = value }
+    }
+    for column in table.columns {
+        let field = table.fields.first { $0.columns.count == 1 && $0.columns[0] == column.name }
+        let name = field?.name ?? column.name
+        if let value = record[name] { record[name] = fromStored(value, column) }
+    }
+    return record
+}
+
+/// Normalizes what a driver returns: SQLite's 0/1 flags and JSON-text arrays.
+private func fromStored(_ value: JSONValue, _ column: USLColumn) -> JSONValue {
+    if column.array, case let .string(text) = value {
+        return (try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))) ?? value
+    }
+    if column.type == .bool, case let .number(n) = value { return .bool(n != 0) }
+    return value
+}
+
+/// Records by model, from rows by table.
+public func uslRecordsFromRows(_ tables: [USLTable], rows: USLRowsByTable) -> [String: [[String: JSONValue]]] {
+    let t = LayoutTables(tables)
+    var out: [String: [Record]] = [:]
+    var byKey: [String: [String: Record]] = [:]
+    for model in t.models {
+        let table = t.byModel[model]!
+        var list: [Record] = []
+        var index: [String: Record] = [:]
+        for row in rows[table.name] ?? [] {
+            let record = Record()
+            record.values = recordOf(t, table, row)
+            list.append(record)
+            index[JSONValue.array(table.primaryKey.map { row[$0] ?? .null }).jsonText] = record
+        }
+        out[model] = list
+        byKey[model] = index
+    }
+    for join in t.joins {
+        for end in t.carriers(join) {
+            let other = join.ends![0] == end ? join.ends![1] : join.ends![0]
+            let records = byKey[end.model] ?? [:]
+            for record in records.values { record.values[end.field] = .array([]) }
+            var joinRows = rows[join.name] ?? []
+            if let position = end.position {
+                joinRows = joinRows.enumerated().sorted {
+                    let x = $0.element[position]?.numberValue ?? .nan, y = $1.element[position]?.numberValue ?? .nan
+                    return x < y || (!(y < x) && $0.offset < $1.offset)
+                }.map(\.element)
+            }
+            for row in joinRows {
+                guard let record = records[JSONValue.array(end.columns.map { row[$0] ?? .null }).jsonText],
+                      case var .array(list)? = record.values[end.field] else { continue }
+                list.append(readKey(row, other.columns, t.keyColumns(other.model)))
+                record.values[end.field] = .array(list)
+            }
+        }
+    }
+    return out.mapValues { $0.map(\.values) }
 }

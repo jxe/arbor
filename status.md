@@ -44,8 +44,15 @@ rows hash (collections §1, data model §5).
   edits as the rows the projection differs from it in, in SQL (72d6b29f); the triggers and
   change log it used to install are gone, and an old one is dropped on the next write. A
   new SQLite projection starts as the host's snapshot file when the log reaches one.
+- The Swift client reads logs: `ProtocolObjectKind.log` and `ProtocolLog` replace table and
+  rows objects in `Overstory`; walks, overlays, publication and review spines follow the log
+  to its newest snapshot and that snapshot's file. `collectionRows` reads the snapshot file
+  with SQLite3 in the schema's database layout (`uslSnapshotRows`, `uslLogicalFromRows`, a
+  port of `logicalFromRows`/`recordsFromRows`), then applies each later entry's changes;
+  row counts come from the head entry. Swift checks each entry's row count but not its
+  rows hash (no SHAKE256 in CryptoKit).
 - Not yet: the host's database as the working form, mutations as SQL transactions, the
-  Swift client (it still reads table chunks), the switch.
+  switch.
 
 ## Entry times with the content — 2026-11-10
 

@@ -38,7 +38,7 @@ public protocol ObjectOverlay: ObjectStore {
     /// in-flight resubmission.
     func retain(reachableFrom roots: Set<String>, files: Set<String>) throws
 
-    /// The hashes reachable from `roots` through the directory and table objects this
+    /// The hashes reachable from `roots` through the directory and log objects this
     /// overlay holds. Missing objects terminate the walk at that hash.
     func reachableHashes(from roots: Set<String>) throws -> Set<String>
 }
@@ -53,7 +53,7 @@ extension ObjectOverlay {
         var visited = Set<String>()
         while let (hash, kind) = pending.popLast() {
             guard visited.insert(hash).inserted else { continue }
-            guard kind == .directory || kind == .table else { continue }
+            guard kind == .directory || kind == .log else { continue }
             guard let bytes = try storedBytes(hash) else { throw ObjectStoreError.missing(hash) }
             pending += try ProtocolObjectCodec.references(bytes, kind: kind)
         }

@@ -69,23 +69,12 @@ struct ProtocolObjectTests {
             case .file:
                 let base64 = try #require(model["bytesBase64"] as? String)
                 object = .file(try #require(Data(base64Encoded: base64)))
-            case .table:
-                let chunks = try #require(model["chunks"] as? [[String: Any]])
-                object = .table(ProtocolTable(
-                    rows: model["rows"] as! Int,
-                    chunks: chunks.map { ProtocolTable.Chunk(rows: $0["rows"] as! Int, chunk: $0["chunk"] as! String) }
-                ))
-            case .rows:
-                // Rows stay encoded: the vector's bytes must decode as a rows object.
+            case .log:
+                let log = try decodeExpectedLog(model)
+                object = .log(log)
+                // The vector's bytes decode, typed, to the model's entry.
                 let base64 = try #require(vector["bytesBase64"] as? String)
-                let bytes = try #require(Data(base64Encoded: base64))
-                object = .rows(bytes)
-                // And decode, typed, to the model's rows.
-                let expected = try JSONDecoder().decode(
-                    [ExpectedLogicalRow].self,
-                    from: JSONSerialization.data(withJSONObject: model["rows"] as! [Any])
-                )
-                #expect(try ProtocolObjectCodec.decodeRows(bytes) == expected.map(\.row))
+                #expect(try ProtocolObjectCodec.decodeLog(try #require(Data(base64Encoded: base64))) == log)
             case .page:
                 // Pages stay encoded: the vector's bytes must decode as a page.
                 let base64 = try #require(vector["bytesBase64"] as? String)
@@ -96,9 +85,7 @@ struct ProtocolObjectTests {
                     ProtocolCollectionReference(
                         version: value["version"] as! Int,
                         modelFingerprint: value["modelFingerprint"] as! String,
-                        tables: (value["tables"] as! [[String: Any]]).map {
-                            ProtocolCollectionTableReference(model: $0["model"] as! String, table: $0["table"] as! String)
-                        }
+                        log: value["log"] as! String
                     )
                 }
                 object = .directory(entries.map {
@@ -148,33 +135,53 @@ struct ProtocolObjectTests {
         }
     }
 
-    @Test("Graph validation follows a collection's tables and rows")
+    @Test("Graph validation follows a collection's log back to its newest snapshot")
     func collectionGraphValidation() throws {
-        let data = try Data(contentsOf: fixtures.appending(path: "protocol-objects.json"))
-        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let vector = try #require((fixture["objects"] as? [[String: Any]])?.first { $0["name"] as? String == "rows" })
-        let rows = ProtocolObjectEnvelope(
-            hash: vector["hash"] as! String,
-            bytes: try #require(Data(base64Encoded: vector["bytesBase64"] as! String))
-        )
-        let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
         let schema = try ProtocolObjectCodec.object(.file(Data("main table Game (id):\n".utf8)))
+        let sqlite = try ProtocolObjectCodec.object(.file(Data("not really SQLite".utf8)))
+        let zero = "sha256:" + String(repeating: "3", count: 64)
+        let first = try ProtocolObjectCodec.object(.log(ProtocolLog(previous: nil, rows: 0, rowsHash: zero, body: .changes([]))))
+        let snapshot = try ProtocolObjectCodec.object(.log(ProtocolLog(previous: first.hash, rows: 0, rowsHash: zero, body: .snapshot(sqlite.hash))))
+        let row = ProtocolLogicalRow(key: [.init(field: "id", value: .string("chess"))], fields: ["name": .string("Chess")], created: 1, modified: 2)
+        let head = try ProtocolObjectCodec.object(.log(ProtocolLog(previous: snapshot.hash, rows: 1, rowsHash: zero,
+                                                                   body: .changes([ProtocolRowChange(model: "Game", key: row.key, row: row)]))))
         let root = try ProtocolObjectCodec.object(.directory(
             [.init(name: "schema.beetle", file: schema.hash, created: 0, modified: 0)],
-            collection: ProtocolCollectionReference(modelFingerprint: schema.hash, tables: [.init(model: "Game", table: table.hash)])
+            collection: ProtocolCollectionReference(modelFingerprint: schema.hash, log: head.hash)
         ))
-        let objects = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, table, rows]))
-        #expect(objects[table.hash] == .table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
+        // The walk stops at the snapshot: the first entry is not reached, so carrying it is an error.
+        let objects = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, head, snapshot, sqlite]))
+        #expect(objects[head.hash] == .log(ProtocolLog(previous: snapshot.hash, rows: 1, rowsHash: zero,
+                                                        body: .changes([ProtocolRowChange(model: "Game", key: row.key, row: row)]))))
         #expect(throws: ProtocolValidationError.self) {
-            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, table]))
+            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, head, snapshot, sqlite, first]))
         }
-        // Sparse graphs may leave out files, never a collection's rows.
         #expect(throws: ProtocolValidationError.self) {
-            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, table]), mode: .sparseFiles)
+            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, schema, head, sqlite]))
+        }
+        // Sparse graphs may leave out files, never a collection's log entries.
+        _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, head, snapshot]), mode: .sparseFiles)
+        #expect(throws: ProtocolValidationError.self) {
+            _ = try ProtocolObjectGraph.validate(.init(root: root.hash, objects: [root, head]), mode: .sparseFiles)
         }
         #expect(throws: (any Error).self) {
-            _ = try ProtocolObjectCodec.encode(.directory([], collection: ProtocolCollectionReference(modelFingerprint: schema.hash, tables: [])))
+            _ = try ProtocolObjectCodec.encode(.directory([], collection: ProtocolCollectionReference(modelFingerprint: schema.hash, log: head.hash)))
         }
+    }
+
+    @Test("A log entry refuses changes out of order and a row whose key isn't its change's")
+    func logEntryChecks() throws {
+        let zero = "sha256:" + String(repeating: "3", count: 64)
+        func row(_ id: String) -> ProtocolLogicalRow { ProtocolLogicalRow(key: [.init(field: "id", value: .string(id))], fields: [:], created: 0, modified: 0) }
+        let unordered = try ProtocolObjectCodec.encode(.log(ProtocolLog(previous: nil, rows: 2, rowsHash: zero, body: .changes([
+            ProtocolRowChange(model: "Game", key: row("go").key, row: row("go")),
+            ProtocolRowChange(model: "Game", key: row("chess").key, row: row("chess")),
+        ]))))
+        #expect(throws: ProtocolValidationError.self) { _ = try ProtocolObjectCodec.decodeLog(unordered) }
+        let mismatched = try ProtocolObjectCodec.encode(.log(ProtocolLog(previous: nil, rows: 1, rowsHash: zero, body: .changes([
+            ProtocolRowChange(model: "Game", key: row("go").key, row: row("chess")),
+        ]))))
+        #expect(throws: ProtocolValidationError.self) { _ = try ProtocolObjectCodec.decodeLog(mismatched) }
     }
 
     @Test("Sparse validation accepts missing file hashes and still rejects unreachable, cyclic, and rootless graphs")
@@ -1271,6 +1278,25 @@ struct ProtocolValueVectorTests {
         #expect(object["selection"] is NSNull)
         #expect((object["page"] as? [String: Any])?["stableKey"] is NSNull)
     }
+}
+
+/// A `log` object as protocol-objects.json writes its model.
+private func decodeExpectedLog(_ model: [String: Any]) throws -> ProtocolLog {
+    let body: ProtocolLog.Body
+    if let snapshot = model["snapshot"] as? String { body = .snapshot(snapshot) } else {
+        let changes = model["changes"] as! [[String: Any]]
+        body = .changes(try changes.map { change in
+            let key = try JSONDecoder().decode([[ProtocolReadValue]].self, from: JSONSerialization.data(withJSONObject: change["key"]!))
+            let row = try (change["row"] as? [String: Any]).map {
+                try JSONDecoder().decode(ExpectedLogicalRow.self, from: JSONSerialization.data(withJSONObject: $0)).row
+            }
+            return ProtocolRowChange(model: change["model"] as! String, key: key.map { pair in
+                guard case let .string(field) = pair[0] else { return .init(field: "", value: .null) }
+                return .init(field: field, value: pair[1])
+            }, row: row)
+        })
+    }
+    return ProtocolLog(previous: model["previous"] as? String, rows: model["rows"] as! Int, rowsHash: model["rowsHash"] as! String, body: body)
 }
 
 /// A `LogicalRow` as protocol-objects.json writes it.

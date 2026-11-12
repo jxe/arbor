@@ -36,28 +36,12 @@ struct RowQueueTests {
 
     /// A tree whose `/games` folder is a collection of two games.
     private func gamesTree() throws -> (snapshot: ProtocolSnapshot, games: String) {
-        let vectors = fixtureDirectory().appending(path: "protocol-objects.json")
-        let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: vectors)) as? [String: Any])
-        let vector = try #require((fixture["objects"] as? [[String: Any]])?.first { $0["name"] as? String == "rows" })
-        let rows = ProtocolObjectEnvelope(hash: vector["hash"] as! String, bytes: try #require(Data(base64Encoded: vector["bytesBase64"] as! String)))
-        let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
-        let schema = try ProtocolObjectCodec.object(.file(Data("""
-            main table Game:
-              name   Text
-              status Status
-              tags   Text[]
-
-            Game.status <-> Status.games[]
-
-            enum Status:
-              Draft
-              Polished
-            """.utf8)))
+        let log = try GamesCollection.firstEntryLog()
+        let schema = try ProtocolObjectCodec.object(.file(Data(GamesCollection.source.utf8)))
         let games = try ProtocolObjectCodec.object(.directory([.init(name: "schema.beetle", file: schema.hash, created: 0, modified: 0)],
-            collection: ProtocolCollectionReference(modelFingerprint: "sha256:" + String(repeating: "3", count: 64),
-                                                    tables: [.init(model: "Game", table: table.hash)])))
+            collection: ProtocolCollectionReference(modelFingerprint: GamesCollection.fingerprint, log: log.head)))
         let root = try ProtocolObjectCodec.object(.directory([.init(name: "games", directory: games.hash)]))
-        return (ProtocolSnapshot(root: root.hash, objects: [root, games, schema, table, rows]), games.hash)
+        return (ProtocolSnapshot(root: root.hash, objects: ([root, games, schema] + log.objects).sorted { $0.hash < $1.hash }), games.hash)
     }
 
     private func open(_ snapshot: ProtocolSnapshot, at root: URL, transport: RowTransport) async throws -> (UpdateCoordinator, WorkingTreeProvider) {

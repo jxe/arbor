@@ -91,8 +91,8 @@ struct WorkingTreeFixtureTests {
                     vector.model.entries!.map { ProtocolDirectoryEntry(name: $0.name, file: $0.file, directory: $0.directory, tree: $0.tree, page: $0.page, created: $0.created, modified: $0.modified) },
                     collection: vector.model.collection
                 )
-            // Table and rows objects are Overstory's to encode; its own vector test covers them.
-            case "table", "rows": continue
+            // Log entries are Overstory's to encode; its own vector test covers them.
+            case "log": continue
             default: throw WorkingTreeError.corruptState("Unknown fixture object")
             }
             #expect(bytes.base64EncodedString() == vector.bytesBase64)

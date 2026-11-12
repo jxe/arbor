@@ -204,6 +204,24 @@ struct PresentedViewTests {
         }
     }
 
+    @Test("Layout rows read back as the logical tables they hold, in either layout")
+    func logicalRoundTrip() throws {
+        let vectors = try loadVectors()
+        for item in vectors.logical {
+            let name = string(item["fixture"]) ?? "?"
+            let fixture = try #require(vectors.fixtures[name], "\(name)")
+            let tables = try logicalTablesOf(item["tables"])
+            for store in [USLStore.files, .database] {
+                let layout = try uslLayout(fixture.schema, store: store)
+                let rows = try uslRowsFromLogical(fixture.schema, layout: layout, tables: tables)
+                let back = try uslLogicalFromRows(fixture.schema, layout: layout, rows: rows, now: "1970-01-01T00:00:00.000Z")
+                for (model, list) in back {
+                    #expect(list == (tables[model] ?? []).sorted { $0.keyText < $1.keyText }, "\(name) \(model) \(store)")
+                }
+            }
+        }
+    }
+
     @Test("The first paragraph of Markdown")
     func firstParagraph() {
         #expect(uslFirstParagraph("") == "")

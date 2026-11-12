@@ -600,7 +600,8 @@ public actor WorkingTree {
     }
 
     /// The directory object `hash` with the objects a node needs from it: its
-    /// Markdown bodies and its collection's tables and rows, each checked
+    /// Markdown bodies and its collection's log back to its newest snapshot
+    /// and that snapshot's file (collections §1.1), each checked
     /// against its hash. A body comes from the overlay, then the page folder,
     /// then the object sources; the reads run concurrently. Child directories
     /// are not read.
@@ -618,14 +619,19 @@ public actor WorkingTree {
             else if let file = folderBody(entry, in: path) { found[child] = file }
             else { wanted.append(child) }
         }
-        let tables = collection?.tables.map(\.table) ?? []
-        found.merge(try await readObjects(wanted + tables, fallback: fallback)) { first, _ in first }
-        var chunks: [String] = []
-        for table in tables {
-            guard let tableBytes = found[table], case let .table(object) = try ProtocolObjectCodec.decode(tableBytes, kind: .table) else { continue }
-            chunks += object.chunks.map(\.chunk)
+        found.merge(try await readObjects(wanted, fallback: fallback)) { first, _ in first }
+        // Each entry names the next to read, so the log is read one entry at a time.
+        var at = collection?.log
+        while let entry = at, found[entry] == nil {
+            let entryBytes = try await readObject(entry, fallback: fallback)
+            found[entry] = entryBytes
+            guard case let .log(log) = try ProtocolObjectCodec.decode(entryBytes, kind: .log) else { break }
+            if let file = log.snapshot {
+                if found[file] == nil { found[file] = try await readObject(file, fallback: fallback) }
+                break
+            }
+            at = log.previous
         }
-        found.merge(try await readObjects(chunks, fallback: fallback)) { first, _ in first }
         return [ProtocolObjectEnvelope(hash: hash, bytes: bytes)]
             + found.filter { $0.key != hash }.map { ProtocolObjectEnvelope(hash: $0.key, bytes: $0.value) }.sorted { $0.hash < $1.hash }
     }
@@ -872,15 +878,12 @@ public actor WorkingTree {
 
     func collection(for directory: WorkingTreeNode) async -> (kind: String, rows: Int?)? {
         guard directory.kind == .directory else { return nil }
-        // A logical collection's rows are in the tree. A one-table collection
-        // counts its rows without the schema; with more tables, only the
-        // schema says which one is the main model's.
+        // A logical collection's rows are in the tree: its log's head entry
+        // counts them, every model's together.
         if let reference = directory.collection {
-            if reference.tables.isEmpty { return ("Collection", 0) }
-            guard reference.tables.count == 1,
-                  let bytes = try? await objectBytes(hash: reference.tables[0].table),
-                  case let .table(table)? = try? ProtocolObjectCodec.decode(bytes, kind: .table) else { return ("Collection", nil) }
-            return ("Collection", table.rows)
+            guard let bytes = try? await objectBytes(hash: reference.log),
+                  case let .log(head)? = try? ProtocolObjectCodec.decode(bytes, kind: .log) else { return ("Collection", nil) }
+            return ("Collection", head.rows)
         }
         guard let storeFile = childNodes(of: directory.path).first(where: WorkingTreeSemantics.isStoreFile) else { return nil }
         let name = WorkingTreeSemantics.name(of: storeFile.path)
@@ -916,25 +919,68 @@ public actor WorkingTree {
         }
         let schema = compileCollectionSchema(String(decoding: try await payload(of: schemaFile), as: UTF8.self))
         if let first = schema.diagnostics.first { throw WorkspaceCollectionError.schema(first.message) }
-        var tables: USLLogicalTables = [:]
         do {
-            for table in reference.tables {
-                guard case let .table(object) = try ProtocolObjectCodec.decode(try await objectBytes(hash: table.table), kind: .table) else { continue }
-                var rows: [USLLogicalRow] = []
-                for chunk in object.chunks {
-                    rows += try ProtocolObjectCodec.decodeRows(try await objectBytes(hash: chunk.chunk)).map(Self.logicalRow)
-                }
-                tables[table.model] = rows
-            }
-        } catch ObjectStoreError.missing {
-            throw WorkspaceCollectionError.missingRows
-        }
-        do {
+            let tables = try await collectionTables(schema, head: reference.log)
             let layout = try uslLayout(schema, store: .files)
             return WorkspaceCollectionRows(schema: schema, rows: try uslRowsFromLogical(schema, layout: layout, tables: tables))
+        } catch ObjectStoreError.missing {
+            throw WorkspaceCollectionError.missingRows
         } catch let error as USLLayoutError {
             throw WorkspaceCollectionError.unreadable(error.message)
+        } catch let error as USLSnapshotError {
+            throw WorkspaceCollectionError.unreadable(error.message)
         }
+    }
+
+    /// The rows the log entry `head` stands for (collections §1): from the
+    /// newest snapshot entry at or before it (or the log's start), each later
+    /// entry's changes applied in order, a set row replacing the row with its
+    /// key and a removal taking it out. These are accepted entries: Story
+    /// applies their outcomes and never replays authored row operations.
+    ///
+    /// Each entry's row count is checked; its rows hash is not, since that
+    /// needs SHAKE256, which CryptoKit doesn't offer. The host checked every
+    /// entry when it accepted it, and the root commits to them all.
+    private func collectionTables(_ schema: USLCheckResult, head: String) async throws -> USLLogicalTables {
+        var pending: [(hash: String, log: ProtocolLog)] = []
+        var tables: [String: [String: USLLogicalRow]] = [:]
+        var count = 0
+        var at: String? = head
+        while let hash = at {
+            guard case let .log(entry) = try ProtocolObjectCodec.decode(try await objectBytes(hash: hash), kind: .log) else { break }
+            if let file = entry.snapshot {
+                let layout = try uslLayout(schema, store: .database)
+                let rows = try uslSnapshotRows(layout, bytes: try await objectBytes(hash: file))
+                for (model, list) in try uslLogicalFromRows(schema, layout: layout, rows: rows, now: ProtocolEntryTime.string(0)) {
+                    for row in list { tables[model, default: [:]][row.keyText] = row }
+                    count += list.count
+                }
+                guard count == entry.rows else {
+                    throw USLSnapshotError(message: "The snapshot in log entry \(hash) doesn't hold the rows its entry says")
+                }
+                break
+            }
+            pending.append((hash, entry))
+            at = entry.previous
+        }
+        for (hash, entry) in pending.reversed() {
+            for change in entry.changes {
+                let key = uslKeyText(change.key.map { USLKeyPart(name: $0.field, value: Self.jsonValue($0.value)) })
+                let was = tables[change.model]?[key]
+                if was != nil { count -= 1 }
+                else if change.row == nil { throw USLSnapshotError(message: "Log entry \(hash) removes \(change.model) \(key), which isn't there") }
+                if let row = change.row {
+                    tables[change.model, default: [:]][key] = Self.logicalRow(row)
+                    count += 1
+                } else {
+                    tables[change.model]?[key] = nil
+                }
+            }
+            guard count == entry.rows else {
+                throw USLSnapshotError(message: "Log entry \(hash) doesn't hold the rows its count says")
+            }
+        }
+        return tables.mapValues { rows in rows.keys.sorted { Self.compareUTF8($0, $1) }.map { rows[$0]! } }
     }
 
     private static func logicalRow(_ row: ProtocolLogicalRow) -> USLLogicalRow {
@@ -944,6 +990,10 @@ public actor WorkingTree {
             created: ProtocolEntryTime.string(row.created),
             modified: ProtocolEntryTime.string(row.modified)
         )
+    }
+
+    private static func compareUTF8(_ a: String, _ b: String) -> Bool {
+        Array(a.utf8).lexicographicallyPrecedes(Array(b.utf8))
     }
 
     private static func jsonValue(_ value: ProtocolReadValue) -> JSONValue {

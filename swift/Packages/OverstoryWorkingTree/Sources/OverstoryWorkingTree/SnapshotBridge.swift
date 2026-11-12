@@ -82,11 +82,26 @@ public enum SnapshotBridge {
                 guard entry.page != nil || entry.name.hasSuffix(".md") else { continue }
                 guard let body = entry.hash, objects[body] != nil else { return false }
             }
-            for table in collection?.tables ?? [] {
-                guard case let .table(object)? = objects[table.table] else { return false }
-                if object.chunks.contains(where: { bytesByHash[$0.chunk] == nil }) { return false }
-            }
+            if let collection, (try? collectionLog(collection)) == nil { return false }
             return true
+        }
+
+        /// The bytes of a collection's log, from its head back to its newest
+        /// snapshot entry (or its first), and that snapshot's file when the
+        /// snapshot carries it (collections §1.1).
+        func collectionLog(_ collection: ProtocolCollectionReference) throws -> [String: Data] {
+            var found: [String: Data] = [:]
+            var at: String? = collection.log
+            while let hash = at, found[hash] == nil {
+                guard case let .log(entry)? = objects[hash] else { throw ProtocolValidationError.incompleteGraph(hash) }
+                found[hash] = try snapshotBytes(hash)
+                if let file = entry.snapshot {
+                    if let bytes = bytesByHash[file] { found[file] = bytes }
+                    break
+                }
+                at = entry.previous
+            }
+            return found
         }
 
         func appendNode(_ node: WorkingTreeSystemNode) throws {
@@ -127,13 +142,9 @@ public enum SnapshotBridge {
             }
             let siblingTimes = siblingMarkdownSource.flatMap { WorkingTreeEntryTimes(siblingEntry, content: WorkingTreeEntryTimes.content(of: $0)) }
             let source = indexSource ?? siblingMarkdownSource
-            // A collection's tables and rows are present in every mode.
-            var collectionObjects: [String: Data] = [:]
-            for table in collection?.tables ?? [] {
-                guard case let .table(object)? = objects[table.table] else { throw ProtocolValidationError.incompleteGraph(table.table) }
-                collectionObjects[table.table] = try snapshotBytes(table.table)
-                for chunk in object.chunks { collectionObjects[chunk.chunk] = try snapshotBytes(chunk.chunk) }
-            }
+            // A collection's log entries are present in every mode; its snapshot
+            // file, a file, may be left for the object sources.
+            let collectionObjects = try collection.map(collectionLog) ?? [:]
             try appendNode(WorkingTreeSystemNode(
                 path: path,
                 content: .directory(source: source),
@@ -224,7 +235,7 @@ public enum SnapshotBridge {
                         try appendNode(WorkingTreeSystemNode(path: destination, content: .file(ref: .inline(bytes)),
                                                              times: WorkingTreeEntryTimes(entry, content: ProtocolObjectCodec.hash(bytes))))
                     }
-                case .table, .rows:
+                case .log:
                     throw ProtocolValidationError.invalidValue("A directory entry names a collection object")
                 }
             }

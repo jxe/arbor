@@ -131,7 +131,8 @@ After the switch a collection is never held as table and rows chunks on the host
 
 ## Steps
 
-The log, rows hash, path reads, host snapshots and Story Sync's replica side are built
+The log, rows hash, path reads, host snapshots, Story Sync's replica side and Swift's log
+reading are built
 ([status](../../status.md#performance-007-collections-as-a-log-of-row-changes--2026-11-12)).
 
 1. Host: the database as the working form. Accepting an update of row operations applies
@@ -142,6 +143,5 @@ The log, rows hash, path reads, host snapshots and Story Sync's replica side are
    mutation. Measured first (2026-11-12, `tests/performance/beetle-mutation-cost.ts`): a
    Supplies mutation takes 11 to 13 ms end to end, update acceptance included, so this
    waits for a collection where mutations are slow.
-3. Swift: Story reads logs and snapshots instead of table chunks (on Joe's Mac).
-4. Switch: the Protocol 003 migration turns each existing collection into a log; this
+3. Switch: the Protocol 003 migration turns each existing collection into a log; this
    branch merges after the flag day.

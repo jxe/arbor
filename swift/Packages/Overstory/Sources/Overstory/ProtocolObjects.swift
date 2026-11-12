@@ -1,55 +1,24 @@
 import CryptoKit
 import Foundation
 
-/// One model's table in a directory's collection (spec 06 §2.1).
-public struct ProtocolCollectionTableReference: Hashable, Codable, Sendable {
-    public var model: String
-    public var table: String
-
-    public init(model: String, table: String) {
-        self.model = model
-        self.table = table
-    }
-}
-
-/// A directory's logical collection: the fingerprint of its `schema.beetle`
-/// model layer and one `table` object per model with data rows, in UTF-8
-/// order of model. The rows live in the tree; files and databases that hold
-/// them on a device are projections.
+/// A directory's logical collection (collections §1, data model §5): the
+/// fingerprint of its `schema.beetle` model layer and the head of its log.
+/// The rows live in the tree as that log; files and databases that hold them
+/// on a device are projections.
 public struct ProtocolCollectionReference: Hashable, Codable, Sendable {
     public var version: Int
     public var modelFingerprint: String
-    public var tables: [ProtocolCollectionTableReference]
+    /// The log's head entry.
+    public var log: String
 
-    public init(version: Int = 1, modelFingerprint: String, tables: [ProtocolCollectionTableReference]) {
+    public init(version: Int = 2, modelFingerprint: String, log: String) {
         self.version = version
         self.modelFingerprint = modelFingerprint
-        self.tables = tables
+        self.log = log
     }
 }
 
-/// A `table` object: its rows count and the `rows` chunks that hold them.
-public struct ProtocolTable: Hashable, Codable, Sendable {
-    public struct Chunk: Hashable, Codable, Sendable {
-        public var rows: Int
-        public var chunk: String
-
-        public init(rows: Int, chunk: String) {
-            self.rows = rows
-            self.chunk = chunk
-        }
-    }
-
-    public var rows: Int
-    public var chunks: [Chunk]
-
-    public init(rows: Int, chunks: [Chunk]) {
-        self.rows = rows
-        self.chunks = chunks
-    }
-}
-
-/// One row of a `rows` chunk (spec 01, "Collections"): its key as `[field, value]`
+/// One row of a collection (collections §2): its key as `[field, value]`
 /// pairs in key order, its other fields, and when accepted changes made and last
 /// changed it.
 public struct ProtocolLogicalRow: Equatable, Sendable {
@@ -77,12 +46,72 @@ public struct ProtocolLogicalRow: Equatable, Sendable {
     }
 }
 
+/// One row an accepted update changed: its whole new form, or nil when it was removed.
+public struct ProtocolRowChange: Equatable, Sendable {
+    public var model: String
+    public var key: [ProtocolLogicalRow.KeyPart]
+    public var row: ProtocolLogicalRow?
+
+    public init(model: String, key: [ProtocolLogicalRow.KeyPart], row: ProtocolLogicalRow?) {
+        self.model = model
+        self.key = key
+        self.row = row
+    }
+}
+
+/// A `log` object (collections §1): one entry of a collection's log. It names
+/// the entry before it and holds either the rows one accepted update changed
+/// or a snapshot, a SQLite file of every row; either way it carries the row
+/// count and rows hash after it. Story only reads logs the host accepted; it
+/// never writes one.
+public struct ProtocolLog: Hashable, Sendable {
+    public enum Body: Equatable, Sendable {
+        case changes([ProtocolRowChange])
+        /// The snapshot's file object.
+        case snapshot(String)
+    }
+
+    /// The entry before this one; nil only for a log's first entry.
+    public var previous: String?
+    /// The row count after this entry.
+    public var rows: Int
+    /// The rows hash after this entry.
+    public var rowsHash: String
+    public var body: Body
+    /// The exact bytes this entry was decoded from. A row's Date values read as
+    /// text, so re-encoding the decoded form would drop their tags; `encode`
+    /// gives these bytes back instead.
+    var encoded: Data?
+
+    public init(previous: String?, rows: Int, rowsHash: String, body: Body) {
+        self.previous = previous
+        self.rows = rows
+        self.rowsHash = rowsHash
+        self.body = body
+    }
+
+    public var snapshot: String? { if case let .snapshot(file) = body { file } else { nil } }
+    public var changes: [ProtocolRowChange] { if case let .changes(changes) = body { changes } else { [] } }
+
+    public static func == (a: ProtocolLog, b: ProtocolLog) -> Bool {
+        a.previous == b.previous && a.rows == b.rows && a.rowsHash == b.rowsHash && a.body == b.body
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(previous)
+        hasher.combine(rows)
+        hasher.combine(rowsHash)
+        hasher.combine(snapshot)
+        hasher.combine(changes.count)
+    }
+}
+
 /// What an object is, which its referrer says: an entry's file, page or
-/// directory, or a collection's table or rows chunk.
+/// directory, or a collection's log entry.
 public enum ProtocolObjectKind: String, Codable, Sendable {
-    case file, page, directory, table, rows
-    /// Content reaches nothing: a file's bytes, a page, a rows chunk.
-    public var isContent: Bool { self == .file || self == .page || self == .rows }
+    case file, page, directory, log
+    /// Content reaches nothing: a file's bytes (a snapshot's SQLite file among them), a page.
+    public var isContent: Bool { self == .file || self == .page }
 }
 
 /// An entry's object is only ever a file, a page or a directory.
@@ -168,9 +197,7 @@ public enum ProtocolObject: Hashable, Sendable {
     case file(Data)
     case page(ProtocolPage)
     case directory([ProtocolDirectoryEntry], collection: ProtocolCollectionReference? = nil)
-    case table(ProtocolTable)
-    /// A `rows` chunk, checked for shape; its rows stay encoded.
-    case rows(Data)
+    case log(ProtocolLog)
 }
 
 public enum ProtocolObjectCodec {
@@ -183,10 +210,8 @@ public enum ProtocolObjectCodec {
             return try page.encoded()
         case let .directory(entries, collection):
             return directoryBytes(entries, collection: collection)
-        case let .table(table):
-            return CanonicalCBOR.encode(tableValue(table))
-        case let .rows(bytes):
-            return bytes
+        case let .log(log):
+            return log.encoded ?? CanonicalCBOR.encode(logValue(log))
         }
     }
 
@@ -214,13 +239,14 @@ public enum ProtocolObjectCodec {
     }
 
     /// The objects an object of `kind` reaches directly: a directory's entries
-    /// and then its collection's tables, a table's rows chunks. Files, pages
-    /// and rows reach nothing. Every walk of the object graph follows these edges.
+    /// and then its collection's log head; a log entry the entry before it, or,
+    /// for a snapshot entry, its file instead (collections §1.1). Files and
+    /// pages reach nothing. Every walk of the object graph follows these edges.
     public static func references(_ bytes: Data, kind: ProtocolObjectKind) throws -> [(hash: String, kind: ProtocolObjectKind)] {
         switch kind {
-        case .file, .page, .rows:
+        case .file, .page:
             return []
-        case .directory, .table:
+        case .directory, .log:
             return try decode(bytes, kind: kind).references
         }
     }
@@ -229,8 +255,7 @@ public enum ProtocolObjectCodec {
         switch kind {
         case .file: return .file(bytes)
         case .page: return .page(try ProtocolPage.decode(bytes))
-        case .table: return .table(try decodeTable(bytes))
-        case .rows: try checkRows(bytes); return .rows(bytes)
+        case .log: return .log(try decodeLog(bytes))
         case .directory: break
         }
         guard case let .map(entries) = try CanonicalCBOR.decode(bytes) else {
@@ -300,7 +325,7 @@ public enum ProtocolObjectCodec {
         .map([
             ("version", .unsigned(collection.version)),
             ("modelFingerprint", .text(collection.modelFingerprint)),
-            ("tables", .array(collection.tables.map { .map([("model", .text($0.model)), ("table", .text($0.table))]) })),
+            ("log", .text(collection.log)),
         ])
     }
 
@@ -310,95 +335,172 @@ public enum ProtocolObjectCodec {
         guard item.count == 3,
               case let .unsigned(version)? = item["version"],
               case let .text(modelFingerprint)? = item["modelFingerprint"],
-              case let .array(values)? = item["tables"] else {
+              case let .text(log)? = item["log"] else {
             throw ProtocolValidationError.invalidCBOR("Collection reference fields are invalid")
         }
-        let tables = try values.map { value -> ProtocolCollectionTableReference in
-            guard case let .map(fields) = value else { throw ProtocolValidationError.invalidCBOR("Collection table is not a map") }
-            let entry = Dictionary(uniqueKeysWithValues: fields)
-            guard entry.count == 2, case let .text(model)? = entry["model"], case let .text(table)? = entry["table"] else {
-                throw ProtocolValidationError.invalidCBOR("Collection table fields are invalid")
-            }
-            return ProtocolCollectionTableReference(model: model, table: table)
-        }
-        return ProtocolCollectionReference(version: version, modelFingerprint: modelFingerprint, tables: tables)
+        return ProtocolCollectionReference(version: version, modelFingerprint: modelFingerprint, log: log)
     }
 
-    private static func tableValue(_ table: ProtocolTable) -> CanonicalCBORValue {
+    private static func logValue(_ log: ProtocolLog) -> CanonicalCBORValue {
+        var fields: [(String, CanonicalCBORValue)] = [
+            ("type", .text("log")),
+            ("previous", log.previous.map { .text($0) } ?? .null),
+            ("rows", .unsigned(log.rows)),
+            ("rowsHash", .text(log.rowsHash)),
+        ]
+        switch log.body {
+        case let .snapshot(file):
+            fields.append(("snapshot", .text(file)))
+        case let .changes(changes):
+            fields.append(("changes", .array(changes.map { change in
+                .map([
+                    ("model", .text(change.model)),
+                    ("key", keyValue(change.key)),
+                    ("row", change.row.map(rowValue) ?? .null),
+                ])
+            })))
+        }
+        return .map(fields)
+    }
+
+    private static func keyValue(_ key: [ProtocolLogicalRow.KeyPart]) -> CanonicalCBORValue {
+        .array(key.map { .array([.text($0.field), cborValue($0.value)]) })
+    }
+
+    private static func rowValue(_ row: ProtocolLogicalRow) -> CanonicalCBORValue {
         .map([
-            ("type", .text("table")),
-            ("rows", .unsigned(table.rows)),
-            ("chunks", .array(table.chunks.map { .map([("rows", .unsigned($0.rows)), ("chunk", .text($0.chunk))]) })),
+            ("key", keyValue(row.key)),
+            ("fields", .map(row.fields.map { ($0.key, cborValue($0.value)) })),
+            ("created", .integer(row.created)),
+            ("modified", .integer(row.modified)),
         ])
     }
 
-    private static func decodeTable(_ bytes: Data) throws -> ProtocolTable {
-        guard case let .map(fields) = try CanonicalCBOR.decode(bytes) else { throw ProtocolValidationError.invalidCBOR("Table object is not a map") }
+    /// A row value as canonical CBOR. A Date read as text stays text: only an
+    /// entry decoded from bytes keeps its tags (`ProtocolLog.encoded`).
+    private static func cborValue(_ value: ProtocolReadValue) -> CanonicalCBORValue {
+        switch value {
+        case .null: return .null
+        case let .bool(flag): return .bool(flag)
+        case let .number(n): return n.rounded() == n && abs(n) <= 9_007_199_254_740_991 ? .integer(Int(n)) : .float(n)
+        case let .string(text): return .text(text)
+        case let .array(items): return .array(items.map(cborValue))
+        case let .object(members): return .map(members.map { ($0.key, cborValue($0.value)) })
+        }
+    }
+
+    /// A `log` object, decoded strictly (collections §1): exactly its type,
+    /// previous, rows, rowsHash and one of changes or snapshot; changes in
+    /// model then stable-key order, each row once, each set row's key its own.
+    public static func decodeLog(_ bytes: Data) throws -> ProtocolLog {
+        guard case let .map(fields) = try CanonicalCBOR.decode(bytes, tags: [0, 1004]) else {
+            throw ProtocolValidationError.invalidCBOR("Log object is not a map")
+        }
         let item = Dictionary(uniqueKeysWithValues: fields)
-        guard item.count == 3, case .text("table")? = item["type"],
-              case let .unsigned(rows)? = item["rows"],
-              case let .array(values)? = item["chunks"], !values.isEmpty else {
-            throw ProtocolValidationError.invalidCBOR("Table object fields are invalid")
+        let body = item["changes"] != nil ? "changes" : "snapshot"
+        guard Set(item.keys) == ["type", "previous", "rows", "rowsHash", body], case .text("log")? = item["type"],
+              case let .unsigned(rows)? = item["rows"], isEntryTime(rows),
+              case let .text(rowsHash)? = item["rowsHash"] else {
+            throw ProtocolValidationError.invalidCBOR("Log object fields are invalid")
         }
-        let chunks = try values.map { value -> ProtocolTable.Chunk in
-            guard case let .map(fields) = value else { throw ProtocolValidationError.invalidCBOR("Table chunk is not a map") }
-            let entry = Dictionary(uniqueKeysWithValues: fields)
-            guard entry.count == 2, case let .unsigned(count)? = entry["rows"], case let .text(chunk)? = entry["chunk"] else {
-                throw ProtocolValidationError.invalidCBOR("Table chunk fields are invalid")
-            }
-            try validateObjectHash(chunk)
-            return ProtocolTable.Chunk(rows: count, chunk: chunk)
+        try validateObjectHash(rowsHash)
+        let previous: String?
+        switch item["previous"] {
+        case .null?: previous = nil
+        case let .text(hash)?: try validateObjectHash(hash); previous = hash
+        default: throw ProtocolValidationError.invalidCBOR("A log's previous must be a hash or null")
         }
-        guard chunks.reduce(0, { $0 + $1.rows }) == rows else {
-            throw ProtocolValidationError.invalidValue("A table's rows must equal the sum of its chunks'")
-        }
-        return ProtocolTable(rows: rows, chunks: chunks)
-    }
-
-    /// A `rows` object's shape: each row has exactly its key, fields, created
-    /// and modified. Row order and values are the collection's to check.
-    private static func checkRows(_ bytes: Data) throws {
-        _ = try rowList(bytes)
-    }
-
-    private static func rowList(_ bytes: Data) throws -> [[(String, CanonicalCBORValue)]] {
-        guard case let .map(fields) = try CanonicalCBOR.decode(bytes) else { throw ProtocolValidationError.invalidCBOR("Rows object is not a map") }
-        let item = Dictionary(uniqueKeysWithValues: fields)
-        guard item.count == 2, case .text("rows")? = item["type"], case let .array(rows)? = item["rows"] else {
-            throw ProtocolValidationError.invalidCBOR("Rows object fields are invalid")
-        }
-        return try rows.map { row in
-            guard case let .map(fields) = row,
-                  Set(fields.map { $0.0 }) == ["key", "fields", "created", "modified"], fields.count == 4 else {
-                throw ProtocolValidationError.invalidCBOR("Row fields are invalid")
-            }
-            return fields
-        }
-    }
-
-    /// A `rows` chunk's rows, decoded strictly: each key a list of
-    /// `[field, value]` pairs, fields a map, and both times Unix milliseconds
-    /// with created ≤ modified. Values are JSON values, except that a Date
-    /// field's value is tagged (tag 1004 around a date, tag 0 around a UTC
-    /// date-time) and reads as its text; anything else is refused.
-    public static func decodeRows(_ bytes: Data) throws -> [ProtocolLogicalRow] {
-        try rowList(bytes).map { fields in
-            let row = Dictionary(uniqueKeysWithValues: fields)
-            guard case let .array(pairs)? = row["key"], !pairs.isEmpty,
-                  case let .map(values)? = row["fields"],
-                  let created = entryTime(row["created"]),
-                  let modified = entryTime(row["modified"]), created <= modified
-            else { throw ProtocolValidationError.invalidCBOR("Row fields are invalid") }
-            let key = try pairs.map { pair -> ProtocolLogicalRow.KeyPart in
-                guard case let .array(part) = pair, part.count == 2, case let .text(field) = part[0] else {
-                    throw ProtocolValidationError.invalidCBOR("A row's key must be [field, value] pairs")
+        var log: ProtocolLog
+        if body == "snapshot" {
+            guard case let .text(file)? = item["snapshot"] else { throw ProtocolValidationError.invalidCBOR("A log's snapshot must be a hash") }
+            try validateObjectHash(file)
+            log = ProtocolLog(previous: previous, rows: rows, rowsHash: rowsHash, body: .snapshot(file))
+        } else {
+            guard case let .array(values)? = item["changes"] else { throw ProtocolValidationError.invalidCBOR("A log's changes must be an array") }
+            var order: [(model: Data, key: Data)] = []
+            let changes = try values.map { value -> ProtocolRowChange in
+                guard case let .map(fields) = value, fields.count == 3 else { throw ProtocolValidationError.invalidCBOR("A log change must be a map") }
+                let change = Dictionary(uniqueKeysWithValues: fields)
+                guard case let .text(model)? = change["model"], isModelName(model), let keyCBOR = change["key"], let rowCBOR = change["row"] else {
+                    throw ProtocolValidationError.invalidCBOR("A log change's fields are invalid")
                 }
-                return .init(field: field, value: try readValue(part[1]))
+                let key = try decodeKey(keyCBOR)
+                let row: ProtocolLogicalRow?
+                if case .null = rowCBOR { row = nil } else {
+                    guard case let .map(rowFields) = rowCBOR else { throw ProtocolValidationError.invalidCBOR("A log change's row must be a map") }
+                    row = try decodeRow(rowFields)
+                    guard case let .map(own) = rowCBOR, own.first(where: { $0.0 == "key" })?.1 == keyCBOR else {
+                        throw ProtocolValidationError.invalidCBOR("A log change's key must be its row's key")
+                    }
+                }
+                order.append((Data(model.utf8), Data(stableKey(keyCBOR).utf8)))
+                return ProtocolRowChange(model: model, key: key, row: row)
             }
-            var decoded: [String: ProtocolReadValue] = [:]
-            for (name, value) in values { decoded[name] = try readValue(value) }
-            return ProtocolLogicalRow(key: key, fields: decoded, created: created, modified: modified)
+            for (a, b) in zip(order, order.dropFirst()) {
+                let ascending = a.model == b.model ? a.key.lexicographicallyPrecedes(b.key) : a.model.lexicographicallyPrecedes(b.model)
+                guard ascending else { throw ProtocolValidationError.invalidCBOR("A log's changes must be in model, then stable-key order, each row once") }
+            }
+            log = ProtocolLog(previous: previous, rows: rows, rowsHash: rowsHash, body: .changes(changes))
         }
+        log.encoded = bytes
+        return log
+    }
+
+    /// A row's stable key: the canonical JSON of its key pairs, a tagged Date as its text.
+    private static func stableKey(_ value: CanonicalCBORValue) -> String {
+        func json(_ value: CanonicalCBORValue) -> Any {
+            switch value {
+            case .null: return NSNull()
+            case let .bool(flag): return flag
+            case let .unsigned(n): return n
+            case let .negative(n): return -1 - n
+            case let .float(n): return n
+            case let .text(text): return text
+            case let .tagged(_, inner): return json(inner)
+            case let .array(items): return items.map(json)
+            case let .map(entries): return Dictionary(entries.map { ($0.0, json($0.1)) }, uniquingKeysWith: { a, _ in a })
+            case .bytes: return NSNull()
+            }
+        }
+        let data = (try? JSONSerialization.data(withJSONObject: json(value), options: [.sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func decodeKey(_ value: CanonicalCBORValue) throws -> [ProtocolLogicalRow.KeyPart] {
+        guard case let .array(pairs) = value, !pairs.isEmpty else { throw ProtocolValidationError.invalidCBOR("A row's key must be a non-empty array") }
+        var names = Set<String>()
+        return try pairs.map { pair -> ProtocolLogicalRow.KeyPart in
+            guard case let .array(part) = pair, part.count == 2, case let .text(field) = part[0], isModelName(field),
+                  names.insert(field).inserted, part[1] != .null else {
+                throw ProtocolValidationError.invalidCBOR("A row's key must be [field, value] pairs")
+            }
+            return .init(field: field, value: try readValue(part[1]))
+        }
+    }
+
+    /// One row, decoded strictly: its key a list of `[field, value]` pairs,
+    /// fields a map, and both times Unix milliseconds with created ≤ modified.
+    /// Values are JSON values, except that a Date field's value is tagged (tag
+    /// 1004 around a date, tag 0 around a UTC date-time) and reads as its text;
+    /// anything else is refused.
+    private static func decodeRow(_ fields: [(String, CanonicalCBORValue)]) throws -> ProtocolLogicalRow {
+        guard Set(fields.map { $0.0 }) == ["key", "fields", "created", "modified"], fields.count == 4 else {
+            throw ProtocolValidationError.invalidCBOR("Row fields are invalid")
+        }
+        let row = Dictionary(uniqueKeysWithValues: fields)
+        guard let keyCBOR = row["key"], case let .map(values)? = row["fields"],
+              let created = entryTime(row["created"]),
+              let modified = entryTime(row["modified"]), created <= modified
+        else { throw ProtocolValidationError.invalidCBOR("Row fields are invalid") }
+        let key = try decodeKey(keyCBOR)
+        var decoded: [String: ProtocolReadValue] = [:]
+        for (name, value) in values {
+            guard isModelName(name), !key.contains(where: { $0.field == name }), value != .null, value != .array([]) else {
+                throw ProtocolValidationError.invalidCBOR("A row field is written only when it has a value")
+            }
+            decoded[name] = try readValue(value)
+        }
+        return ProtocolLogicalRow(key: key, fields: decoded, created: created, modified: modified)
     }
 
     private static func readValue(_ value: CanonicalCBORValue, depth: Int = 0) throws -> ProtocolReadValue {
@@ -477,17 +579,9 @@ public enum ProtocolObjectCodec {
             }
         }
         if let collection {
-            guard collection.version == 1 else { throw ProtocolValidationError.invalidValue("Collection version must be 1") }
+            guard collection.version == 2 else { throw ProtocolValidationError.invalidValue("Collection version must be 2") }
             try validateObjectHash(collection.modelFingerprint)
-            var previousModel: Data?
-            for table in collection.tables {
-                let utf8 = Data(table.model.utf8)
-                guard isModelName(table.model), previousModel.map({ $0.lexicographicallyPrecedes(utf8) }) ?? true else {
-                    throw ProtocolValidationError.invalidValue("Collection tables must be model names in UTF-8 order, each once")
-                }
-                previousModel = utf8
-                try validateObjectHash(table.table)
-            }
+            try validateObjectHash(collection.log)
             guard entries.contains(where: { $0.name == "schema.beetle" && $0.file != nil }) else {
                 throw ProtocolValidationError.invalidValue("A collection's schema.beetle must be a file entry")
             }
@@ -499,17 +593,19 @@ public extension ProtocolObject {
     /// The objects this one reaches directly, as `ProtocolObjectCodec.references` gives them.
     var references: [(hash: String, kind: ProtocolObjectKind)] {
         switch self {
-        case .file, .page, .rows:
+        case .file, .page:
             return []
         case let .directory(entries, collection):
             var references: [(hash: String, kind: ProtocolObjectKind)] = []
             for entry in entries {
                 if let hash = entry.hash, let kind = entry.kind { references.append((hash: hash, kind: kind)) }
             }
-            for table in collection?.tables ?? [] { references.append((hash: table.table, kind: .table)) }
+            if let collection { references.append((hash: collection.log, kind: .log)) }
             return references
-        case let .table(table):
-            return table.chunks.map { (hash: $0.chunk, kind: ProtocolObjectKind.rows) }
+        case let .log(log):
+            // A snapshot entry reaches its file, not the entries before it (collections §1.1).
+            if let file = log.snapshot { return [(hash: file, kind: .file)] }
+            return log.previous.map { [(hash: $0, kind: .log)] } ?? []
         }
     }
 }
@@ -706,7 +802,7 @@ public extension ProtocolSnapshot {
             for child in objects[hash]?.references ?? [] { visit(child.hash) }
         }
         for entry in entries where entry.name != name { if let hash = entry.hash { visit(hash) } }
-        for table in collection?.tables ?? [] { visit(table.table) }
+        if let collection { visit(collection.log) }
         return ProtocolSnapshot(
             root: nextRoot.hash,
             objects: reachable.sorted().compactMap { hash in bytesByHash[hash].map { ProtocolObjectEnvelope(hash: hash, bytes: $0) } }

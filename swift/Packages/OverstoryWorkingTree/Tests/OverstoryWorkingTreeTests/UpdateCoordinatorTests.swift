@@ -126,34 +126,20 @@ private final class FirstPreparationFault: UpdateFaultInjector, @unchecked Senda
 
 @Suite("Working-tree update coordinator")
 struct UpdateCoordinatorTests {
-    @Test("Native materialization preserves a collection and serves its tables and rows")
+    @Test("Native materialization preserves a collection and serves its rows from its log and snapshot")
     func collectionRoundTrip() async throws {
         try await withTemporaryRoot { root in
-            let vectors = fixtureDirectory().appending(path: "protocol-objects.json")
-            let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: vectors)) as? [String: Any])
-            let vector = try #require((fixture["objects"] as? [[String: Any]])?.first { $0["name"] as? String == "rows" })
-            let rows = ProtocolObjectEnvelope(hash: vector["hash"] as! String, bytes: try #require(Data(base64Encoded: vector["bytesBase64"] as! String)))
-            let table = try ProtocolObjectCodec.object(.table(ProtocolTable(rows: 2, chunks: [.init(rows: 2, chunk: rows.hash)])))
-            let schema = try ProtocolObjectCodec.object(.file(Data("""
-                main table Game:
-                  name   Text
-                  status Status
-                  tags   Text[]
-
-                Game.status <-> Status.games[]
-
-                enum Status:
-                  Draft
-                  Polished
-                """.utf8)))
-            let reference = ProtocolCollectionReference(
-                modelFingerprint: "sha256:" + String(repeating: "3", count: 64),
-                tables: [.init(model: "Game", table: table.hash)]
-            )
+            let log = try GamesCollection.snapshotLog()
+            let schema = try ProtocolObjectCodec.object(.file(Data(GamesCollection.source.utf8)))
+            let reference = ProtocolCollectionReference(modelFingerprint: GamesCollection.fingerprint, log: log.head)
             let directory = try ProtocolObjectCodec.object(.directory([
                 .init(name: "schema.beetle", file: schema.hash, created: 0, modified: 0),
             ], collection: reference))
-            let snapshot = ProtocolSnapshot(root: directory.hash, objects: [directory, schema, table, rows])
+            let snapshot = ProtocolSnapshot(root: directory.hash, objects: ([directory, schema] + log.objects).sorted { $0.hash < $1.hash })
+            // The entry before the snapshot is not reached: a snapshot walk stops there.
+            #expect(throws: ProtocolValidationError.self) {
+                _ = try ProtocolObjectGraph.validate(ProtocolSnapshot(root: directory.hash, objects: snapshot.objects + [log.unreached]))
+            }
             let replacement = try SnapshotBridge.replacement(
                 snapshot: snapshot,
                 tree: TreeID(rawValue: "tr_collection"),
@@ -166,13 +152,18 @@ struct UpdateCoordinatorTests {
             #expect(Set(rebuilt.objects.map(\.hash)) == Set(snapshot.objects.map(\.hash)))
             // The overlay holds the rows: the complete graph needs no platform store.
             let complete = try await workingTree.completeSnapshot()
-            #expect(try ProtocolObjectGraph.validate(complete).count == 4)
+            #expect(try ProtocolObjectGraph.validate(complete).count == 5)
 
             // Story reads the rows as data-file rows and presents them (Schema language 006).
             let provider = WorkingTreeProvider(workingTree: workingTree)
             let loaded = try await provider.collectionRows(WorkspaceReference(tree: TreeID(rawValue: "tr_collection"), path: "/"))
             #expect(loaded.rows["Game"]?.map { $0["id"] } == [.string("chess"), .string("go")])
             #expect(loaded.rows["Game"]?.first?["status"] == .string("Draft"))
+            #expect(loaded.rows["Game"]?.first?["tags"] == .array([.string("board"), .string("classic")]))
+            #expect(loaded.rows["Game"]?.last?["name"] == .string("Go"))
+            // The head entry counts the rows.
+            let node = try await provider.resolve(WorkspaceReference(tree: TreeID(rawValue: "tr_collection"), path: "/"))
+            #expect(node.surface == .collection(kind: "Collection", rowCount: 2))
             let presented = try presentView(loaded.schema, rows: loaded.rows, options: PresentOptions())
             #expect(presented.groups.flatMap(\.lines).count == 2)
         }

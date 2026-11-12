@@ -67,9 +67,9 @@ extension LocalChange {
                     else if let page = entry.page { try reach(page, .page) }
                     else if let child = entry.directory { try reach(child, .directory) }
                 }
-                for table in collection?.tables ?? [] { try reach(table.table, .table) }
-            case let .table(table):
-                for chunk in table.chunks { try reach(chunk.chunk, .rows) }
+                if let collection { try reach(collection.log, .log) }
+            case let .log(log):
+                for child in ProtocolObject.log(log).references { try reach(child.hash, child.kind) }
             default: break
             }
         }
