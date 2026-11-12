@@ -7,6 +7,10 @@ with its bundle. `story me create` is a once-per-person identity setup command;
 `story sync` reports and steers what Story Sync is doing with a placed folder,
 and `story daemon` is mainly for machine setup or troubleshooting.
 
+The commands scripts, agents and runners rely on, with their arguments, exit codes and
+JSON output, are specified in [the command line](../overstory-spec/2.3-command-line.md);
+this page adds examples and the reference implementation's own choices.
+
 From a checkout, run `bun run story -- <command>`. After `bun link`, use the
 installed form shown below: `story <command>`.
 

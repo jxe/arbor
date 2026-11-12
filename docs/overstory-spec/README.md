@@ -17,14 +17,15 @@ file names carry the layer: `1.2-reading-and-watching.md` is layer 1, chapter 2.
    mutations), collections, Beetle, and locators. Every host and client agrees
    on this.
 2. **Clients.** How a client holds a tree, and edits one it may write: the
-   three ways to hold a tree, the update machine and change log, and
-   placements on disk.
+   three ways to hold a tree, the update machine and change log,
+   placements on disk, and the command line.
 3. **Accounts, access and federation.** Who the callers are and what they
    may do: accounts and devices, access control, and acting at hosts other
    than a profile's home.
 A host conforms to layers 1 and 3, and to the `views` and `mutate` routes when it runs
-apps; a Story-compatible client conforms to layers 1 to 3. Every route is listed in the [route index](#route-index). Local
-client/daemon transport, UI controls, CLI commands, runtime algorithms, package
+apps; a Story-compatible client conforms to layers 1 to 3. Every route is listed in the [route index](#route-index). The `story` command's
+contract is [the command line](2.3-command-line.md); local
+client/daemon transport, UI controls, other CLI commands, runtime algorithms, package
 topology, private-state layout, and test machinery are reference choices.
 
 ## Thesis
@@ -71,6 +72,7 @@ New readers should start with the non-normative [walkthrough](00-walkthrough.md)
 | | [locators](1.6-locators.md) | References by TreeID, path and stable key; canonical names and domains; finding trees; reading at the canonical URL; view addresses |
 | 2. Clients | [working trees](2.1-working-trees.md), with [the update machine's runner](../implementing-sync-services/update-machine.md) | The three ways to hold a tree (Browse, Replica, alongside Story Sync), and the update machine a working tree runs: the change log, one prepared request in flight, one successor, validated apply, held rejections, exact ambiguous recovery, and editor capture |
 | | [placements on disk](2.2-placements-on-disk.md) | How a placement writes a tree into a folder: page frontmatter, tree membership and ignore files, and collections as CSV, JSON, Markdown rows or SQLite; local placements |
+| | [the command line](2.3-command-line.md) | The `story` command as scripts, agents and runners call it: conventions, exit codes and environment; placing, moving and opening folders; agent bundles, sessions, run requests and reporting; identity; sync state and its JSON |
 | 3. Accounts, access and federation | [accounts and devices](3.1-accounts-and-devices.md) | Profile identity, host accounts, tree configurations, device pairing and sessions, and declaring, activating and mounting trees |
 | | [access control](3.2-access-control.md) | Resource rules, caller/code constraints, combined execution authority, authentication, guarded updates and watches; what views and mutations may read and write, user identity, consent and data disclosure |
 | | [federation](3.3-federation.md) | Home and placement hosts, placement accounts, invitations accepted as placements, published device keys, and visitor sessions |
@@ -82,7 +84,7 @@ implementations.
 
 ## Conformance
 
-Language-neutral vectors under [`conformance`](conformance) cover descriptors, access, errors, resolution, objects, updates, snapshots, SSE framing and resume, bootstrap idempotency, pairing, configuration merge and governance, activation, and tree-scoped reachability. The [reference implementation documentation](../architecture/README.md), including the local API, CLI, and client design, is informative rather than normative.
+Language-neutral vectors under [`conformance`](conformance) cover descriptors, access, errors, resolution, objects, updates, snapshots, SSE framing and resume, bootstrap idempotency, pairing, configuration merge and governance, activation, and tree-scoped reachability. The [reference implementation documentation](../architecture/README.md), including the local API, the CLI beyond [the command line](2.3-command-line.md), and client design, is informative rather than normative.
 
 The checked-in configuration vectors describe the `tree-config-v1` graph.
 
