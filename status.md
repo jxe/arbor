@@ -12,17 +12,29 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
-## Performance 007 spec: collections as a log of row changes — 2026-11-12
+## Performance 007: collections as a log of row changes — 2026-11-12
 
-**Spec only** (branch `claude/project-thread-kn7ley`, c85fd736; nothing built yet). Joe's
-decisions of 2026-11-12 written into the spec: the `collection` reference (version 2) names
-the head of a log of `log` objects, changes entries holding each changed row's new form and
-snapshot entries naming a SQLite file the host writes; each entry carries the row count and
-an LtHash16 rows hash, and the logical hash is the fingerprint plus rows hash (collections
-§1, data model §5). Walks and bundles stop at the newest snapshot; watch frames carry new
-entries; path reads of a collection bring its log (reading and watching); placements rebuild
-from snapshots and find other programs' edits against a base they keep (placements on disk
-§5). Conformance vectors still use table and rows objects until the host is built.
+**Built in TypeScript, on branch** `claude/project-thread-kn7ley` (spec c85fd736, a241223b;
+code 3f45468f, 0b35befa, b4c56697). Joe's decisions of 2026-11-12: the `collection`
+reference (version 2) names the head of a log of `log` objects, changes entries holding each
+changed row's new form and snapshot entries naming a SQLite file the host writes; each entry
+carries the row count and an LtHash16 rows hash, and the logical hash is the fingerprint plus
+rows hash (collections §1, data model §5).
+
+- `@ovst/protocol`: `LtHash`, log entry and reference codecs, transition payloads carry new
+  entries; walks and bundles stop at the newest snapshot. Conformance vectors `log-changes`
+  and `log-snapshot`.
+- `@ovst/collection-schema` `collection-log.ts`: states cached by head, loading checks every
+  entry's count and rows hash, appending, `changesBetween`, snapshots read and written
+  through `useSnapshotDatabase` (`@ovst/beetle/sqlite` `sqliteSnapshots`).
+- Path reads of a collection bring its head entry, and a row path answers the row itself,
+  unproved (reading and watching).
+- overstoryd snapshots a collection after an update leaves its log with at least as many
+  changes since the last snapshot as it has rows, and at least 1,000
+  (`collection-snapshots.ts`), in an update it makes itself. Merges append to the current
+  head's log.
+- Not yet: the host's database as the working form, mutations as SQL transactions, Story
+  Sync replicas with a base, the Swift client (it still reads table chunks), the switch.
 
 ## Entry times with the content — 2026-11-10
 

@@ -131,13 +131,16 @@ After the switch a collection is never held as table and rows chunks on the host
 
 ## Steps
 
-The spec is written ([status](../../status.md#performance-007-spec-collections-as-a-log-of-row-changes--2026-11-12));
-conformance vectors follow the host.
+The log, rows hash, path reads and host snapshots are built
+([status](../../status.md#performance-007-collections-as-a-log-of-row-changes--2026-11-12)).
 
-1. Host: the rows hash, the log store and the database as the working form; accepting an
-   update of row operations appends and applies in one step; snapshots; the current copies
-   and chunk catch-up are deleted.
+1. Host: the database as the working form. Accepting an update of row operations applies
+   its entry to the host's SQLite copy in the same step, a cold load reads the copy instead
+   of replaying the log, and a snapshot is `VACUUM INTO` of it; the in-memory states and the
+   catch-up before views go.
 2. Mutations as SQL transactions, checked against the in-memory evaluator on every Supplies
    mutation.
 3. Story Sync: projections as replicas with a base; Replica mode pulls entries.
-4. Switch: each existing collection becomes a snapshot plus an empty log.
+4. Swift: Story reads logs and snapshots instead of table chunks (on Joe's Mac).
+5. Switch: the Protocol 003 migration turns each existing collection into a log; this
+   branch merges after the flag day.
