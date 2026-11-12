@@ -1,6 +1,7 @@
 import { entryChanges, type EntryChanges } from "./updates/document-versions.ts";
 import { AlreadyClaimedError, AuthenticationRequiredError, ExpiredChallengeError, HomeHostUnavailableError, NotFoundError, PermissionDeniedError, PlacementAccountError, RefConflictError, ReservedBoundaryConflictError, ServerBusyError, ServerFaultError, UpdateProtocolError } from "./errors.ts";
 import { PackMaintenance } from "./pack-maintenance.ts";
+import { changedCollectionFolders, snapshotCollections, SNAPSHOT_MIN_CHANGES } from "./collection-snapshots.ts";
 import { PlacementDeviceKeys, type DeviceKeyCopy, type ListedDevice } from "./placement.ts";
 import { RemoteGroups } from "./remote-groups.ts";
 import { VisitorSessions, type VisitorAuthentication } from "./visitors.ts";
@@ -162,6 +163,8 @@ export interface HostDaemonOptions {
   /** Compute missing provenance indexes in the background, from startup on
    * (docs/architecture/overstoryd/provenance-index.md). */
   provenanceFill?: boolean;
+  /** The fewest changes since a collection's last snapshot that make the host write a new one (collections §1.1). */
+  collectionSnapshotChanges?: number;
 }
 
 export interface HostBootstrap {
@@ -559,6 +562,7 @@ export class HostDaemon implements AsyncDisposable {
 
   /** Whether missing provenance indexes are computed in the background. */
   readonly provenanceFill: boolean = false;
+  readonly collectionSnapshotChanges: number = SNAPSHOT_MIN_CHANGES;
   /** Trees waiting for a provenance backfill, filled one at a time. */
   private readonly provenanceQueue = new Set<string>();
   private provenanceRun: Promise<void> | undefined;
@@ -2832,6 +2836,38 @@ export class HostDaemon implements AsyncDisposable {
     if (record) this.notifyObservation(record);
     // A configuration may name a remote group this host has no copy of yet.
     if (this.get(update.tree)?.kind === "tree-configuration") void this.remoteGroups.prefetch(this.namedRemoteGroups());
+    else void this.snapshotCollectionsAfter(update);
+  }
+
+  /**
+   * Collections §1.1: once an update leaves a collection whose log since its last
+   * snapshot has outgrown its rows, an update the host makes itself appends a snapshot
+   * entry, and changes nothing else.
+   */
+  private async snapshotCollectionsAfter(update: AcceptedUpdate): Promise<void> {
+    if (this.disposed) return;
+    try {
+      const load = (hash: ObjectHash) => this.objects.load(hash);
+      const folders = await changedCollectionFolders(update.previous?.root ?? null, update.root, load);
+      if (!folders.length) return;
+      const accepted = await this.withTreeLock(update.tree, async () => {
+        const from = this.currentUpdate(update.tree);
+        if (!from || this.disposed) return null;
+        const staged = new Map<ObjectHash, Uint8Array>();
+        const root = await snapshotCollections(from.root, folders, load, staged, this.wireSchemas, this.collectionSnapshotChanges);
+        if (!root) return null;
+        const change = `snapshot:${root.slice(7)}`;
+        const entry = await this.internalEntry(update.tree, from, root, change, staged);
+        const entryChanges = await this.entryChanges(from.root, root);
+        return this.acceptedStore.commit({
+          entryChanges, tree: update.tree, root, previousRoot: from.root, expectedUpdate: from.id,
+          acceptedAt: Date.now(), subject: null, change, entry,
+        }, () => {});
+      });
+      if (accepted) this.notifyAccepted(accepted);
+    } catch (error) {
+      console.warn(`Collection snapshot not written for ${update.tree}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async object(hash: ObjectHash): Promise<Uint8Array> {

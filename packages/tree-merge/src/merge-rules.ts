@@ -290,7 +290,8 @@ export async function collectionFieldsV1(
       mergedRows += result.mergedRows;
       fields.push(...result.conflicts.map((conflict) => ({ ...conflict, path, table: model.name })));
     }
-    const encoded = await encodeDirectoryCollection(merged, tables, context.file);
+    // The merged rows are an entry after the current head's, in its log.
+    const encoded = await encodeDirectoryCollection({ ...merged, collection: current.collection! }, tables, context.file);
     for (const bytes of encoded.objects.values()) context.store(bytes);
     return { directory: encoded.directory, mergedRows, fields };
   } catch (error) {

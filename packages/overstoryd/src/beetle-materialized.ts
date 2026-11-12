@@ -29,6 +29,9 @@ function stored(value: unknown): unknown {
   return value;
 }
 
+/** An empty value array is absent from a row, and stored as `[]`. */
+const emptyOf = (column: Table["columns"][number]): unknown => (column.array && !column.nullable ? [] : null);
+
 export class Materialization {
   private constructor(
     readonly database: Database,
@@ -75,7 +78,7 @@ export class Materialization {
   private insert(table: Table): (row: Record<string, unknown>) => void {
     const columns = table.columns.map((c) => c.name);
     const statement = this.database.prepare(`insert into ${quote(table.name)} (${columns.map(quote).join(", ")}) values (${columns.map(() => "?").join(", ")})`);
-    return (row) => statement.run(...columns.map((c) => stored(row[c])) as never[]);
+    return (row) => statement.run(...table.columns.map((c) => stored(row[c.name] ?? emptyOf(c))) as never[]);
   }
 
   private record(directory: string): void {
@@ -127,7 +130,7 @@ export class Materialization {
         for (const row of after) {
           const rows = own(model, row);
           const stored = rows[table.name]![0]!;
-          upsert.run(...columns.map((c) => (held.has(c) && (stored[c] ?? null) === null ? 0 : storedValue(stored[c]))) as never[]);
+          upsert.run(...table.columns.map((c) => (held.has(c.name) && (stored[c.name] ?? null) === null ? 0 : storedValue(stored[c.name] ?? emptyOf(c)))) as never[]);
           for (const r of schema.relationships) {
             if (r.source !== table.name) continue;
             if (r.through) {

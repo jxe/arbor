@@ -20,7 +20,7 @@ import {
   type RowChange,
 } from "@ovst/protocol";
 import { layoutOf, logicalFromRows, rowsFromLogical, type LogicalTables, type RowsByTable, type Table } from "@ovst/usl";
-import { treeTables, type LogicalSchema } from "./logical.ts";
+import { plainTables, treeTables, type LogicalSchema } from "./logical.ts";
 
 type Load = (hash: Hash) => Promise<Uint8Array>;
 
@@ -212,6 +212,45 @@ export async function changesBetween(schema: LogicalSchema, before: Hash, after:
 }
 
 // ------------------------------------------------------------------ snapshots
+
+const sinceSnapshot = new Map<Hash, number>();
+
+/**
+ * How many row changes the log at `head` holds since its newest snapshot (or its start):
+ * what a replica applies after the snapshot to reach `head`. Remembered by head, so a log
+ * that grows one entry at a time decodes each entry once.
+ */
+export async function changesSinceSnapshot(head: Hash, load: Load): Promise<number> {
+  const walked: Array<{ hash: Hash; changes: number }> = [];
+  let total = 0;
+  for (let at: Hash | null = head; at;) {
+    const known = sinceSnapshot.get(at);
+    if (known !== undefined) { total = known; break; }
+    const entry = decodeProtocolLog(await load(at));
+    if ("snapshot" in entry) { sinceSnapshot.set(at, 0); break; }
+    walked.push({ hash: at, changes: entry.changes.length });
+    at = entry.previous;
+  }
+  for (const { hash, changes } of walked.reverse()) sinceSnapshot.set(hash, (total += changes));
+  if (sinceSnapshot.size > 10_000) for (const key of [...sinceSnapshot.keys()].slice(0, 5_000)) sinceSnapshot.delete(key);
+  return sinceSnapshot.get(head)!;
+}
+
+/**
+ * A snapshot entry after `state` (collections §1.1): the SQLite file of its rows, and the
+ * entry naming it with the same row count and rows hash. Only a tree's host writes one.
+ */
+export function snapshotEntry(schema: LogicalSchema, state: CollectionState): { hash: Hash; bytes: Uint8Array; file: { hash: Hash; bytes: Uint8Array }; state: CollectionState } {
+  if (!state.head) throw new TypeError("An empty log has nothing to snapshot");
+  const fileBytes = writeSnapshot(schema, plainTables(schema, state));
+  const file = { hash: `sha256:${sha256(fileBytes)}` as Hash, bytes: fileBytes };
+  const { hash, bytes } = encodedLogEntry({ type: "log", previous: state.head, rows: state.rows, rowsHash: state.lthash.hash(), snapshot: file.hash });
+  const next = { ...state, head: hash };
+  remember(next);
+  sinceSnapshot.set(hash, 0);
+  return { hash, bytes, file, state: next };
+}
+
 
 /** Reads and writes a snapshot's SQLite file; this package touches no database itself. */
 export interface SnapshotDatabase {

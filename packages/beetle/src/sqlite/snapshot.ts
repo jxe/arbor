@@ -37,7 +37,8 @@ export const sqliteSnapshots = {
         for (const table of layout) {
           const columns = table.columns.map((c) => c.name);
           const insert = database.prepare(`insert into ${quote(table.name)} (${columns.map(quote).join(", ")}) values (${columns.map(() => "?").join(", ")})`);
-          for (const row of rows[table.name] ?? []) insert.run(...columns.map((c) => stored(row[c])) as never[]);
+          // An empty value array is absent from a row, and stored as `[]`.
+          for (const row of rows[table.name] ?? []) insert.run(...table.columns.map((c) => stored(row[c.name] ?? (c.array && !c.nullable ? [] : null))) as never[]);
         }
       })();
       database.exec("vacuum");

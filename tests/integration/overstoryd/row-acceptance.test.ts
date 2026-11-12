@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
 import { loadDirectoryCollection, replayCollectionRows } from "@ovst/collection-schema";
-import { applyTransitionPayload, decodeProtocolDirectory, encodeProtocolDirectory, executeRowOperations, hashObject, ProtocolClient,
+import { applyTransitionPayload, decodeProtocolDirectory, decodeProtocolLog, encodeProtocolDirectory, executeRowOperations, hashObject, ProtocolClient,
   type CandidateUpdate, type DerivableCandidateUpdate, type DerivableUpdateRequest, type ProtocolDirectory, type SourceOperation } from "@ovst/protocol";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
 import { collectionDirectory, idRow } from "../../support/collection-trees.ts";
@@ -17,9 +17,9 @@ const token = "row-owner";
 const SCHEMA = "table Item:\n  title Text\n  done  Bool?\n  tags  Text[]\n";
 const key = (id: string) => JSON.stringify([["id", id]]);
 
-async function start() {
+async function start(lifetimes?: { collectionSnapshotChanges?: number }) {
   running = await serveHost({ dataRoot: dir, accounts: [testAccount("owner", token, { communityWriter: true })],
-    publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0 });
+    publicOrigin: "http://127.0.0.1:0", hostname: "127.0.0.1", port: 0, lifetimes });
   client = await deviceClient(running.url, token);
 }
 async function stop() { running.server.stop(true); await running.overstoryd[Symbol.asyncDispose](); }
@@ -203,4 +203,28 @@ test("a derived change on a stale base merges field by field like a stated one",
   expect(result.update.conflicted).toBe(false);
   await remember(result.update.root);
   expect((await rows(result.update.root))[0]).toEqual({ id: "a", title: "Alpha", done: true, tags: ["x"] });
+});
+
+test("a log that outgrows its rows gets a snapshot entry from the host, and later changes follow it", async () => {
+  await stop();
+  await start({ collectionSnapshotChanges: 2 });
+  const first = await submit(await rowChange(root, set("a", "title", "A", "A1") as never));
+  // The host's own update follows: same rows, a snapshot entry at the log's head.
+  let head = await client.descriptor(tree);
+  for (let i = 0; i < 100 && head.tree.update === first.id; i++) { await Bun.sleep(20); head = await client.descriptor(tree); }
+  expect(head.tree.update).not.toBe(first.id);
+  await remember(first.root);
+  await remember(head.tree.root);
+  const log = (at: string) => decodeProtocolDirectory(objects.get(items(at))!).collection!.log;
+  const before = decodeProtocolLog(objects.get(log(first.root))!), snapshot = decodeProtocolLog(objects.get(log(head.tree.root))!);
+  expect("snapshot" in snapshot).toBe(true);
+  expect(snapshot.previous).toBe(log(first.root));
+  expect([snapshot.rows, snapshot.rowsHash]).toEqual([before.rows, before.rowsHash]);
+  expect(await rows(head.tree.root)).toEqual(await rows(first.root));
+  // A change authored before the snapshot merges onto it.
+  const second = await submit(await rowChange(first.root, set("b", "title", "B", "B1") as never), first.id);
+  await remember(second.root);
+  expect(await rows(second.root)).toEqual([{ id: "a", title: "A1", tags: ["x"] }, { id: "b", title: "B1" }]);
+  expect(decodeProtocolLog(objects.get(log(second.root))!).previous).toBe(log(head.tree.root));
+  await running.overstoryd.verifyIntegrity();
 });
