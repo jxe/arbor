@@ -84,30 +84,30 @@ describe("one tree, placed with different projections", () => {
   });
 });
 
-describe("a SQLite placement's change log", () => {
+describe("a SQLite placement's base", () => {
   const tree = collectionTree(GAMES, {
     Game: [idRow("g1", { name: "Chess", tags: ["board"] }), idRow("g2", { name: "Go", tags: ["board"] }), idRow("g3", { name: "Hex", tags: ["board"] })],
     List: [idRow("l1", { name: "Favorites", games: ["g1", "g2"] })],
   });
-  const changes = (path: string) => {
+  const ownTables = (path: string) => {
     const database = new Database(path, { readonly: true });
-    try { return database.query("select model, key from _overstory_changes order by id").all(); } finally { database.close(); }
+    try { return database.query("select name from sqlite_master where name like '\\_%' escape '\\'").all(); } finally { database.close(); }
   };
-  /** The folder read whole by a projection that has never seen it. */
+  /** The folder read whole by a projection that has never seen it and keeps no base. */
   const fresh = async (root: string) =>
     (await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) =>
-      new CollectionProjections({ basis: () => collectionBasis(tree.root, tree.objects), now: () => "2026-10-24T12:00:00.000Z" }).read(directory, names)))).root;
+      new CollectionProjections({ basis: () => collectionBasis(tree.root, tree.objects), now: () => "2026-10-24T12:00:00.000Z", baseDirectory: join(sandbox, "no-bases") }).read(directory, names)))).root;
 
-  test("Story Sync's own writes leave nothing to read back, and usl verify ignores the log", async () => {
-    const placed = await place("sqlite-log", tree, { kind: "sqlite" });
+  test("Story Sync adds nothing to the database, and usl verify accepts it", async () => {
+    const placed = await place("sqlite-base", tree, { kind: "sqlite" });
     const path = join(placed.items, "_store.sqlite3");
-    expect(changes(path)).toEqual([]);
+    expect(ownTables(path)).toEqual([]);
     expect(await verifyStore(compileSchema(GAMES), path)).toEqual([]);
     expect((await placed.scan()).root).toBe(tree.root);
   });
 
-  test("another program's inserts, updates and deletes are logged, and a scan of only those rows reaches the same root as a whole read", async () => {
-    const placed = await place("sqlite-log-edits", tree, { kind: "sqlite" });
+  test("another program's inserts, updates and deletes are found against the base, and reach the same root as a whole read", async () => {
+    const placed = await place("sqlite-base-edits", tree, { kind: "sqlite" });
     const path = join(placed.items, "_store.sqlite3");
     expect((await placed.scan()).root).toBe(tree.root);
     const database = new Database(path);
@@ -116,19 +116,16 @@ describe("a SQLite placement's change log", () => {
     database.query("delete from List_games where list = 'l1' and game = 'g1'").run();
     database.query("delete from Game where id = 'g3'").run();
     database.close();
-    expect(changes(path)).toEqual([
-      { model: "Game", key: '["g2"]' }, { model: "Game", key: '["g2"]' },
-      { model: "Game", key: '["g4"]' },
-      { model: "List_games", key: '["l1","g1"]' },
-      { model: "Game", key: '["g3"]' },
-    ]);
     const scanned = (await placed.scan()).root;
     expect(scanned).not.toBe(tree.root);
     expect(scanned).toBe(await fresh(placed.root));
+    // A new instance, as after a restart, reads the base file and finds the same edits.
+    const restarted = new CollectionProjections({ basis: () => collectionBasis(tree.root, tree.objects), now: () => "2026-10-24T12:00:00.000Z" });
+    expect((await resolveSnapshot(await snapshotDirectory(placed.root, new Map(), [], (directory, names) => restarted.read(directory, names)))).root).toBe(scanned);
   });
 
   test("an edit another program makes between a scan and an accepted write is kept, and reads as a local change", async () => {
-    const placed = await place("sqlite-log-race", tree, { kind: "sqlite" });
+    const placed = await place("sqlite-base-race", tree, { kind: "sqlite" });
     const path = join(placed.items, "_store.sqlite3");
     expect((await placed.scan()).root).toBe(tree.root);
     const database = new Database(path);
@@ -153,22 +150,21 @@ describe("a SQLite placement's change log", () => {
       .toEqual([expect.objectContaining({ kind: "set", model: "Game", field: "name", before: "Baduk", value: "Weiqi" })]);
   });
 
-  test("a database whose log lost a trigger is read whole, and gets its log back", async () => {
-    const placed = await place("sqlite-log-dropped", tree, { kind: "sqlite" });
+  test("an earlier Story Sync's change log is dropped by the next write", async () => {
+    const placed = await place("sqlite-base-legacy", tree, { kind: "sqlite" });
     const path = join(placed.items, "_store.sqlite3");
-    expect((await placed.scan()).root).toBe(tree.root);
     const database = new Database(path);
-    database.exec('drop trigger "_overstory_Game_update"');
-    database.query("update Game set name = 'Weiqi' where id = 'g2'").run();
+    database.exec("create table _overstory_changes (id integer primary key, model text, key text)");
+    database.exec("create trigger _overstory_Game_update after update on Game begin insert into _overstory_changes (model, key) values ('Game', new.id); end");
     database.close();
-    expect(changes(path)).toEqual([]);
-    const scanned = (await placed.scan()).root;
-    expect(scanned).toBe(await fresh(placed.root));
-    expect(scanned).not.toBe(tree.root);
-    const again = new Database(path);
-    again.query("update Game set name = 'Go' where id = 'g2'").run();
-    again.close();
-    expect(changes(path)).toEqual([{ model: "Game", key: '["g2"]' }, { model: "Game", key: '["g2"]' }]);
+    const accepted = collectionTree(GAMES, {
+      Game: [idRow("g1", { name: "Chess", tags: ["board"] }), idRow("g2", { name: "Go", tags: ["board"] })],
+      List: [idRow("l1", { name: "Favorites", games: ["g1", "g2"] })],
+    });
+    await materializeTree(placed.root, accepted.root, async (hash) => accepted.objects.get(hash)!, undefined, [], undefined,
+      (directory, object, read) => placed.projections.write(directory, object, read));
+    expect(ownTables(path)).toEqual([]);
+    expect((await placed.scan()).root).toBe(accepted.root);
   });
 });
 

@@ -4,9 +4,10 @@
 // writing is minimal, so only changed rows are written.
 
 import { Database } from "bun:sqlite";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { readdir, readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import {
   compareUTF8,
   hashObject as hashBytes,
@@ -81,6 +82,8 @@ export interface CollectionProjectionOptions {
   form?: (directory: string) => CollectionProjectionForm | undefined;
   /** The time a changed row gets. */
   now?: () => string;
+  /** Where SQLite projections' bases are kept: private placement state. A temporary folder by default. */
+  baseDirectory?: string;
 }
 
 /** The files a form keeps the folder's rows in. */
@@ -110,65 +113,81 @@ const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const withoutAbsent = (row: Record<string, unknown>) => Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined && v !== null)) as Row;
 
 /**
- * Story Sync's change log in a database it projects: triggers it installs on
- * each table record the key of every row any program inserts, updates or
- * deletes, so a scan rereads only those rows. `_overstory_sync` holds a
- * nonce that tells this database's log from a copy's. A database without the
- * log, or with a trigger gone, is read whole.
+ * A SQLite projection's base (placements on disk §5): a private database in the same
+ * layout holding exactly the rows Story Sync last applied, so another program's committed
+ * edits are the rows the two differ in, found in SQL with no triggers in the projection.
  */
-const CHANGES = "_overstory_changes";
-const SYNC = "_overstory_sync";
+const BASE_META = "_story_base";
 const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
-const triggerName = (model: string, event: string) => `_overstory_${model}_${event}`;
-const EVENTS = ["insert", "update", "delete"] as const;
+/** Tables and triggers an earlier Story Sync installed in projections to log edits. */
+const LEGACY_LOG = /^_overstory_/;
 
-function changeLogSql(tables: readonly CollectionSchema[], nonce: string): string {
-  const statements = [
-    `create table if not exists ${CHANGES} (id integer primary key autoincrement, model text not null, key text not null)`,
-    `create table if not exists ${SYNC} (nonce text not null)`,
-    `delete from ${SYNC}`,
-    `insert into ${SYNC} (nonce) values (${literal(nonce)})`,
-  ];
-  for (const table of tables) {
-    const key = (side: "new" | "old") => `json_array(${table.primaryKey.map((column) => `${side}.${quote(column)}`).join(", ")})`;
-    const log = (side: "new" | "old") => `insert into ${CHANGES} (model, key) values (${literal(table.model)}, ${key(side)});`;
-    const body = { insert: log("new"), update: `${log("old")} ${log("new")}`, delete: log("old") };
-    for (const event of EVENTS) {
-      statements.push(`drop trigger if exists ${quote(triggerName(table.model, event))}`);
-      statements.push(`create trigger ${quote(triggerName(table.model, event))} after ${event} on ${quote(table.model)} begin ${body[event]} end`);
-    }
-  }
-  return statements.map((statement) => `${statement};`).join("\n");
+/** Read every row of each table, by key tuple. */
+function readAll(database: Database, tables: readonly CollectionSchema[], schemaName = "main"): Map<string, Map<string, Row>> {
+  return new Map(tables.map((schema) => {
+    const columns = schema.columns.map(quote).join(", ");
+    const rows = (database.query(`select ${columns} from ${schemaName}.${quote(schema.model)}`).all() as Array<Record<string, unknown>>).map((raw) => sqliteRow(schema, raw));
+    return [schema.model, new Map(rows.map((row) => [keyTuple(schema, row), row]))];
+  }));
 }
 
-/** The log's nonce, when the database has its log and every trigger. */
-function changeLogNonce(database: Database, tables: readonly CollectionSchema[]): string | null {
-  const names = new Set((database.query("select name from sqlite_master where type in ('table', 'trigger')").all() as Array<{ name: string }>).map((r) => r.name));
-  if (!names.has(CHANGES) || !names.has(SYNC)) return null;
-  if (!tables.every((table) => EVENTS.every((event) => names.has(triggerName(table.model, event))))) return null;
-  return (database.query(`select nonce from ${SYNC}`).get() as { nonce: string } | null)?.nonce ?? null;
-}
-
-const lastChange = (database: Database) => (database.query(`select coalesce(max(id), 0) as id from ${CHANGES}`).get() as { id: number }).id;
-
-/** A row's key values as the change log's triggers write them. */
+/** A row's key values as SQLite holds them. */
 const keyTuple = (schema: CollectionSchema, row: Row) => JSON.stringify(schema.primaryKey.map((column) => toSQLite(row[column])));
 
-/** The database's rows as Story Sync last read or wrote them, and how far into its change log that was. */
+/** The rows of `tables` that `rows` differs from `before` in: removed, inserted, updated. */
+interface Change { model: string; primaryKey: readonly string[]; columns: readonly string[]; remove: Row[]; insert: Row[]; update: Array<[Row, Row]> }
+function changesTo(tables: readonly CollectionSchema[], layout: readonly Table[], before: Map<string, Map<string, Row>> | null, wanted: RowsByTable): Change[] {
+  const changes: Change[] = [];
+  for (const schema of tables) {
+    // A connection row's times aren't logical, so they change only with the row.
+    const join = !!layout.find((t) => t.name === schema.model)?.ends;
+    const same = (a: Row, b: Row) => join
+      ? comparable({ ...a, created: null, modified: null }) === comparable({ ...b, created: null, modified: null })
+      : comparable(a) === comparable(b);
+    const keyOf = (row: Row) => stableKeyFromProperties(schema.primaryKey, row)!;
+    const rows = new Map((wanted[schema.model] ?? []).map(withoutAbsent).map((row) => [keyOf(row), row]));
+    const present = new Map([...(before?.get(schema.model)?.values() ?? [])].map((row) => [keyOf(row), row]));
+    const change: Change = { model: schema.model, primaryKey: schema.primaryKey, columns: schema.columns, remove: [], insert: [], update: [] };
+    for (const [stableKey, row] of present) if (!rows.has(stableKey)) change.remove.push(row);
+    for (const [stableKey, row] of rows) {
+      const was = present.get(stableKey);
+      if (!was) change.insert.push(row);
+      else if (!same(was, row)) change.update.push([was, row]);
+    }
+    if (change.remove.length || change.insert.length || change.update.length) changes.push(change);
+  }
+  return changes;
+}
+
+/** Apply changes in the caller's transaction, and to `rows`, the in-memory copy of what the database holds. */
+function applyChanges(database: Database, tables: readonly CollectionSchema[], changes: readonly Change[], rows: Map<string, Map<string, Row>>): void {
+  for (const change of changes) {
+    const schema = tables.find((table) => table.model === change.model)!;
+    const where = change.primaryKey.map((column) => `${quote(column)} = ?`).join(" and ");
+    const key = (row: Row) => change.primaryKey.map((column) => toSQLite(row[column]));
+    const values = (row: Row) => change.columns.map((column) => toSQLite(row[column]));
+    const remove = database.prepare(`delete from ${quote(change.model)} where ${where}`);
+    const insert = database.prepare(`insert into ${quote(change.model)} (${change.columns.map(quote).join(", ")}) values (${change.columns.map(() => "?").join(", ")})`);
+    const update = database.prepare(`update ${quote(change.model)} set ${change.columns.map((c) => `${quote(c)} = ?`).join(", ")} where ${where}`);
+    for (const row of change.remove) remove.run(...key(row));
+    for (const row of change.insert) insert.run(...values(row));
+    for (const [before, row] of change.update) update.run(...values(row), ...key(before));
+    const byKey = rows.get(change.model) ?? new Map<string, Row>();
+    rows.set(change.model, byKey);
+    for (const row of change.remove) byKey.delete(keyTuple(schema, row));
+    for (const [before] of change.update) byKey.delete(keyTuple(schema, before));
+    for (const row of [...change.insert, ...change.update.map(([, row]) => row)]) byKey.set(keyTuple(schema, row), row);
+  }
+}
+
+/** The database's rows as Story Sync last read or wrote them. */
 interface DatabaseState {
   file: string;
-  nonce: string;
-  cursor: number;
   rows: Map<string, Map<string, Row>>;
 }
 
 /** A row the schema can't read stops the projection from being read until it is fixed, so no other row is lost with it. */
 class UnreadableRow extends Error {}
-
-function readSQLiteTable(database: Database, schema: CollectionSchema): Row[] {
-  const columns = schema.columns.map(quote).join(", ");
-  return (database.query(`select ${columns} from ${quote(schema.model)}`).all() as Array<Record<string, unknown>>).map((raw) => sqliteRow(schema, raw));
-}
 
 /**
  * What a read of the folder's projection depends on: the schema, and each
@@ -217,6 +236,8 @@ export class CollectionProjections {
   private readonly schemas: CollectionSchemaCache;
   private readonly last = new Map<string, CollectionBasis>();
   private readonly databases = new Map<string, DatabaseState>();
+  /** Each folder's base rows, as its base file holds them. */
+  private readonly bases = new Map<string, Map<string, Map<string, Row>>>();
   private readonly resolving = new Set<string>();
   /** Each folder's last read, by the stamp of the files it read. */
   private readonly reads = new Map<string, { stamp: string; tables: LogicalTables; result: Omit<SnapshotCollection, "objects">; objects: Uint8Array[] }>();
@@ -235,7 +256,7 @@ export class CollectionProjections {
     const rows: RowsByTable = {};
     if (form.kind === "sqlite") {
       const set = this.schemas.compileTables(schemaBytes, "database");
-      for (const [model, byKey] of this.readDatabase(directory, set.tables).rows) rows[model] = [...byKey.values()];
+      for (const [model, byKey] of this.readDatabase(directory, set.tables, hashBytes(schemaBytes)).rows) rows[model] = [...byKey.values()];
       return rows;
     }
     const set = this.schemas.compileTables(schemaBytes, "files");
@@ -405,42 +426,61 @@ export class CollectionProjections {
     }
   }
 
+  /** Where the folder's base is kept. */
+  private basePath(directory: string): string {
+    const name = hashBytes(new TextEncoder().encode(resolve(directory))).slice(7, 39);
+    return join(this.options.baseDirectory ?? join(tmpdir(), "story-sync-bases"), `${name}.sqlite3`);
+  }
+
+  /** The folder's base, when it holds the rows of this schema. */
+  private base(directory: string, schemaHash: string): string | null {
+    const path = this.basePath(directory);
+    if (!existsSync(path)) return null;
+    try {
+      const database = new Database(path, { readonly: true });
+      try {
+        const meta = database.query(`select schema from ${BASE_META}`).get() as { schema: string } | null;
+        if (meta?.schema === schemaHash) return path;
+      } finally {
+        database.close();
+      }
+    } catch {}
+    this.bases.delete(directory);
+    return null;
+  }
+
   /**
-   * The database's rows. With its change log, and a state from this database
-   * and log, only the rows changed since are reread; otherwise every table is
-   * read, after installing the log so later scans needn't. A database Story
-   * Sync can't write is read whole each time.
+   * The database's rows. With a base, they are the base's rows with the rows the
+   * database differs from it in reread, found in SQL; without one every table is read.
    */
-  private readDatabase(directory: string, tables: readonly CollectionSchema[]): DatabaseState {
+  private readDatabase(directory: string, tables: readonly CollectionSchema[], schemaHash: string): DatabaseState {
     const path = join(directory, DATABASE_FILE);
     const file = fileIdentity(path);
-    const known = this.databases.get(directory);
+    const base = this.base(directory, schemaHash);
     const database = new Database(path, { readonly: true });
-    let state: DatabaseState | null = null;
+    let rows: Map<string, Map<string, Row>>;
     try {
+      if (base) database.exec(`attach database ${literal(base)} as base`);
       database.exec("begin");
       try {
-        const nonce = changeLogNonce(database, tables);
-        if (nonce && known && known.file === file && known.nonce === nonce) {
-          state = { ...known, rows: new Map([...known.rows].map(([model, rows]) => [model, new Map(rows)])) };
-          const changes = database.query(`select id, model, key from ${CHANGES} where id > ? order by id`).all(known.cursor) as Array<{ id: number; model: string; key: string }>;
-          const reread = new Set<string>();
-          for (const change of changes) {
-            state.cursor = change.id;
-            const schema = tables.find((table) => table.model === change.model);
-            const key = JSON.stringify(JSON.parse(change.key));
-            if (!schema || reread.has(`${change.model}\0${key}`)) continue;
-            reread.add(`${change.model}\0${key}`);
-            const where = schema.primaryKey.map((column) => `${quote(column)} = ?`).join(" and ");
-            const raw = database.query(`select ${schema.columns.map(quote).join(", ")} from ${quote(schema.model)} where ${where}`)
-              .get(...(JSON.parse(key) as Array<string | number | null>)) as Record<string, unknown> | null;
-            const byKey = state.rows.get(schema.model) ?? new Map<string, Row>();
-            state.rows.set(schema.model, byKey);
-            if (raw) byKey.set(key, sqliteRow(schema, raw));
-            else byKey.delete(key);
+        if (!base) rows = readAll(database, tables);
+        else {
+          let applied = this.bases.get(directory);
+          if (!applied) this.bases.set(directory, (applied = readAll(database, tables, "base")));
+          rows = new Map([...applied].map(([model, byKey]) => [model, new Map(byKey)]));
+          for (const schema of tables) {
+            const byKey = rows.get(schema.model) ?? new Map<string, Row>();
+            rows.set(schema.model, byKey);
+            const columns = schema.columns.map(quote).join(", "), keys = schema.primaryKey.map(quote).join(", ");
+            const table = quote(schema.model);
+            const gone = database.query(`select ${keys} from base.${table} except select ${keys} from main.${table}`).all() as Array<Record<string, unknown>>;
+            for (const raw of gone) byKey.delete(JSON.stringify(schema.primaryKey.map((column) => raw[column] ?? null)));
+            const changed = database.query(`select ${columns} from main.${table} except select ${columns} from base.${table}`).all() as Array<Record<string, unknown>>;
+            for (const raw of changed) {
+              const row = sqliteRow(schema, raw);
+              byKey.set(keyTuple(schema, row), row);
+            }
           }
-        } else if (nonce) {
-          state = { file, nonce, cursor: lastChange(database), rows: new Map(tables.map((schema) => [schema.model, new Map(readSQLiteTable(database, schema).map((row) => [keyTuple(schema, row), row]))])) };
         }
       } finally {
         database.exec("commit");
@@ -448,119 +488,99 @@ export class CollectionProjections {
     } finally {
       database.close();
     }
-    if (!state) state = this.installChangeLog(path, file, tables);
-    if (state.nonce) this.databases.set(directory, state);
+    const state = { file, rows: rows! };
+    this.databases.set(directory, state);
     return state;
   }
 
-  /** Install the change log and read every table in one transaction, so no edit falls between them. */
-  private installChangeLog(path: string, file: string, tables: readonly CollectionSchema[]): DatabaseState {
-    const readAll = (database: Database) => new Map(tables.map((schema) => [schema.model, new Map(readSQLiteTable(database, schema).map((row) => [keyTuple(schema, row), row]))]));
-    let database: Database;
-    try {
-      database = new Database(path, { readwrite: true, strict: true });
-    } catch {
-      const reader = new Database(path, { readonly: true });
-      try { return { file, nonce: "", cursor: 0, rows: readAll(reader) }; } finally { reader.close(); }
+  /**
+   * Make the database hold the accepted rows, creating it from the schema's setup SQL when
+   * missing, in one transaction, and make the base hold them too. A row another program
+   * changed since the last scan is an edit not yet published, and is left for the next scan.
+   */
+  private async writeSQLite(directory: string, tables: Table[], schemaBytes: Uint8Array, wanted: RowsByTable): Promise<void> {
+    const set = this.schemas.compileTables(schemaBytes, "database");
+    const schemaHash = hashBytes(schemaBytes);
+    const path = join(directory, DATABASE_FILE);
+    const created = !existsSync(path);
+    // Work out the changes read-only first, so a database that already holds
+    // the rows is never opened for writing (which would touch its files).
+    const scanned = this.databases.get(directory);
+    const current = created ? null : this.readDatabase(directory, set.tables, schemaHash);
+    const changes = changesTo(set.tables, tables, current?.rows ?? null, wanted);
+    if (current && scanned?.file === current.file) {
+      const edited = (model: string, key: string) => {
+        const was = scanned.rows.get(model)?.get(key), is = current.rows.get(model)?.get(key);
+        return (was ? comparable(was) : null) !== (is ? comparable(is) : null);
+      };
+      for (const change of changes) {
+        const schema = set.tables.find((table) => table.model === change.model)!;
+        const kept = (row: Row) => !edited(change.model, keyTuple(schema, row));
+        change.remove = change.remove.filter(kept);
+        change.insert = change.insert.filter(kept);
+        change.update = change.update.filter(([before, row]) => kept(before) && kept(row));
+      }
     }
+    const legacy = !created && this.hasLegacyLog(path);
+    if (created || changes.length || legacy) {
+      const database = new Database(path, { create: true, strict: true });
+      try {
+        database.exec("pragma busy_timeout = 5000");
+        const rows = current?.rows ?? new Map<string, Map<string, Row>>(set.tables.map((schema) => [schema.model, new Map()]));
+        database.transaction(() => {
+          if (created) database.exec(setupSql(tables, "sqlite"));
+          if (legacy) this.dropLegacyLog(database);
+          applyChanges(database, set.tables, changes, rows);
+        }).immediate();
+        this.databases.set(directory, { file: fileIdentity(path), rows });
+      } finally {
+        database.close();
+      }
+    }
+    this.writeBase(directory, set.tables, tables, schemaHash, wanted);
+  }
+
+  /** Make the folder's base hold `wanted`, the rows just applied. */
+  private writeBase(directory: string, schemas: readonly CollectionSchema[], tables: Table[], schemaHash: string, wanted: RowsByTable): void {
+    const path = this.basePath(directory);
+    const existing = this.base(directory, schemaHash);
+    const before = existing ? this.bases.get(directory) ?? null : null;
+    if (!existing) rmSync(path, { force: true });
+    mkdirSync(dirname(path), { recursive: true });
+    const database = new Database(path, { create: true, strict: true });
     try {
-      database.exec("pragma busy_timeout = 5000");
-      const nonce = crypto.randomUUID();
-      return database.transaction(() => {
-        database.exec(changeLogSql(tables, nonce));
-        return { file, nonce, cursor: lastChange(database), rows: readAll(database) };
+      // Private and rebuildable: a lost write costs one whole read.
+      database.exec("pragma journal_mode = wal");
+      database.exec("pragma synchronous = off");
+      const rows = before ?? (existing ? readAll(database, schemas) : new Map<string, Map<string, Row>>(schemas.map((schema) => [schema.model, new Map()])));
+      const changes = changesTo(schemas, tables, rows, wanted);
+      if (existing && !changes.length) { this.bases.set(directory, rows); return; }
+      database.transaction(() => {
+        if (!existing) {
+          database.exec(setupSql(tables, "sqlite"));
+          database.exec(`create table ${BASE_META} (schema text not null)`);
+          database.query(`insert into ${BASE_META} (schema) values (?)`).run(schemaHash);
+        }
+        applyChanges(database, schemas, changes, rows);
       }).immediate();
-    } catch {
-      return { file, nonce: "", cursor: 0, rows: readAll(database) };
+      this.bases.set(directory, rows);
     } finally {
       database.close();
     }
   }
 
-  /** Make the database hold exactly the rows, creating it from the schema's setup SQL when missing, in one transaction. */
-  private async writeSQLite(directory: string, tables: Table[], schemaBytes: Uint8Array, wanted: RowsByTable): Promise<void> {
-    const set = this.schemas.compileTables(schemaBytes, "database");
-    const path = join(directory, DATABASE_FILE);
-    const created = !existsSync(path);
-    type Change = { model: string; primaryKey: readonly string[]; columns: readonly string[]; remove: Row[]; insert: Row[]; update: Array<[Row, Row]> };
-    // Work out the changes read-only first, so a database that already holds
-    // the rows is never opened for writing (which would touch its files).
-    const changes: Change[] = [];
-    // Rows another program changed since the last scan are edits not yet
-    // published; the accepted write leaves them for the next scan to publish.
-    const scanned = this.databases.get(directory);
-    const current = created ? null : this.readDatabase(directory, set.tables);
-    {
-      for (const schema of set.tables) {
-        // A connection row's times aren't logical, so they change only with the row.
-        const join = !!tables.find((t) => t.name === schema.model)?.ends;
-        const same = (a: Row, b: Row) => join
-          ? comparable({ ...a, created: null, modified: null }) === comparable({ ...b, created: null, modified: null })
-          : comparable(a) === comparable(b);
-        const keyOf = (row: Row) => stableKeyFromProperties(schema.primaryKey, row)!;
-        const rows = new Map((wanted[schema.model] ?? []).map(withoutAbsent).map((row) => [keyOf(row), row]));
-        const present = new Map([...(current?.rows.get(schema.model)?.values() ?? [])].map((row) => [keyOf(row), row]));
-        const change: Change = { model: schema.model, primaryKey: schema.primaryKey, columns: schema.columns, remove: [], insert: [], update: [] };
-        for (const [stableKey, row] of present) if (!rows.has(stableKey)) change.remove.push(row);
-        for (const [stableKey, row] of rows) {
-          const before = present.get(stableKey);
-          if (!before) change.insert.push(row);
-          else if (!same(before, row)) change.update.push([before, row]);
-        }
-        if (change.remove.length || change.insert.length || change.update.length) changes.push(change);
-      }
-    }
-    if (!created && !changes.length) return;
-    const database = new Database(path, { create: true, strict: true });
+  /** Whether the database still has the change log an earlier Story Sync installed. */
+  private hasLegacyLog(path: string): boolean {
+    const database = new Database(path, { readonly: true });
     try {
-      database.exec("pragma busy_timeout = 5000");
-      if (created) database.exec(setupSql(tables, "sqlite"));
-      const nonce = current?.nonce || crypto.randomUUID();
-      database.transaction(() => {
-        // Story Sync's own writes aren't edits to read back: the log keeps only
-        // what other programs changed, including any since `current` was read.
-        if (!current?.nonce) database.exec(changeLogSql(set.tables, nonce));
-        const mark = lastChange(database);
-        if (current?.nonce && scanned?.nonce === current.nonce) {
-          const edited = new Set((database.query(`select model, key from ${CHANGES} where id > ? and id <= ?`).all(scanned.cursor, mark) as Array<{ model: string; key: string }>)
-            .map((change) => `${change.model}\0${JSON.stringify(JSON.parse(change.key))}`));
-          for (const change of changes) {
-            const schema = set.tables.find((table) => table.model === change.model)!;
-            const kept = (row: Row) => !edited.has(`${change.model}\0${keyTuple(schema, row)}`);
-            change.remove = change.remove.filter(kept);
-            change.insert = change.insert.filter(kept);
-            change.update = change.update.filter(([before, row]) => kept(before) && kept(row));
-          }
-        }
-        for (const change of changes) {
-          const where = change.primaryKey.map((column) => `${quote(column)} = ?`).join(" and ");
-          const key = (row: Row) => change.primaryKey.map((column) => toSQLite(row[column]));
-          const values = (row: Row) => change.columns.map((column) => toSQLite(row[column]));
-          const remove = database.prepare(`delete from ${quote(change.model)} where ${where}`);
-          const insert = database.prepare(`insert into ${quote(change.model)} (${change.columns.map(quote).join(", ")}) values (${change.columns.map(() => "?").join(", ")})`);
-          const update = database.prepare(`update ${quote(change.model)} set ${change.columns.map((c) => `${quote(c)} = ?`).join(", ")} where ${where}`);
-          for (const row of change.remove) remove.run(...key(row));
-          for (const row of change.insert) insert.run(...values(row));
-          for (const [before, row] of change.update) update.run(...values(row), ...key(before));
-        }
-        database.query(`delete from ${CHANGES} where id > ?`).run(mark);
-        if (current?.nonce) database.query(`delete from ${CHANGES} where id <= ?`).run(current.cursor);
-      }).immediate();
-      const state: DatabaseState = current?.nonce
-        ? current
-        : { file: fileIdentity(path), nonce, cursor: 0, rows: new Map(set.tables.map((schema) => [schema.model, new Map()])) };
-      for (const change of changes) {
-        const schema = set.tables.find((table) => table.model === change.model)!;
-        const byKey = state.rows.get(change.model) ?? new Map<string, Row>();
-        state.rows.set(change.model, byKey);
-        for (const row of change.remove) byKey.delete(keyTuple(schema, row));
-        for (const [before] of change.update) byKey.delete(keyTuple(schema, before));
-        for (const row of [...change.insert, ...change.update.map(([, row]) => row)]) byKey.set(keyTuple(schema, row), row);
-      }
-      if (!current?.nonce) state.cursor = lastChange(database);
-      this.databases.set(directory, state);
+      return (database.query("select name from sqlite_master where type in ('table', 'trigger')").all() as Array<{ name: string }>).some((r) => LEGACY_LOG.test(r.name));
     } finally {
       database.close();
     }
+  }
+
+  private dropLegacyLog(database: Database): void {
+    const found = database.query("select type, name from sqlite_master where type in ('table', 'trigger')").all() as Array<{ type: string; name: string }>;
+    for (const { type, name } of found) if (LEGACY_LOG.test(name)) database.exec(`drop ${type} if exists ${quote(name)}`);
   }
 }

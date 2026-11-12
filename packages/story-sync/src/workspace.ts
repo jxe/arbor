@@ -75,7 +75,7 @@ export class Workspace implements AsyncDisposable {
     });
 
     this.nodes = new WorkspaceNodes(root, stateDirectory, fs, this.tree, this.events, () => this.descriptor());
-    this.collections = new CollectionProjections({ basis: (directory) => this.collectionBasis(directory) });
+    this.collections = new CollectionProjections({ basis: (directory) => this.collectionBasis(directory), baseDirectory: join(stateDirectory, "collection-bases") });
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
     // Changed ignore rules change which pages exist: page IDs and generated types follow.
     this.unsubscribeRediscovery = fs.subscribeRediscovery((discovery) => {
