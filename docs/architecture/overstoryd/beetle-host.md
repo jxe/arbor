@@ -20,8 +20,12 @@ head's answers "not active". Checked programs are cached by root and path.
 Views read each collection a program binds (a `schema.beetle` it uses) from the host's
 SQLite copy of it, `<data>/beetle/materialized/<tree>/<path>/_store.sqlite3` in the
 schema's database layout (`beetle-materialized.ts`). Before a view runs, the copy is caught
-up to the head: moved row by row from the collection directory it last held, or built
-from the accepted rows when it is new, unreadable or from another schema. It is a cache,
+up to the head from the collection directory it last held: only tables whose hash changed
+are read, and of those only the chunks the two versions don't share
+(`changedCollectionRows`), and each changed logical row rewrites just what it owns (its
+row, its join rows, the positions of rows it holds in order). A one-row change costs about
+one chunk. A copy that is new, unreadable or from another schema is built from the
+accepted rows. It is a cache,
 written without waiting on the disk. The view reads it through `@ovst/beetle/sqlite`'s
 `SQLiteStore`, which asks SQLite only for what the view reaches: a `for` over a table is
 narrowed by its conditions on the table's own columns (with its `orderBy` and `limit`

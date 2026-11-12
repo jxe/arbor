@@ -260,6 +260,37 @@ export async function loadLogicalTable(hash: Hash, load: (hash: Hash) => Promise
 }
 
 /**
+ * The rows that differ between two versions of a table, read from only the chunks the two
+ * don't share: a chunk with the same hash holds the same rows, and a key is in one chunk,
+ * so every other row is the same in both. Rows with the same key and bytes are left out.
+ * Each list is in stable-key order.
+ */
+export async function changedLogicalTableRows(
+  before: Hash,
+  after: Hash,
+  load: (hash: Hash) => Promise<Uint8Array>,
+): Promise<{ before: LogicalRow[]; after: LogicalRow[] }> {
+  if (before === after) return { before: [], after: [] };
+  const was = decodeProtocolTable(await load(before)).chunks.map((c) => c.chunk);
+  const is = decodeProtocolTable(await load(after)).chunks.map((c) => c.chunk);
+  const shared = new Set(was.filter((hash) => is.includes(hash)));
+  const rowsOf = async (hashes: Hash[]) => {
+    const out: LogicalRow[] = [];
+    for (const hash of hashes) if (!shared.has(hash)) out.push(...decodedChunk(hash, await load(hash)).rows);
+    return out;
+  };
+  const b = await rowsOf(was), a = await rowsOf(is);
+  const afterByKey = new Map(a.map((row) => [logicalRowKey(row), row]));
+  const same = new Set<string>();
+  for (const row of b) {
+    const key = logicalRowKey(row);
+    const other = afterByKey.get(key);
+    if (other && encodedRow(other).hash === encodedRow(row).hash) same.add(key);
+  }
+  return { before: b.filter((row) => !same.has(logicalRowKey(row))), after: a.filter((row) => !same.has(logicalRowKey(row))) };
+}
+
+/**
  * Decoded rows chunks by hash. A chunk is content-addressed, so its rows and
  * where the chunk rule first ends it never change; a sync that loads the same
  * collection several times decodes each chunk once. The rows are frozen,

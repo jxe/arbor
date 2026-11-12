@@ -43,7 +43,7 @@ import {
   type ViewsRequest,
   type ViewsRuntime,
 } from "@ovst/protocol";
-import { directoryCollectionSchema, loadDirectoryCollection, rowOperationsBetween, type LogicalSchema } from "@ovst/collection-schema";
+import { changedCollectionRows, directoryCollectionSchema, loadDirectoryCollection, rowOperationsBetween, type LogicalSchema } from "@ovst/collection-schema";
 import { SQLiteStore } from "@ovst/beetle/sqlite";
 import { Materialization } from "./beetle-materialized.ts";
 import { rowsFromLogical, type LogicalTables, type RowsByTable } from "@ovst/usl";
@@ -261,7 +261,7 @@ export class BeetleHost implements AsyncDisposable {
 
   /**
    * The SQLite copy of the collection at `path`, caught up to `root`: reopened from disk,
-   * moved row by row from the directory it last held, or built from the accepted rows.
+   * moved by the changed rows of the chunks that differ from the directory it last held, or built from the accepted rows.
    */
   private materialize(tree: string, path: string, root: ObjectHash): Promise<Materialization | null> {
     const key = `${tree}\0${path}`;
@@ -276,21 +276,21 @@ export class BeetleHost implements AsyncDisposable {
         this.materialized.set(key, copy);
         return copy;
       }
-      const after = await this.loadRows(path, at);
-      if (!after) return null;
       if (copy && copy.schema === schema) {
         try {
+          // Only the tables and chunks that changed are read, and only their rows are moved.
           const was = decodeProtocolDirectory(await this.read(copy.directory as ObjectHash));
-          const before = await this.loadRows(path, { directory: was, hash: copy.directory as ObjectHash });
-          if (before) {
-            copy.apply(after.layout, before.rows, after.rows, at.hash);
-            this.materialized.set(key, copy);
-            return copy;
-          }
+          const logical = await directoryCollectionSchema(at.directory, this.read);
+          const changes = await changedCollectionRows(logical, was.collection, at.directory.collection, this.read);
+          copy.applyChanges(new StoreSchema(logical.result), changes, at.hash);
+          this.materialized.set(key, copy);
+          return copy;
         } catch (error) {
           console.error("overstoryd: a collection copy could not catch up; rebuilding it", error);
         }
       }
+      const after = await this.loadRows(path, at);
+      if (!after) return null;
       copy?.close();
       copy = Materialization.build(folder, after.layout, after.rows, at.hash, schema);
       this.materialized.set(key, copy);

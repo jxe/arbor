@@ -3,6 +3,11 @@ import { Database } from "bun:sqlite";
 import { layoutOf, logicalFromRows, rowsFromLogical, setupSql, type LogicalTables, type RowsByTable } from "@ovst/usl";
 import { BeetleError, compileProgram, editedLogical, Evaluator, runMutation, StoreSchema, type ViewNode } from "@ovst/beetle";
 import { SQLiteStore } from "@ovst/beetle/sqlite";
+import { changedCollectionRows, compileLogicalSchema, encodeCollection } from "@ovst/collection-schema";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Materialization } from "../../packages/overstoryd/src/beetle-materialized.ts";
 import { exampleFiles } from "../support/beetle-vectors.ts";
 
 const files = exampleFiles();
@@ -340,6 +345,41 @@ describe("beetle over SQLite", () => {
       expect(changes(touched.before, touched.after)).toEqual(expected);
       // The SQLite rows themselves are as they were.
       expect(store.data()).toEqual(new SQLiteStore(store.schema, database(rows()), store.personFields).data());
+    });
+  }
+
+  for (const [path, me, name, input] of mutations) {
+    test(`${name} ${JSON.stringify(input)} as ${me}: a copy caught up from the changed chunks equals one built afresh`, async () => {
+      const outcome = runMutation(evaluator(path, me), name, input, { mutationID: "m-1" });
+      const logicalSchema = compileLogicalSchema(files[SCHEMA]!);
+      const schema = new StoreSchema(logicalSchema.result);
+      // Rows as the tree holds them, with every row's times.
+      const settled = (data: RowsByTable) => rowsFromLogical(schema.result, schema.layout, logicalFromRows(schema.result, schema.layout, data, { now: 1 }));
+      const encode = (data: RowsByTable) => encodeCollection(logicalSchema, logicalFromRows(schema.result, schema.layout, data, { now: 1 }));
+      const before = encode(rows()), after = encode(outcome.rows[SCHEMA]!);
+      const objects = new Map([...before.objects, ...after.objects]);
+      const read: string[] = [];
+      const load = async (hash: string) => { read.push(hash); return objects.get(hash as never)!; };
+      const changes = await changedCollectionRows(logicalSchema, before.reference, after.reference, load);
+      expect(Object.keys(changes).length).toBeGreaterThan(0);
+      // Unchanged tables aren't read.
+      const changedTables = new Set([...before.reference.tables, ...after.reference.tables].filter((t, i, all) => all.filter((u) => u.model === t.model).some((u) => u.table !== t.table)).map((t) => t.table));
+      const unchanged = before.reference.tables.map((t) => t.table).filter((h) => !changedTables.has(h));
+      expect(read.filter((h) => unchanged.includes(h as never))).toEqual([]);
+      const dir = mkdtempSync(join(tmpdir(), "beetle-copy-"));
+      try {
+        const layout = schema.layout;
+        const caught = Materialization.build(join(dir, "a"), layout, settled(rows()), "d1", "s");
+        caught.applyChanges(schema, changes, "d2");
+        const fresh = Materialization.build(join(dir, "b"), layout, settled(outcome.rows[SCHEMA]!), "d2", "s");
+        const dump = (m: Materialization) => Object.fromEntries(layout.map((t) => [t.name, m.database.query(`select * from "${t.name}" order by ${t.primaryKey.map((k) => `"${k}"`).join(", ")}`).all()]));
+        expect(dump(caught)).toEqual(dump(fresh));
+        expect(caught.directory).toBe("d2");
+        caught.close();
+        fresh.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   }
 });

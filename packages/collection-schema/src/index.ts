@@ -24,5 +24,5 @@ export {
 } from "./directory-collection.ts";
 export { mergeCollectionRows, mergeMembers, type RowFieldConflict, type TextMerge } from "./row-merge.ts";
 export { deriveRowOperations, rowOperationsBetween } from "./row-diff.ts";
-export { compileLogicalSchema, checkLogicalTables, encodeCollection, loadCollection, LogicalCollectionError, type EncodedCollection, type LogicalDiagnostic, type LogicalSchema } from "./logical.ts";
+export { changedCollectionRows, compileLogicalSchema, checkLogicalTables, encodeCollection, loadCollection, LogicalCollectionError, type EncodedCollection, type LogicalDiagnostic, type LogicalSchema } from "./logical.ts";
 export { fromSQLite, sqliteRow, toSQLite } from "./sqlite-values.ts";

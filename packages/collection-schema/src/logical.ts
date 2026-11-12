@@ -5,6 +5,7 @@
 import {
   canonicalCBORHash,
   CBORTag,
+  changedLogicalTableRows,
   collectionLogicalHash,
   pageTimestamp,
   compareUTF8,
@@ -336,4 +337,31 @@ export async function loadCollection(
   const diagnostics = checkLogicalTables(schema, tables);
   if (diagnostics.length > 0) throw new LogicalCollectionError(diagnostics);
   return { reference, logicalHash: collectionLogicalHash(reference), tables };
+}
+
+/**
+ * The logical rows that differ between two `collection` references of the same schema, by
+ * model: each changed row's version before (absent if new) and after (absent if deleted).
+ * Only the tables and chunks that changed are read (spec 06 §2.1), so a one-row change
+ * costs about one chunk. Both references were accepted, so neither is validated again.
+ */
+export async function changedCollectionRows(
+  schema: LogicalSchema,
+  before: unknown,
+  after: unknown,
+  load: (hash: Hash) => Promise<Uint8Array>,
+): Promise<Record<string, { before: LogicalRow[]; after: LogicalRow[] }>> {
+  const was = decodeCollectionReference(before), is = decodeCollectionReference(after);
+  if (was.modelFingerprint !== schema.fingerprint || is.modelFingerprint !== schema.fingerprint) throw new TypeError("collection.modelFingerprint doesn't match the folder's schema.beetle");
+  const out: Record<string, { before: LogicalRow[]; after: LogicalRow[] }> = {};
+  for (const model of schema.models) {
+    const b = was.tables.find((t) => t.model === model.name)?.table;
+    const a = is.tables.find((t) => t.model === model.name)?.table;
+    if (!b || !a) throw new TypeError(`collection.tables must name ${model.name}`);
+    if (a === b) continue;
+    const changed = await changedLogicalTableRows(b, a, load);
+    if (!changed.before.length && !changed.after.length) continue;
+    out[model.name] = { before: convertDates(model, changed.before, untagDate), after: convertDates(model, changed.after, untagDate) };
+  }
+  return out;
 }
