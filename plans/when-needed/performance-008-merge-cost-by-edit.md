@@ -42,6 +42,6 @@ collection is re-encoded whole. Instead:
   concurrent edit on each side, and a one-row fast-forward on it, against the same edits on
   a one-chunk collection.
 
-[Performance 007](../later/performance-007-sqlite-collection-storage.md) (collections kept in
+[Performance 007](../soon/performance-007-sqlite-collection-storage.md) (collections kept in
 SQLite on the host) would change where this work happens; if it moves to soon first, redo
 this section against it.

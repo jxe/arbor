@@ -20,7 +20,7 @@ constraints worth keeping are below.
 - **State:** a direction, with the contract already in the spec
   ([the removed spec text below](#spec-text-removed-2026-11-11))
   and spec deferred items 4 and 5. Not designed in detail.
-- **Related:** [Performance 007](performance-007-sqlite-collection-storage.md) (the host
+- **Related:** [Performance 007](../soon/performance-007-sqlite-collection-storage.md) (the host
   keeps a collection in SQLite) is separate and nearer.
 
 ## What exists (2026-11-01)

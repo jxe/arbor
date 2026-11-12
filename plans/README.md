@@ -155,6 +155,12 @@ views and mutations are written in Beetle (`.beetle` files), and TypeScript
 support for both goes. Parser and checker (built), evaluators on the host and in Story, Supplies
 ported, the TypeScript path removed.
 
+**[Performance 007: the host's database holds a collection's rows, the tree its log](soon/performance-007-sqlite-collection-storage.md).**
+Joe, 2026-11-12, decided and asked for now: rows live once, in the host's SQLite; the
+tree's `collection` reference names a log of row-operation objects plus a rows hash;
+snapshots are the SQLite file as one object; Story Sync keeps projections as replicas
+diffed against a base. Mutations run as one SQL transaction committed when accepted.
+
 **[Apps 011: widgets in Story](soon/apps-011-widgets-in-story.md).**
 After Apps 015. Small apps embedded in pages by a link to a `.view` file, drawn natively in
 SwiftUI (no web view, no React), with state owned by the app, the page or the reader.
@@ -188,12 +194,6 @@ authority together is what exercises the permissions and lending models.
 **[Apps 008: app approvals and lending on placement hosts](later/apps-008-app-approvals-on-placement-hosts.md).**
 Part of the lending test: an app approved at a profile's home host should work on its
 placement hosts too. After Apps 005.
-
-**[Performance 007: the host's database holds a collection's rows, the tree its log](later/performance-007-sqlite-collection-storage.md).**
-Joe, 2026-11-12: rows live once, in the host's SQLite; the tree's `collection` reference
-names a hash-chained log of accepted row operations, which replicas pull. Mutations run as
-one SQL transaction that commits only when its update is accepted. For Joe's review; after
-Apps 015 and the Protocol 003 flag day.
 
 **[Apps 002: hosted agents](later/apps-002-overstoryd-hosted-agents.md).** After Apps 011:
 authored agents hosted beside an app, calling its own query and mutation handles. No timing
