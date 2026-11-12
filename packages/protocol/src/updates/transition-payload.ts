@@ -60,19 +60,20 @@ export async function transitionPayload(
     objects.push({ hash: afterHash, bytes: next });
   };
 
-  // A collection's tables and row chunks, each against the same model's table
-  // and the chunk at the same place in it before.
+  // A collection's new log entries: from the head back to the head before, or, for a
+  // collection new to the receiver, back to its newest snapshot and that snapshot's file
+  // (collections §1.1). Entries are new objects, never deltas.
   const collection = async (beforeHash: ObjectHash | undefined, afterHash: ObjectHash): Promise<void> => {
-    const tables = decodeProtocolDirectory(await reader.bytes(afterHash)).collection?.tables;
-    if (!tables) return;
-    const prior = beforeHash ? new Map((decodeProtocolDirectory(await reader.bytes(beforeHash)).collection?.tables ?? []).map((t) => [t.model, t.table])) : new Map();
-    for (const { model, table } of tables) {
-      const was = prior.get(model);
-      if (was === table || provided.has(table)) continue;
-      await provide(was, table);
-      const chunks = protocolObjectReferences("table", await reader.bytes(table));
-      const priorChunks = was ? protocolObjectReferences("table", await reader.bytes(was)) : [];
-      for (const [index, chunk] of chunks.entries()) await provide(priorChunks[index]?.hash, chunk.hash);
+    const head = decodeProtocolDirectory(await reader.bytes(afterHash)).collection?.log;
+    if (!head) return;
+    const prior = beforeHash ? decodeProtocolDirectory(await reader.bytes(beforeHash)).collection?.log : undefined;
+    const pending: Array<{ kind: string; hash: ObjectHash }> = [{ kind: "log", hash: head }];
+    while (pending.length) {
+      const { kind, hash } = pending.pop()!;
+      if (hash === prior || provided.has(hash)) continue;
+      const bytes = await reader.bytes(hash);
+      await provide(undefined, hash);
+      if (kind === "log") pending.push(...protocolObjectReferences("log", bytes));
     }
   };
 

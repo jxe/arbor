@@ -5,19 +5,17 @@
 import {
   canonicalCBORHash,
   CBORTag,
-  changedLogicalTableRows,
   collectionLogicalHash,
   pageTimestamp,
   compareUTF8,
   decodeCollectionReference,
-  encodeLogicalTable,
-  loadLogicalTable,
   logicalRowKey,
   revisionOf,
   type CollectionReference,
   type Hash,
   type LogicalRow,
 } from "@ovst/protocol";
+import { appendRowChanges, changesBetween, EMPTY_COLLECTION_STATE, loadCollectionState, rowChangesTo, stateTables, type CollectionState } from "./collection-log.ts";
 import { isPersonValue, logicalModels, modelLayer, type CheckResult, type LogicalField, type LogicalModel, type LogicalTables } from "@ovst/usl";
 import { compileSchema } from "@ovst/beetle";
 import { COLLECTION_SCHEMA_LIMITS, CollectionSchemaError, pointer, type ValueDiagnostic } from "./diagnostics.ts";
@@ -256,18 +254,20 @@ export function checkLogicalTables(schema: LogicalSchema, tables: LogicalTables)
 
 export interface EncodedCollection {
   reference: CollectionReference;
-  /** The canonical CBOR hash of the reference. */
+  /** The collection's logical hash: of its fingerprint and rows hash. */
   logicalHash: Hash;
-  /** Every table and rows object, by hash. */
+  /** The new log entry, by hash. */
   objects: Map<Hash, Uint8Array>;
+  /** The state the new head stands for. */
+  state: CollectionState;
 }
 
-/** The Date fields of a model, by name: a rows object tags their values (collections §2). */
+/** The Date fields of a model, by name: the tree tags their values (collections §2). */
 function dateFields(model: LogicalModel): Set<string> {
   return new Set([...model.keyFields, ...model.fields].filter((field) => field.type === "Date").map((field) => field.name));
 }
 
-/** A Date value as a rows object holds it: tag 1004 around a date, tag 0 around a UTC date-time. */
+/** A Date value as the tree holds it: tag 1004 around a date, tag 0 around a UTC date-time. */
 function tagDate(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(tagDate);
   if (typeof value !== "string") return value;
@@ -290,60 +290,76 @@ function convertDates(model: LogicalModel, rows: readonly LogicalRow[], convert:
   }));
 }
 
+/** Plain logical rows (dates as text) as the tree holds them, each model in stable-key order. */
+export function treeTables(schema: LogicalSchema, tables: LogicalTables): Record<string, LogicalRow[]> {
+  const out: Record<string, LogicalRow[]> = {};
+  for (const model of schema.models) {
+    const rows = convertDates(model, (tables[model.name] ?? []) as LogicalRow[], tagDate);
+    out[model.name] = [...rows].sort((a, b) => compareUTF8(logicalRowKey(a), logicalRowKey(b)));
+  }
+  return out;
+}
+
+/** Rows as the tree holds them as plain logical rows (dates as text). */
+export function plainRows(schema: LogicalSchema, model: string, rows: readonly LogicalRow[]): LogicalTables[string] {
+  const logical = schema.models.find((m) => m.name === model);
+  return (logical ? convertDates(logical, rows, untagDate) : rows) as unknown as LogicalTables[string];
+}
+
+/** A state's rows as plain logical tables. */
+export function plainTables(schema: LogicalSchema, state: CollectionState): LogicalTables {
+  const tables: LogicalTables = {};
+  const rows = stateTables(state);
+  for (const model of schema.models) tables[model.name] = plainRows(schema, model.name, rows[model.name] ?? []);
+  return tables;
+}
+
 /**
- * Encode valid tables as the tree holds them: one table per logical model,
- * empty ones included, in model order. Rows may come in any order. Throws
- * {@link LogicalCollectionError} for rows the schema rejects.
+ * Encode valid tables as the tree holds them: the log entry that turns `previous` (a state
+ * of the same schema's log) into `tables`, or a new log's first entry. Rows may come in any
+ * order. Throws {@link LogicalCollectionError} for rows the schema rejects.
  */
-export function encodeCollection(schema: LogicalSchema, tables: LogicalTables): EncodedCollection {
+export function encodeCollection(schema: LogicalSchema, tables: LogicalTables, previous?: CollectionState | null): EncodedCollection {
   const sorted: LogicalTables = {};
   for (const [name, rows] of Object.entries(tables)) sorted[name] = [...rows].sort((a, b) => compareUTF8(logicalRowKey(a), logicalRowKey(b)));
   const diagnostics = checkLogicalTables(schema, sorted);
   if (diagnostics.length > 0) throw new LogicalCollectionError(diagnostics);
-  const objects = new Map<Hash, Uint8Array>();
-  const encoded = schema.models.map((model) => {
-    const table = encodeLogicalTable(convertDates(model, (sorted[model.name] ?? []) as LogicalRow[], tagDate));
-    for (const [hash, bytes] of table.objects) objects.set(hash, bytes);
-    return { model: model.name, table: table.hash };
-  });
-  const reference: CollectionReference = { version: 1, modelFingerprint: schema.fingerprint, tables: encoded };
-  return { reference, logicalHash: collectionLogicalHash(reference), objects };
+  const base = previous ?? EMPTY_COLLECTION_STATE;
+  const changes = rowChangesTo(schema, base, treeTables(schema, sorted));
+  if (base.head && changes.length === 0) {
+    const reference: CollectionReference = { version: 2, modelFingerprint: schema.fingerprint, log: base.head };
+    return { reference, logicalHash: collectionLogicalHash(schema.fingerprint, base.lthash.hash()), objects: new Map(), state: base };
+  }
+  const appended = appendRowChanges(schema, base, changes);
+  const reference: CollectionReference = { version: 2, modelFingerprint: schema.fingerprint, log: appended.hash };
+  return { reference, logicalHash: collectionLogicalHash(schema.fingerprint, appended.state.lthash.hash()), objects: new Map([[appended.hash, appended.bytes]]), state: appended.state };
 }
 
 /**
- * Load and validate a `collection` reference against the folder's schema,
- * steps 1–4 of spec 06 §2.1, `schema` being the folder's compiled schema.beetle. `load` returns an
- * object's verified bytes by hash. Throws a `TypeError` for a malformed
- * reference or object, and {@link LogicalCollectionError} for rows the
- * schema rejects.
+ * Load and validate a `collection` reference against the folder's schema (collections §1),
+ * `schema` being the folder's compiled schema.beetle. `load` returns an object's verified
+ * bytes by hash. Throws a `TypeError` for a malformed reference or log, and
+ * {@link LogicalCollectionError} for rows the schema rejects.
  */
 export async function loadCollection(
   schema: LogicalSchema,
   value: unknown,
   load: (hash: Hash) => Promise<Uint8Array>,
-): Promise<{ reference: CollectionReference; logicalHash: Hash; tables: LogicalTables }> {
+): Promise<{ reference: CollectionReference; logicalHash: Hash; tables: LogicalTables; state: CollectionState }> {
   const reference = decodeCollectionReference(value);
   if (reference.modelFingerprint !== schema.fingerprint) throw new TypeError("collection.modelFingerprint doesn't match the folder's schema.beetle");
-  const names = reference.tables.map((t) => t.model);
-  const expected = schema.models.map((m) => m.name);
-  if (names.length !== expected.length || names.some((n, i) => n !== expected[i])) {
-    throw new TypeError(`collection.tables must name ${expected.join(", ") || "no models"}, in order`);
-  }
-  const tables: LogicalTables = {};
-  for (const { model, table } of reference.tables) {
-    const logical = schema.models.find((m) => m.name === model)!;
-    tables[model] = convertDates(logical, await loadLogicalTable(table, load), untagDate) as unknown as LogicalTables[string];
-  }
+  const state = await loadCollectionState(schema, reference.log, load);
+  const tables = plainTables(schema, state);
   const diagnostics = checkLogicalTables(schema, tables);
   if (diagnostics.length > 0) throw new LogicalCollectionError(diagnostics);
-  return { reference, logicalHash: collectionLogicalHash(reference), tables };
+  return { reference, logicalHash: collectionLogicalHash(schema.fingerprint, state.lthash.hash()), tables, state };
 }
 
 /**
  * The logical rows that differ between two `collection` references of the same schema, by
  * model: each changed row's version before (absent if new) and after (absent if deleted).
- * Only the tables and chunks that changed are read (spec 06 §2.1), so a one-row change
- * costs about one chunk. Both references were accepted, so neither is validated again.
+ * When `after` follows `before` in the log, only the entries between them are read, so a
+ * one-row change costs one entry. Both references were accepted, so neither is validated again.
  */
 export async function changedCollectionRows(
   schema: LogicalSchema,
@@ -353,15 +369,17 @@ export async function changedCollectionRows(
 ): Promise<Record<string, { before: LogicalRow[]; after: LogicalRow[] }>> {
   const was = decodeCollectionReference(before), is = decodeCollectionReference(after);
   if (was.modelFingerprint !== schema.fingerprint || is.modelFingerprint !== schema.fingerprint) throw new TypeError("collection.modelFingerprint doesn't match the folder's schema.beetle");
+  const { before: start, changes } = await changesBetween(schema, was.log, is.log, load);
   const out: Record<string, { before: LogicalRow[]; after: LogicalRow[] }> = {};
-  for (const model of schema.models) {
-    const b = was.tables.find((t) => t.model === model.name)?.table;
-    const a = is.tables.find((t) => t.model === model.name)?.table;
-    if (!b || !a) throw new TypeError(`collection.tables must name ${model.name}`);
-    if (a === b) continue;
-    const changed = await changedLogicalTableRows(b, a, load);
-    if (!changed.before.length && !changed.after.length) continue;
-    out[model.name] = { before: convertDates(model, changed.before, untagDate), after: convertDates(model, changed.after, untagDate) };
+  for (const change of changes) {
+    const entry = (out[change.model] ??= { before: [], after: [] });
+    const old = start.tables.get(change.model)?.get(logicalRowKey(change));
+    if (old) entry.before.push(old);
+    if (change.row) entry.after.push(change.row);
+  }
+  for (const [model, entry] of Object.entries(out)) {
+    entry.before = plainRows(schema, model, entry.before) as unknown as LogicalRow[];
+    entry.after = plainRows(schema, model, entry.after) as unknown as LogicalRow[];
   }
   return out;
 }

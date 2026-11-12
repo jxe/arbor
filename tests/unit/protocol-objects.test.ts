@@ -6,14 +6,11 @@ import { existsSync } from "node:fs";
 import {
   compareProtocolNames,
   decodeProtocolDirectory,
-  decodeProtocolRows,
-  decodeProtocolTable,
+  decodeProtocolLog,
   encodeProtocolDirectory,
-  encodeProtocolRows,
-  encodeProtocolTable,
+  encodeProtocolLog,
   hashObject,
-  type ProtocolTable,
-  type LogicalRow,
+  type ProtocolLog,
 } from "@ovst/protocol";
 import { canonicalCBORHash, collectionSchemaName, decodeCBOR, encodeCanonicalCBOR } from "@ovst/protocol";
 import { ObjectIndex } from "@ovst/story-sync/state";
@@ -152,7 +149,7 @@ describe("canonical tree objects", () => {
   test("matches the language-neutral canonical object vectors", async () => {
     const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../docs/overstory-spec/conformance/protocol-objects.json"), "utf8")) as {
       objects: Array<{
-        model: { type: "file"; bytesBase64: string } | ProtocolTable | { type: "rows"; rows: LogicalRow[] } | {
+        model: { type: "file"; bytesBase64: string } | ProtocolLog | {
           type: "directory";
           entries: import("@ovst/protocol").ProtocolDirectoryEntry[];
           collection?: import("@ovst/protocol").CollectionReference;
@@ -164,14 +161,12 @@ describe("canonical tree objects", () => {
     for (const vector of fixture.objects) {
       const model = vector.model;
       const bytes = model.type === "file" ? Uint8Array.from(Buffer.from(model.bytesBase64, "base64"))
-        : model.type === "table" ? encodeProtocolTable(model)
-        : model.type === "rows" ? encodeProtocolRows(model.rows)
+        : model.type === "log" ? encodeProtocolLog(model)
         : encodeProtocolDirectory(model);
       expect(Buffer.from(bytes).toString("base64")).toBe(vector.bytesBase64);
       expect(hashObject(bytes)).toBe(vector.hash);
       // Each decodes back to its model, strictly.
-      if (model.type === "table") expect(decodeProtocolTable(bytes)).toEqual(model);
-      if (model.type === "rows") expect(decodeProtocolRows(bytes)).toEqual(model);
+      if (model.type === "log") expect(decodeProtocolLog(bytes)).toEqual(model);
       if (model.type === "directory") expect(decodeProtocolDirectory(bytes)).toEqual(model);
     }
   });
@@ -190,7 +185,7 @@ describe("canonical tree objects", () => {
       "collection-schema-directory",
       "collection-unknown-version",
       "collection-extra-member",
-      "collection-tables-unsorted",
+      "collection-log-not-a-hash",
       "noncanonical-cbor",
       "entry-without-times",
       "created-after-modified",
@@ -333,7 +328,7 @@ describe("canonical tree objects", () => {
 
   test("a collection whose schema entry is schema.usl is not a valid directory", () => {
     const hash = hashObject(new TextEncoder().encode("model Item {}\n"));
-    const reference = { version: 1 as const, modelFingerprint: hash as `sha256:${string}`, tables: [] };
+    const reference = { version: 2 as const, modelFingerprint: hash as `sha256:${string}`, log: hash as `sha256:${string}` };
     expect(() => encodeProtocolDirectory({ type: "directory", entries: [{ name: "schema.usl", file: hash, created: 0, modified: 0 }], collection: reference }))
       .toThrow("schema.beetle must be a file entry");
   });

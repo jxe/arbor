@@ -1,6 +1,6 @@
 import type { LocalTreeDescriptor, ObjectHash, ProtocolDirectory, TreeID } from "@ovst/protocol";
 import { decodeProtocolDirectory, nodePathFromPhysical, workspaceState } from "@ovst/protocol";
-import { loadDirectoryCollection } from "@ovst/collection-schema";
+import { loadDirectoryCollection, useSnapshotDatabase } from "@ovst/collection-schema";
 import { resolveTreePath, toTreePath } from "@ovst/protocol/path";
 import { type FsEvent, isIgnoreFileName, type SnapshotObjectIndex, WorkspaceFS } from "@ovst/fs";
 import { basename, dirname, join } from "node:path";
@@ -10,6 +10,10 @@ import { reportObjectRead } from "./object-read-diagnostics.ts";
 import { rootDisplayName } from "./root-title.ts";
 import { WorkspaceNodes } from "./workspace-nodes.ts";
 import { CollectionProjections } from "./state/providers/collection-projection.ts";
+import { sqliteSnapshots } from "@ovst/beetle/sqlite";
+
+// Collection snapshots are SQLite files (collections §1).
+useSnapshotDatabase(sqliteSnapshots);
 
 export { ProtocolError } from "@ovst/protocol";
 
@@ -149,7 +153,8 @@ export class Workspace implements AsyncDisposable {
         if (!entry) return null;
         object = decodeProtocolDirectory(await tracked.load(entry));
       }
-      return (await loadDirectoryCollection(object, tracked.load))?.tables ?? null;
+      const collection = await loadDirectoryCollection(object, tracked.load);
+      return collection ? { tables: collection.tables, fingerprint: collection.schema.fingerprint, state: collection.state } : null;
     } catch {
       return null;
     }

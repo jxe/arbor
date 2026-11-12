@@ -6,6 +6,11 @@ import { EvaluationFailure } from "./engine-contract.ts";
 import { engineDiagnostics } from "./intent-engine.ts";
 import { provenanceIn } from "./provenance.ts";
 import { REPLAY_MILLIS, Sidecar } from "./sidecar.ts";
+import { sqliteSnapshots } from "@ovst/beetle/sqlite";
+import { useSnapshotDatabase } from "@ovst/collection-schema";
+
+// Collection snapshots are SQLite files (collections §1).
+useSnapshotDatabase(sqliteSnapshots);
 
 const maxRequestBytes = 8 * 1024 * 1024;
 /** One request per stdin line. Chunks are kept as a list until a line ends. */

@@ -40,8 +40,14 @@ export function collectionTree(schemaSource: string, tables: LogicalTables, obje
 
 /** The rows of `/items` in `root`. */
 export async function collectionRows(root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>, folder = "items"): Promise<LogicalTables> {
+  return (await collectionBasis(root, objects, folder)).tables;
+}
+
+/** The rows and log state of the collection at `folder`, as a projection's basis. */
+export async function collectionBasis(root: ObjectHash, objects: ReadonlyMap<ObjectHash, Uint8Array>, folder = "items") {
   const load = async (hash: ObjectHash) => objects.get(hash) ?? Promise.reject(new Error(`missing ${hash}`));
   const top = decodeProtocolDirectory(objects.get(root)!);
   const items = decodeProtocolDirectory(objects.get(top.entries.find((e) => e.name === folder)!.directory!)!);
-  return (await loadDirectoryCollection(items, load))!.tables;
+  const collection = (await loadDirectoryCollection(items, load))!;
+  return { tables: collection.tables, fingerprint: collection.schema.fingerprint, state: collection.state };
 }

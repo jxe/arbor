@@ -13,7 +13,7 @@ import { CollectionProjections, type CollectionProjectionForm } from "@ovst/stor
 import { layoutOf } from "@ovst/usl";
 import { compileSchema } from "@ovst/beetle";
 import { verifyStore } from "@ovst/usl/verify";
-import { collectionRows, collectionTree, idRow, T0 } from "../support/collection-trees.ts";
+import { collectionBasis, collectionTree, idRow, T0 } from "../support/collection-trees.ts";
 const TEST_AT = Date.UTC(2026, 10, 11);
 
 const GAMES = `main table Game:
@@ -74,7 +74,7 @@ describe("one tree, placed with different projections", () => {
     // The JSONL placement takes the accepted tree, changing one line.
     const before = await readFile(join(jsonl.items, "Game.jsonl"), "utf8");
     const accepted = { root: edited.root, objects };
-    const projections = new CollectionProjections({ basis: async () => (await collectionRows(tree.root, tree.objects)) });
+    const projections = new CollectionProjections({ basis: () => collectionBasis(tree.root, tree.objects) });
     await materializeTree(jsonl.root, accepted.root, async (hash) => objects.get(hash)!, undefined, [], undefined, (directory, object, read) => projections.write(directory, object, read));
     const after = await readFile(join(jsonl.items, "Game.jsonl"), "utf8");
     expect(after.split("\n")[0]).toBe(before.split("\n")[0]);
@@ -96,7 +96,7 @@ describe("a SQLite placement's change log", () => {
   /** The folder read whole by a projection that has never seen it. */
   const fresh = async (root: string) =>
     (await resolveSnapshot(await snapshotDirectory(root, new Map(), [], (directory, names) =>
-      new CollectionProjections({ basis: async () => collectionRows(tree.root, tree.objects), now: () => "2026-10-24T12:00:00.000Z" }).read(directory, names)))).root;
+      new CollectionProjections({ basis: () => collectionBasis(tree.root, tree.objects), now: () => "2026-10-24T12:00:00.000Z" }).read(directory, names)))).root;
 
   test("Story Sync's own writes leave nothing to read back, and usl verify ignores the log", async () => {
     const placed = await place("sqlite-log", tree, { kind: "sqlite" });

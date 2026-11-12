@@ -232,15 +232,15 @@ export class PackMaintenance {
         if (entry.directory) pending.push([entry.directory, child]);
         else if ((entry.file ?? entry.page) && !local.has((entry.file ?? entry.page)!)) { const content = (entry.file ?? entry.page)!; local.add(content); visit(content, child, "file"); }
       }
-      // A collection's tables and row chunks sit at its folder's path.
-      for (const { table } of directory.collection?.tables ?? []) {
-        if (local.has(table)) continue;
-        local.add(table);
-        const tableBytes = await this.objects.find(table);
-        if (!tableBytes || !visit(table, at, "file")) continue;
-        for (const chunk of protocolObjectReferences("table", tableBytes)) {
-          if (!local.has(chunk.hash)) { local.add(chunk.hash); visit(chunk.hash, at, "file"); }
-        }
+      // A collection's log entries, back to its newest snapshot and that snapshot's file, sit at its folder's path.
+      const log: Array<{ kind: "log" | "file"; hash: string }> = directory.collection ? [{ kind: "log", hash: directory.collection.log }] : [];
+      while (log.length) {
+        const { kind, hash } = log.pop()!;
+        if (local.has(hash)) continue;
+        local.add(hash);
+        const entryBytes = await this.objects.find(hash);
+        if (!entryBytes || !visit(hash, at, "file") || kind === "file") continue;
+        for (const next of protocolObjectReferences("log", entryBytes)) log.push(next as { kind: "log" | "file"; hash: string });
       }
     }
   }

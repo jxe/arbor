@@ -143,7 +143,7 @@ test("changed collections are revalidated while unchanged siblings inherit their
     load: (hash: string) => Promise<Uint8Array>,
   ) => {
     checks++;
-    await load(directory.collection.tables[0].table);
+    await load(directory.collection.log);
   };
   const old = make("old"),
     basis = await validateGraphChange(old, f.load, new Map(), check);

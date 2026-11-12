@@ -117,6 +117,7 @@
       "name": "@ovst/overstoryd-merge",
       "version": "0.1.0",
       "dependencies": {
+        "@ovst/beetle": "workspace:*",
         "@ovst/collection-schema": "workspace:*",
         "@ovst/merge-protocol": "workspace:*",
         "@ovst/object-store": "workspace:*",

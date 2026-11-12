@@ -1,4 +1,4 @@
-import { collectionLogicalHash, decodeProtocolDirectory, encodeProtocolPage, hashObject, isPageName, parsePage, type ObjectHash, type ProtocolDirectoryEntry, canonicalCBORHash, type Hash } from "@ovst/protocol";
+import { collectionLogicalHash, decodeProtocolDirectory, decodeProtocolLog, encodeProtocolPage, hashObject, isPageName, parsePage, type ObjectHash, type ProtocolDirectoryEntry, canonicalCBORHash, type Hash } from "@ovst/protocol";
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 
@@ -53,8 +53,9 @@ export class ModelHashes {
       if (entry.name === "_index.md") continue;
       children[entry.name] = (await this.entry(entry))!;
     }
-    return canonicalCBORHash(object.collection
-      ? { body, children, collection: collectionLogicalHash(object.collection) }
-      : { body, children });
+    if (!object.collection) return canonicalCBORHash({ body, children });
+    // The rows hash after the log's head entry stands for the rows (collections §1).
+    const head = decodeProtocolLog(await this.load(object.collection.log));
+    return canonicalCBORHash({ body, children, collection: collectionLogicalHash(object.collection.modelFingerprint, head.rowsHash) });
   }
 }

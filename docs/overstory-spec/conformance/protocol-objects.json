@@ -55,79 +55,98 @@
           }
         ],
         "collection": {
-          "version": 1,
+          "version": 2,
           "modelFingerprint": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-          "tables": [
-            {
-              "model": "Game",
-              "table": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
-            },
-            {
-              "model": "List",
-              "table": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
-            }
-          ]
+          "log": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
         }
       },
-      "bytesBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqRkZmlsZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWlfaW5kZXgubWRnY3JlYXRlZBsAAAGhbSNqgGhtb2RpZmllZBsAAAGhbT7hwKRkZmlsZXhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJkbmFtZW1zY2hlbWEuYmVldGxlZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cBqY29sbGVjdGlvbqNmdGFibGVzgqJlbW9kZWxkR2FtZWV0YWJsZXhHc2hhMjU2OjQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDSiZW1vZGVsZExpc3RldGFibGV4R3NoYTI1Njo1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1Z3ZlcnNpb24BcG1vZGVsRmluZ2VycHJpbnR4R3NoYTI1NjozMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz",
-      "hash": "sha256:7c4ed05b3086011aee894a5bbdb9a69bbb1d52409842ddc76358837fe9eefc73"
+      "bytesBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqRkZmlsZXhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWlfaW5kZXgubWRnY3JlYXRlZBsAAAGhbSNqgGhtb2RpZmllZBsAAAGhbT7hwKRkZmlsZXhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJkbmFtZW1zY2hlbWEuYmVldGxlZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cBqY29sbGVjdGlvbqNjbG9neEdzaGEyNTY6NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NWd2ZXJzaW9uAnBtb2RlbEZpbmdlcnByaW50eEdzaGEyNTY6MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMw==",
+      "hash": "sha256:0039b64dfe77d4184eaa6b553e6f6b8203b6a12c3134f967c6f4141e17426b5c"
     },
     {
-      "name": "table",
+      "name": "log-changes",
       "model": {
-        "type": "table",
+        "type": "log",
+        "previous": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
         "rows": 2,
-        "chunks": [
+        "rowsHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "changes": [
           {
-            "rows": 2,
-            "chunk": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
-          }
-        ]
-      },
-      "bytesBase64": "o2Ryb3dzAmR0eXBlZXRhYmxlZmNodW5rc4GiZHJvd3MCZWNodW5reEdzaGEyNTY6NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Ng==",
-      "hash": "sha256:fd942ae1ba2e70c61c56aa9b62e54849e7c24c6eecfcf3339349c61d89403107"
-    },
-    {
-      "name": "rows",
-      "model": {
-        "type": "rows",
-        "rows": [
-          {
+            "model": "Game",
             "key": [
               [
                 "id",
                 "chess"
               ]
             ],
-            "fields": {
-              "name": "Chess",
-              "status": "Draft",
-              "tags": [
-                "board",
-                "classic"
-              ]
-            },
-            "created": 1792832400000,
-            "modified": 1792834200000
+            "row": {
+              "key": [
+                [
+                  "id",
+                  "chess"
+                ]
+              ],
+              "fields": {
+                "name": "Chess",
+                "status": "Draft",
+                "tags": [
+                  "board",
+                  "classic"
+                ]
+              },
+              "created": 1792832400000,
+              "modified": 1792834200000
+            }
           },
           {
+            "model": "Game",
+            "key": [
+              [
+                "id",
+                "draughts"
+              ]
+            ],
+            "row": null
+          },
+          {
+            "model": "Game",
             "key": [
               [
                 "id",
                 "go"
               ]
             ],
-            "fields": {
-              "name": "Go",
-              "status": "Polished"
-            },
-            "created": 1792832400000,
-            "modified": 1792832400000
+            "row": {
+              "key": [
+                [
+                  "id",
+                  "go"
+                ]
+              ],
+              "fields": {
+                "name": "Go",
+                "status": "Polished"
+              },
+              "created": 1792832400000,
+              "modified": 1792832400000
+            }
           }
         ]
       },
-      "bytesBase64": "omRyb3dzgqRja2V5gYJiaWRlY2hlc3NmZmllbGRzo2RuYW1lZUNoZXNzZHRhZ3OCZWJvYXJkZ2NsYXNzaWNmc3RhdHVzZURyYWZ0Z2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cCkY2tleYGCYmlkYmdvZmZpZWxkc6JkbmFtZWJHb2ZzdGF0dXNoUG9saXNoZWRnY3JlYXRlZBsAAAGhbSNqgGhtb2RpZmllZBsAAAGhbSNqgGR0eXBlZHJvd3M=",
-      "hash": "sha256:a1407a43bed8593115615a853cd23353e97357651e6a66574fc2ecf82c4d2ae6"
+      "bytesBase64": "pWRyb3dzAmR0eXBlY2xvZ2djaGFuZ2Vzg6Nja2V5gYJiaWRlY2hlc3Njcm93pGNrZXmBgmJpZGVjaGVzc2ZmaWVsZHOjZG5hbWVlQ2hlc3NkdGFnc4JlYm9hcmRnY2xhc3NpY2ZzdGF0dXNlRHJhZnRnY3JlYXRlZBsAAAGhbSNqgGhtb2RpZmllZBsAAAGhbT7hwGVtb2RlbGRHYW1lo2NrZXmBgmJpZGhkcmF1Z2h0c2Nyb3f2ZW1vZGVsZEdhbWWjY2tleYGCYmlkYmdvY3Jvd6Rja2V5gYJiaWRiZ29mZmllbGRzomRuYW1lYkdvZnN0YXR1c2hQb2xpc2hlZGdjcmVhdGVkGwAAAaFtI2qAaG1vZGlmaWVkGwAAAaFtI2qAZW1vZGVsZEdhbWVocHJldmlvdXN4R3NoYTI1Njo0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0aHJvd3NIYXNoeEdzaGEyNTY6MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMw==",
+      "hash": "sha256:bf6c9b8084df065bef7aa2cc208a692336411715739533aac6826c58c464a015"
+    },
+    {
+      "name": "log-snapshot",
+      "model": {
+        "type": "log",
+        "previous": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "rows": 2,
+        "rowsHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "snapshot": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      "bytesBase64": "pWRyb3dzAmR0eXBlY2xvZ2hwcmV2aW91c3hHc2hhMjU2OjQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDRocm93c0hhc2h4R3NoYTI1NjozMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzaHNuYXBzaG90eEdzaGEyNTY6NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Ng==",
+      "hash": "sha256:c0462be27898e0b4d3a163bd85e97dcf168270dad4a2c9951fd3f0d765f1f13a"
     }
   ],
   "invalid": [
@@ -153,23 +172,23 @@
     },
     {
       "name": "collection-without-schema",
-      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWlzY2hlbWEudHNnY3JlYXRlZBsAAAGhbSNqgGhtb2RpZmllZBsAAAGhbT7hwGpjb2xsZWN0aW9uo2Z0YWJsZXOBomVtb2RlbGRHYW1lZXRhYmxleEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGd2ZXJzaW9uAXBtb2RlbEZpbmdlcnByaW50eEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA=="
+      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWlzY2hlbWEudHNnY3JlYXRlZBsAAAGhbSNqgGhtb2RpZmllZBsAAAGhbT7hwGpjb2xsZWN0aW9uo2Nsb2d4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwZ3ZlcnNpb24CcG1vZGVsRmluZ2VycHJpbnR4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"
     },
     {
       "name": "collection-schema-directory",
-      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZW1zY2hlbWEuYmVldGxlaWRpcmVjdG9yeXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBqY29sbGVjdGlvbqNmdGFibGVzgaJlbW9kZWxkR2FtZWV0YWJsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBndmVyc2lvbgFwbW9kZWxGaW5nZXJwcmludHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZW1zY2hlbWEuYmVldGxlaWRpcmVjdG9yeXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBqY29sbGVjdGlvbqNjbG9neEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGd2ZXJzaW9uAnBtb2RlbEZpbmdlcnByaW50eEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA=="
     },
     {
       "name": "collection-unknown-version",
-      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZW1zY2hlbWEuYmVldGxlZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cBqY29sbGVjdGlvbqNmdGFibGVzgaJlbW9kZWxkR2FtZWV0YWJsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBndmVyc2lvbgJwbW9kZWxGaW5nZXJwcmludHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZW1zY2hlbWEuYmVldGxlZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cBqY29sbGVjdGlvbqNjbG9neEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGd2ZXJzaW9uAXBtb2RlbEZpbmdlcnByaW50eEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA=="
     },
     {
       "name": "collection-extra-member",
-      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZW1zY2hlbWEuYmVldGxlZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cBqY29sbGVjdGlvbqRlc3RvcmVmc3FsaXRlZnRhYmxlc4GiZW1vZGVsZEdhbWVldGFibGV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwZ3ZlcnNpb24BcG1vZGVsRmluZ2VycHJpbnR4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"
+      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZW1zY2hlbWEuYmVldGxlZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cBqY29sbGVjdGlvbqRjbG9neEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGVzdG9yZWZzcWxpdGVndmVyc2lvbgJwbW9kZWxGaW5nZXJwcmludHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
     },
     {
-      "name": "collection-tables-unsorted",
-      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZW1zY2hlbWEuYmVldGxlZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cBqY29sbGVjdGlvbqNmdGFibGVzgqJlbW9kZWxkTGlzdGV0YWJsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDCiZW1vZGVsZEdhbWVldGFibGV4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwZ3ZlcnNpb24BcG1vZGVsRmluZ2VycHJpbnR4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"
+      "name": "collection-log-not-a-hash",
+      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaRkZmlsZXhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZW1zY2hlbWEuYmVldGxlZ2NyZWF0ZWQbAAABoW0jaoBobW9kaWZpZWQbAAABoW0+4cBqY29sbGVjdGlvbqNjbG9nZEdhbWVndmVyc2lvbgJwbW9kZWxGaW5nZXJwcmludHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
     },
     {
       "name": "noncanonical-cbor",

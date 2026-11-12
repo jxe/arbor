@@ -1,6 +1,8 @@
 // Declarative collection schemas (spec 06 §2.4), compiled from a collection's
-// schema.beetle. Pure: compiling, validation, CSV conversion, and generated
-// declarations never execute authored code or touch the filesystem or network.
+// schema.beetle, and a collection's log (collections §1). Pure: compiling, validation,
+// CSV conversion, generated declarations and logs never execute authored code or touch
+// the filesystem or network: a snapshot's SQLite file
+// is read and written through `useSnapshotDatabase`.
 export * from "./diagnostics.ts";
 export { compileCollectionSchema, compileCollectionSchemas, decodeSchemaSource, singleTable, type Check, type ChildNameRule, type CollectionLayout, type CollectionSchema, type CollectionSchemaSet, type CsvColumn } from "./compile.ts";
 export { validateRow, collectionValidationBudget, type ValidationBudget } from "./validate.ts";
@@ -24,5 +26,21 @@ export {
 } from "./directory-collection.ts";
 export { mergeCollectionRows, mergeMembers, type RowFieldConflict, type TextMerge } from "./row-merge.ts";
 export { deriveRowOperations, rowOperationsBetween } from "./row-diff.ts";
-export { changedCollectionRows, compileLogicalSchema, checkLogicalTables, encodeCollection, loadCollection, LogicalCollectionError, type EncodedCollection, type LogicalDiagnostic, type LogicalSchema } from "./logical.ts";
+export { changedCollectionRows, compileLogicalSchema, checkLogicalTables, encodeCollection, loadCollection, LogicalCollectionError, plainRows, plainTables, treeTables, type EncodedCollection, type LogicalDiagnostic, type LogicalSchema } from "./logical.ts";
+export {
+  appendRowChanges,
+  applyRowChanges,
+  changesBetween,
+  EMPTY_COLLECTION_STATE,
+  encodedLogEntry,
+  loadCollectionState,
+  readSnapshotRows,
+  rowChangesTo,
+  snapshotLayout,
+  stateTables,
+  writeSnapshot,
+  useSnapshotDatabase,
+  type CollectionState,
+  type SnapshotDatabase,
+} from "./collection-log.ts";
 export { fromSQLite, sqliteRow, toSQLite } from "./sqlite-values.ts";

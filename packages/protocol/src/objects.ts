@@ -1,4 +1,4 @@
-import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeCollectionReference, decodeProtocolTable, encodeCanonicalCBOR, sha256, type CollectionReference } from "./index.ts";
+import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeCollectionReference, decodeProtocolLog, encodeCanonicalCBOR, logEntryReferences, sha256, type CollectionReference } from "./index.ts";
 import { canonicalPageFile, decodeProtocolPage, type ProtocolPage } from "./pages.ts";
 
 export type ObjectHash = string;
@@ -87,25 +87,26 @@ export async function treeHoldsPages(
   return holds;
 }
 
-/** What an object is, which its referrer says: an entry's file, page or directory, or a collection's table or rows chunk. */
-export type ProtocolObjectKind = ProtocolEntryKind | "table" | "rows";
+/** What an object is, which its referrer says: an entry's file, page or directory, or a collection's log entry. */
+export type ProtocolObjectKind = ProtocolEntryKind | "log";
 
-/** The objects one directory reaches directly: its entries' objects, then its collection's tables. */
+/** The objects one directory reaches directly: its entries' objects, then its collection's log head. */
 export function protocolDirectoryReferences(directory: ProtocolDirectory): Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> {
   const references: Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> = directory.entries.flatMap((entry) => protocolEntryObject(entry) ?? []);
-  for (const { table } of directory.collection?.tables ?? []) references.push({ kind: "table", hash: table });
+  if (directory.collection) references.push({ kind: "log", hash: directory.collection.log });
   return references;
 }
 
 /**
  * The objects an object of `kind` reaches directly: a directory's entries and
- * tables, a table's rows chunks. Files and rows reach nothing. Every walk of
- * the object graph follows these edges. A page is a leaf, but it is checked
- * to be a canonical page object here, as a directory or table is.
+ * collection log, a log entry the entry before it, or a snapshot entry its file
+ * (collections §1.1: a walk stops at a collection's newest snapshot). Files reach
+ * nothing. Every walk of the object graph follows these edges. A page is a leaf,
+ * but it is checked to be a canonical page object here, as a directory or log is.
  */
 export function protocolObjectReferences(kind: ProtocolObjectKind, bytes: Uint8Array): Array<{ kind: ProtocolObjectKind; hash: ObjectHash }> {
   if (kind === "directory") return protocolDirectoryReferences(decodeProtocolDirectory(bytes));
-  if (kind === "table") return decodeProtocolTable(bytes).chunks.map(({ chunk }) => ({ kind: "rows" as const, hash: chunk }));
+  if (kind === "log") return logEntryReferences(decodeProtocolLog(bytes));
   if (kind === "page") decodeProtocolPage(bytes);
   return [];
 }
@@ -372,11 +373,16 @@ export function untimedEntry(entry: ProtocolDirectoryEntry): Omit<ProtocolDirect
   return rest;
 }
 
-/** Whether two roots hold the same content, entry times aside. */
+/** Whether two roots hold the same content, entry times aside. A collection's content is its rows, whatever log led to them. */
 export async function sameUntimed(left: ObjectHash, right: ObjectHash, load: (hash: ObjectHash) => Promise<Uint8Array>): Promise<boolean> {
   if (left === right) return true;
   const [a, b] = [decodeProtocolDirectory(await load(left)), decodeProtocolDirectory(await load(right))];
-  if (JSON.stringify(a.collection ?? null) !== JSON.stringify(b.collection ?? null) || a.entries.length !== b.entries.length) return false;
+  if (!a.collection !== !b.collection || a.entries.length !== b.entries.length) return false;
+  if (a.collection && b.collection && a.collection.log !== b.collection.log) {
+    if (a.collection.modelFingerprint !== b.collection.modelFingerprint) return false;
+    const [x, y] = [decodeProtocolLog(await load(a.collection.log)), decodeProtocolLog(await load(b.collection.log))];
+    if (x.rowsHash !== y.rowsHash) return false;
+  }
   for (const [index, entry] of a.entries.entries()) {
     const other = b.entries[index]!;
     if (entry.directory !== undefined && other.directory !== undefined) {

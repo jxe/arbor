@@ -23,7 +23,7 @@ import { ObjectStore } from "@ovst/object-store";
 import { compileLogicalSchema, encodeCollection } from "@ovst/collection-schema";
 import { LOG_ENTRY_FORMAT, validatedLogEntry } from "@ovst/merge-protocol";
 import {
-  canonicalPageFile, decodeProtocolPage, decodeProtocolTable, encodeProtocolDirectory, encodeProtocolPage, hashObject,
+  canonicalPageFile, decodeProtocolPage, encodeProtocolDirectory, encodeProtocolPage, hashObject,
   isPageName, parsePage, readRootProfile, type CollectionReference, type ObjectHash, type ProtocolDirectoryEntry,
 } from "@ovst/protocol";
 import { decodeCBOR } from "@ovst/protocol/cbor";
@@ -210,7 +210,9 @@ async function entryTimes(db: Database, objects: Objects, tree: string, head: Ob
 /** Legacy rows: RFC 3339 times and untagged dates, as the rows objects before the flag day hold them. */
 async function legacyRows(objects: Objects, table: ObjectHash) {
   const rows: Array<{ key: [string, unknown][]; fields: Record<string, unknown>; created: number; modified: number }> = [];
-  for (const { chunk } of decodeProtocolTable(await objects.bytes(table)).chunks) {
+  const legacy = decodeCBOR(await objects.bytes(table)) as { type?: unknown; chunks?: unknown };
+  if (legacy?.type !== "table" || !Array.isArray(legacy.chunks)) throw new Error(`${table} is not a table object`);
+  for (const { chunk } of legacy.chunks as Array<{ chunk: ObjectHash }>) {
     const value = decodeCBOR(await objects.bytes(chunk)) as { type?: unknown; rows?: unknown };
     if (value?.type !== "rows" || !Array.isArray(value.rows)) throw new Error(`${chunk} is not a rows object`);
     for (const row of value.rows as Array<{ key: [string, unknown][]; fields: Record<string, unknown>; created: unknown; modified: unknown }>) {

@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { serveHost } from "@ovst/overstoryd";
 import { acceptedEntries } from "../../support/log-entries.ts";
 import { expectReplayableHistory } from "../../support/replay-check.ts";
-import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeLogicalTable, encodeProtocolDirectory, hashObject,
+import { ProtocolClient, ProtocolUpdateConflict, decodeProtocolDirectory, encodeProtocolDirectory, hashObject,
   type CandidateUpdate, type Hash, type ProtocolDirectory, type ProtocolDirectoryEntry, stampedEntry } from "@ovst/protocol";
-import { compileLogicalSchema, encodeCollection } from "@ovst/collection-schema";
+import { appendRowChanges, compileLogicalSchema, EMPTY_COLLECTION_STATE, encodeCollection } from "@ovst/collection-schema";
 import { idRow, T0 } from "../../support/collection-trees.ts";
 import { deviceClient, deviceSession, testAccount } from "../../helpers/devices.ts";
 const TEST_AT = Date.UTC(2026, 10, 11);
@@ -427,10 +427,10 @@ test("the host validates logical collections itself", async () => {
   const fingerprint = compileLogicalSchema(new TextEncoder().encode(schema)).fingerprint;
   // Tables written directly, so the host sees rows no encoder checked.
   const people = (rows: ReturnType<typeof idRow>[], modelFingerprint = fingerprint) => {
-    const table = encodeLogicalTable(rows);
-    for (const [hash, bytes] of table.objects) objects.set(hash, bytes);
+    const entry = appendRowChanges(compileLogicalSchema(new TextEncoder().encode(schema)), EMPTY_COLLECTION_STATE, rows.map((row) => ({ model: "Item", key: row.key, row })));
+    objects.set(entry.hash, entry.bytes);
     return directory({ type: "directory", entries: [{ name: "schema.beetle", file: file(schema), created: 0, modified: 0 }],
-      collection: { version: 1, modelFingerprint, tables: [{ model: "Item", table: table.hash }] } });
+      collection: { version: 2, modelFingerprint, log: entry.hash } });
   };
   // A row the schema rejects, and a reference naming another schema, are both refused.
   await expect(submit(snapshot(change(root, { people: { directory: people([idRow("a", { count: 1.5 })]) } })))).rejects.toThrow();

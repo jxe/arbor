@@ -34,6 +34,7 @@ import {
   toSQLite,
   type CollectionFileFormat,
   type CollectionSchema,
+  type CollectionState,
   type CollectionSchemaCache,
   type LogicalSchema,
 } from "@ovst/collection-schema";
@@ -61,10 +62,21 @@ export type CollectionProjectionForm =
 type Row = Record<string, JSONValue>;
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 
+/**
+ * The folder's collection as last applied to it: its rows, which unchanged rows keep their
+ * times from, and the log state a change to them is appended to (collections §1).
+ */
+export interface CollectionBasis {
+  tables: LogicalTables;
+  fingerprint?: string;
+  state?: CollectionState;
+}
+export type CollectionBasisSource = (directory: string) => Promise<CollectionBasis | null>;
+
 export interface CollectionProjectionOptions {
   schemas?: CollectionSchemaCache;
   /** The folder's rows as last applied to it, which unchanged rows keep their times from. */
-  basis?: (directory: string) => Promise<LogicalTables | null>;
+  basis?: CollectionBasisSource;
   /** The form a collection created from nothing takes. Canonical JSONL by default. */
   form?: (directory: string) => CollectionProjectionForm | undefined;
   /** The time a changed row gets. */
@@ -203,7 +215,7 @@ const sameFields = (a: LogicalRow, b: LogicalRow) => stableJSONString(a.fields) 
  */
 export class CollectionProjections {
   private readonly schemas: CollectionSchemaCache;
-  private readonly last = new Map<string, LogicalTables>();
+  private readonly last = new Map<string, CollectionBasis>();
   private readonly databases = new Map<string, DatabaseState>();
   private readonly resolving = new Set<string>();
   /** Each folder's last read, by the stamp of the files it read. */
@@ -283,11 +295,12 @@ export class CollectionProjections {
     if (form === "mixed") return null;
     // Finding the basis can read the folder's objects back, which can describe
     // this folder again: that inner read goes without a basis.
-    let before = this.last.get(directory) ?? null;
-    if (!before && basis && !this.resolving.has(directory)) {
+    let held = this.last.get(directory) ?? null;
+    if (!held && basis && !this.resolving.has(directory)) {
       this.resolving.add(directory);
-      try { before = await basis(directory); } finally { this.resolving.delete(directory); }
+      try { held = await basis(directory); } finally { this.resolving.delete(directory); }
     }
+    const before = held?.tables ?? null;
     // Unchanged files read as the rows they read as last time, without
     // decoding and encoding every row again on each scan.
     const stamp = form ? filesStamp(directory, formFiles(form, form.kind === "sqlite" ? database : files), schemaBytes) : null;
@@ -308,8 +321,8 @@ export class CollectionProjections {
       tables = before && !checkLogicalTables(logical, before).length ? before : null;
     }
     if (!tables) return null;
-    const encoded = encodeCollection(logical, tables);
-    this.last.set(directory, tables);
+    const encoded = encodeCollection(logical, tables, held?.state && held.fingerprint === logical.fingerprint ? held.state : null);
+    this.last.set(directory, { tables, fingerprint: logical.fingerprint, state: encoded.state });
     const result = {
       collection: encoded.reference,
       replaces: [
@@ -340,7 +353,7 @@ export class CollectionProjections {
     if (detected === "mixed") throw new Error(`${directory} holds more than one projection of its collection`);
     if (form.kind === "sqlite") await this.writeSQLite(directory, database, schemaBytes, rowsFromLogical(collection.schema.result, database, collection.tables));
     else await this.writeFiles(directory, form.format, files, schemaBytes, rowsFromLogical(collection.schema.result, files, collection.tables));
-    this.last.set(directory, collection.tables);
+    this.last.set(directory, { tables: collection.tables, fingerprint: collection.schema.fingerprint, state: collection.state });
     await rm(join(directory, LEFTOVER_SCHEMA), { force: true });
     return formFiles(form, form.kind === "sqlite" ? database : files);
   }

@@ -106,7 +106,7 @@ export async function absentClosure(
     seen.add(hash);
     if (await present(hash)) return;
     found.add(hash);
-    if (kind !== "directory" && kind !== "table") return;
+    if (kind !== "directory" && kind !== "log") return;
     for (const child of protocolObjectReferences(kind, await io.read(hash))) await visit(child.hash, child.kind);
   };
   for (const root of roots) await visit(root, "directory");

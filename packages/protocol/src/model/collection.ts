@@ -1,9 +1,10 @@
-// A logical collection as the tree holds it (spec 06 §2.1, 01 §1.1.2): a
-// directory's `collection` reference names one table object per model with
-// data rows, and each table lists its rows in content-defined chunks, each a
-// `rows` object. Rows are in canonical stable-key order, so the same rows
-// always give the same objects and the same logical hash, whatever file or
-// database a placement projects them into.
+// A logical collection as the tree holds it (collections §1, data model §5): a directory's
+// `collection` reference names the head of the collection's log. Each entry names the one
+// before it and holds either the rows one accepted update changed (each changed row's whole
+// new form, or its removal) or a snapshot: a SQLite file the tree's host wrote, holding every
+// row. Every entry carries the row count and the rows hash after it (LtHash16 over each row's
+// canonical CBOR), so the same rows give the same logical hash, whatever history led there
+// and however a placement holds them.
 
 import { CBORTag, canonicalCBORHash, decodeCanonicalCBOR, encodeCanonicalCBOR } from "./cbor.ts";
 import { isPageTimestamp as isRowDate } from "../pages.ts";
@@ -21,29 +22,34 @@ export interface LogicalRow {
   modified: number;
 }
 
-export interface ProtocolRows {
-  type: "rows";
-  rows: LogicalRow[];
+/** One row an accepted update changed: its whole new form, or `null` when it was removed. */
+export interface RowChange {
+  model: string;
+  key: [string, JSONValue][];
+  row: LogicalRow | null;
 }
 
-export interface ProtocolTable {
-  type: "table";
-  /** The sum of its chunks' rows. */
+interface LogEntryHead {
+  type: "log";
+  /** The entry before this one; null only for a log's first entry. */
+  previous: Hash | null;
+  /** The row count after this entry. */
   rows: number;
-  chunks: { rows: number; chunk: Hash }[];
+  /** The rows hash after this entry. */
+  rowsHash: Hash;
 }
+
+/** A log entry: one accepted update's row changes, or a snapshot file of every row. */
+export type ProtocolLog =
+  | (LogEntryHead & { changes: RowChange[] })
+  | (LogEntryHead & { snapshot: Hash });
 
 export interface CollectionReference {
-  version: 1;
+  version: 2;
   modelFingerprint: Hash;
-  /** One per model with data rows, in UTF-8 order of model. */
-  tables: { model: string; table: Hash }[];
+  /** The log's head entry. */
+  log: Hash;
 }
-
-/** A chunk ends after a row once it holds `CHUNK_MIN` rows and the row's hash starts below `CHUNK_BOUNDARY`, or at `CHUNK_MAX` rows. */
-export const CHUNK_MIN = 512;
-export const CHUNK_MAX = 8192;
-export const CHUNK_BOUNDARY = 128;
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -66,18 +72,13 @@ export function compareLogicalRows(a: Pick<LogicalRow, "key">, b: Pick<LogicalRo
   return compareUTF8(logicalRowKey(a), logicalRowKey(b));
 }
 
-/** The canonical CBOR hash of a row, which places chunk boundaries. */
-export function logicalRowHash(row: LogicalRow): Hash {
-  return encodedRow(row).hash;
-}
-
 /**
- * A row's canonical CBOR bytes and hash. Rows decoded from a chunk are deeply
- * frozen and shared (see `decodedChunk`), so theirs are kept: re-encoding a
- * table after a few rows change encodes only those rows.
+ * A row's canonical CBOR bytes and hash. Rows a loaded collection holds are deeply frozen
+ * and shared, so theirs are kept: comparing two states of a collection encodes only the rows
+ * that aren't the same objects.
  */
 const encodedRows = new WeakMap<LogicalRow, { bytes: Uint8Array; hash: Hash }>();
-function encodedRow(row: LogicalRow): { bytes: Uint8Array; hash: Hash } {
+export function encodedRow(row: LogicalRow): { bytes: Uint8Array; hash: Hash } {
   const cached = encodedRows.get(row);
   if (cached) return cached;
   const bytes = encodeCanonicalCBOR(row);
@@ -86,33 +87,12 @@ function encodedRow(row: LogicalRow): { bytes: Uint8Array; hash: Hash } {
   return encoded;
 }
 
-function deepFreeze<T>(value: T): T {
+export function deepFreeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     for (const item of Object.values(value)) deepFreeze(item);
     Object.freeze(value);
   }
   return value;
-}
-
-function endsChunk(row: LogicalRow, size: number): boolean {
-  if (size >= CHUNK_MAX) return true;
-  if (size < CHUNK_MIN) return false;
-  return Number.parseInt(logicalRowHash(row).slice(7, 11), 16) < CHUNK_BOUNDARY;
-}
-
-/** Splits rows, already in stable-key order, at the boundaries the chunk rule places. */
-export function chunkLogicalRows(rows: LogicalRow[]): LogicalRow[][] {
-  const chunks: LogicalRow[][] = [];
-  let current: LogicalRow[] = [];
-  for (const row of rows) {
-    current.push(row);
-    if (endsChunk(row, current.length)) {
-      chunks.push(current);
-      current = [];
-    }
-  }
-  if (current.length > 0 || chunks.length === 0) chunks.push(current);
-  return chunks;
 }
 
 function checkJSONValue(value: unknown, label: string, depth = 0): asserts value is JSONValue {
@@ -168,178 +148,77 @@ export function decodeLogicalRow(value: unknown, label = "row"): LogicalRow {
   return value as unknown as LogicalRow;
 }
 
-export function encodeProtocolRows(rows: LogicalRow[]): Uint8Array {
-  // The map {rows, type} in canonical key order, from each row's own bytes.
-  const parts = [ROWS_HEAD, encodeCanonicalCBOR(rows.length).slice(), ...rows.map((row) => encodedRow(row).bytes), ROWS_TAIL];
-  parts[1]![0] = parts[1]![0]! + 0x80; // major type 4 (array) on the length's head
-  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
-  let offset = 0;
-  for (const part of parts) { out.set(part, offset); offset += part.length; }
+/** The bytes a row adds to its collection's rows hash: the canonical CBOR of `[model, row]`. */
+export function rowHashElement(model: string, row: LogicalRow): Uint8Array {
+  const own = encodedRow(row).bytes;
+  const name = encodeCanonicalCBOR(model);
+  const out = new Uint8Array(1 + name.length + own.length);
+  out[0] = 0x82; // an array of two
+  out.set(name, 1);
+  out.set(own, 1 + name.length);
   return out;
 }
-const ROWS_HEAD = Uint8Array.of(0xa2, ...encodeCanonicalCBOR("rows"));
-const ROWS_TAIL = Uint8Array.of(...encodeCanonicalCBOR("type"), ...encodeCanonicalCBOR("rows"));
 
-/** A `rows` object: canonical, each row well formed, and in stable-key order without a key twice. */
-export function decodeProtocolRows(bytes: Uint8Array): ProtocolRows {
+function compareChanges(a: RowChange, b: RowChange): number {
+  return compareUTF8(a.model, b.model) || compareLogicalRows(a, b);
+}
+
+/** A log entry's canonical bytes. Changes are sorted by model, then stable key. */
+export function encodeProtocolLog(entry: ProtocolLog): Uint8Array {
+  if ("changes" in entry) return encodeCanonicalCBOR({ ...entry, changes: [...entry.changes].sort(compareChanges) });
+  return encodeCanonicalCBOR(entry);
+}
+
+/** A `log` object: canonical, its changes well formed, in model then stable-key order, each row once. */
+export function decodeProtocolLog(bytes: Uint8Array): ProtocolLog {
   const value = decodeCanonicalCBOR(bytes, { tags: [0, 1004] });
-  if (!isRecord(value) || value.type !== "rows") throw new TypeError("Not a rows object");
-  exactKeys(value, ["type", "rows"], "rows object");
-  if (!Array.isArray(value.rows)) throw new TypeError("rows object rows must be an array");
-  const rows = value.rows.map((row, i) => decodeLogicalRow(row, `rows[${i}]`));
-  for (let i = 1; i < rows.length; i++) {
-    if (compareLogicalRows(rows[i - 1]!, rows[i]!) >= 0) throw new TypeError("rows object rows must be in stable-key order, each key once");
+  if (!isRecord(value) || value.type !== "log") throw new TypeError("Not a log object");
+  const body = "changes" in value ? "changes" : "snapshot";
+  exactKeys(value, ["type", "previous", "rows", "rowsHash", body], "log object");
+  if (value.previous !== null && (typeof value.previous !== "string" || !HASH.test(value.previous))) throw new TypeError("log previous must be a hash or null");
+  if (!Number.isSafeInteger(value.rows) || (value.rows as number) < 0) throw new TypeError("log rows must be a count");
+  if (typeof value.rowsHash !== "string" || !HASH.test(value.rowsHash)) throw new TypeError("log rowsHash must be a hash");
+  const head = { type: "log" as const, previous: value.previous as Hash | null, rows: value.rows as number, rowsHash: value.rowsHash as Hash };
+  if (body === "snapshot") {
+    if (typeof value.snapshot !== "string" || !HASH.test(value.snapshot)) throw new TypeError("log snapshot must be a hash");
+    return { ...head, snapshot: value.snapshot as Hash };
   }
-  return { type: "rows", rows };
-}
-
-export function encodeProtocolTable(table: ProtocolTable): Uint8Array {
-  return encodeCanonicalCBOR(table);
-}
-
-export function decodeProtocolTable(bytes: Uint8Array): ProtocolTable {
-  const value = decodeCanonicalCBOR(bytes);
-  if (!isRecord(value) || value.type !== "table") throw new TypeError("Not a table object");
-  exactKeys(value, ["type", "rows", "chunks"], "table object");
-  if (!Number.isSafeInteger(value.rows) || (value.rows as number) < 0) throw new TypeError("table rows must be a count");
-  if (!Array.isArray(value.chunks) || value.chunks.length === 0) throw new TypeError("table chunks must be a non-empty array");
-  let total = 0;
-  const chunks = value.chunks.map((chunk, i) => {
-    if (!isRecord(chunk)) throw new TypeError(`table chunks[${i}] must be a map`);
-    exactKeys(chunk, ["rows", "chunk"], `table chunks[${i}]`);
-    if (!Number.isSafeInteger(chunk.rows) || (chunk.rows as number) < 0) throw new TypeError(`table chunks[${i}].rows must be a count`);
-    if (typeof chunk.chunk !== "string" || !HASH.test(chunk.chunk)) throw new TypeError(`table chunks[${i}].chunk must be a hash`);
-    total += chunk.rows as number;
-    return { rows: chunk.rows as number, chunk: chunk.chunk as Hash };
-  });
-  if (total !== value.rows) throw new TypeError("table rows must equal the sum of its chunks'");
-  return { type: "table", rows: total, chunks };
-}
-
-/** The table and rows objects that hold `rows`, which are sorted and checked here. */
-export function encodeLogicalTable(rows: LogicalRow[]): { hash: Hash; table: ProtocolTable; objects: Map<Hash, Uint8Array> } {
-  const sorted = [...rows].sort(compareLogicalRows);
-  for (let i = 1; i < sorted.length; i++) {
-    if (compareLogicalRows(sorted[i - 1]!, sorted[i]!) === 0) throw new TypeError(`Two rows have the key ${logicalRowKey(sorted[i]!)}`);
-  }
-  const objects = new Map<Hash, Uint8Array>();
-  const chunks = chunkLogicalRows(sorted).map((chunk) => {
-    const bytes = encodeProtocolRows(chunk);
-    const hash = `sha256:${sha256(bytes)}` as Hash;
-    objects.set(hash, bytes);
-    return { rows: chunk.length, chunk: hash };
-  });
-  const table: ProtocolTable = { type: "table", rows: sorted.length, chunks };
-  const hash = canonicalCBORHash(table);
-  objects.set(hash, encodeProtocolTable(table));
-  return { hash, table, objects };
-}
-
-/**
- * A table's rows, loaded through `load` (which returns an object's bytes by
- * hash, verified). Requires each chunk to hold its stated rows, the chunks to
- * continue one another's order, and every chunk to end where the rule ends it.
- */
-export async function loadLogicalTable(hash: Hash, load: (hash: Hash) => Promise<Uint8Array>): Promise<LogicalRow[]> {
-  const table = decodeProtocolTable(await load(hash));
-  const rows: LogicalRow[] = [];
-  for (const [i, { rows: count, chunk }] of table.chunks.entries()) {
-    // Every chunk is still loaded, so a store that tracks reads sees them.
-    const { rows: part, ends } = decodedChunk(chunk, await load(chunk));
-    if (part.length !== count) throw new TypeError(`table chunk ${i} holds ${part.length} rows, not ${count}`);
-    if (rows.length > 0 && part.length > 0 && compareLogicalRows(rows[rows.length - 1]!, part[0]!) >= 0) {
-      throw new TypeError(`table chunk ${i} doesn't continue the stable-key order`);
+  if (!Array.isArray(value.changes)) throw new TypeError("log changes must be an array");
+  const changes = value.changes.map((change, i): RowChange => {
+    const label = `log changes[${i}]`;
+    if (!isRecord(change)) throw new TypeError(`${label} must be a map`);
+    exactKeys(change, ["model", "key", "row"], label);
+    if (typeof change.model !== "string" || !NAME.test(change.model)) throw new TypeError(`${label}.model must be a model name`);
+    if (change.row === null) {
+      const key = decodeLogicalRow({ key: change.key, fields: {}, created: 0, modified: 0 }, label).key;
+      return { model: change.model, key, row: null };
     }
-    const last = i === table.chunks.length - 1;
-    if (part.length === 0 && !(last && table.chunks.length === 1)) throw new TypeError(`table chunk ${i} is empty`);
-    if (ends !== -1 && ends !== part.length - 1) throw new TypeError(`table chunk ${i} continues past a chunk boundary`);
-    if (ends === -1 && part.length > 0 && !last) throw new TypeError(`table chunk ${i} ends before a chunk boundary`);
-    rows.push(...part);
+    const row = decodeLogicalRow(change.row, `${label}.row`);
+    if (encodeCanonicalCBOR(row.key).join() !== encodeCanonicalCBOR(change.key).join()) throw new TypeError(`${label}.key must be its row's key`);
+    return { model: change.model, key: row.key, row };
+  });
+  for (let i = 1; i < changes.length; i++) {
+    if (compareChanges(changes[i - 1]!, changes[i]!) >= 0) throw new TypeError("log changes must be in model, then stable-key order, each row once");
   }
-  return rows;
+  return { ...head, changes };
 }
 
-/**
- * The rows that differ between two versions of a table, read from only the chunks the two
- * don't share: a chunk with the same hash holds the same rows, and a key is in one chunk,
- * so every other row is the same in both. Rows with the same key and bytes are left out.
- * Each list is in stable-key order.
- */
-export async function changedLogicalTableRows(
-  before: Hash,
-  after: Hash,
-  load: (hash: Hash) => Promise<Uint8Array>,
-): Promise<{ before: LogicalRow[]; after: LogicalRow[] }> {
-  if (before === after) return { before: [], after: [] };
-  const was = decodeProtocolTable(await load(before)).chunks.map((c) => c.chunk);
-  const is = decodeProtocolTable(await load(after)).chunks.map((c) => c.chunk);
-  const shared = new Set(was.filter((hash) => is.includes(hash)));
-  const rowsOf = async (hashes: Hash[]) => {
-    const out: LogicalRow[] = [];
-    for (const hash of hashes) if (!shared.has(hash)) out.push(...decodedChunk(hash, await load(hash)).rows);
-    return out;
-  };
-  const b = await rowsOf(was), a = await rowsOf(is);
-  const afterByKey = new Map(a.map((row) => [logicalRowKey(row), row]));
-  const same = new Set<string>();
-  for (const row of b) {
-    const key = logicalRowKey(row);
-    const other = afterByKey.get(key);
-    if (other && encodedRow(other).hash === encodedRow(row).hash) same.add(key);
-  }
-  return { before: b.filter((row) => !same.has(logicalRowKey(row))), after: a.filter((row) => !same.has(logicalRowKey(row))) };
-}
-
-/**
- * Decoded rows chunks by hash. A chunk is content-addressed, so its rows and
- * where the chunk rule first ends it never change; a sync that loads the same
- * collection several times decodes each chunk once. The rows are frozen,
- * since every caller shares them.
- */
-const chunks = new Map<Hash, { rows: readonly LogicalRow[]; ends: number }>();
-const CHUNK_CACHE_ROWS = 200_000;
-let cachedRows = 0;
-
-function decodedChunk(hash: Hash, bytes: Uint8Array): { rows: readonly LogicalRow[]; ends: number } {
-  const cached = chunks.get(hash);
-  if (cached) {
-    chunks.delete(hash);
-    chunks.set(hash, cached);
-    return cached;
-  }
-  const rows = decodeProtocolRows(bytes).rows;
-  for (const row of rows) deepFreeze(row);
-  const decoded = { rows: rows as readonly LogicalRow[], ends: rows.findIndex((row, j) => endsChunk(row, j + 1)) };
-  chunks.set(hash, decoded);
-  cachedRows += rows.length;
-  for (const [key, value] of chunks) {
-    if (cachedRows <= CHUNK_CACHE_ROWS) break;
-    chunks.delete(key);
-    cachedRows -= value.rows.length;
-  }
-  return decoded;
+/** The objects a log entry reaches: the entry before it, unless it's a snapshot, whose file it reaches instead. */
+export function logEntryReferences(entry: ProtocolLog): { kind: "log" | "file"; hash: Hash }[] {
+  if ("snapshot" in entry) return [{ kind: "file", hash: entry.snapshot }];
+  return entry.previous ? [{ kind: "log", hash: entry.previous }] : [];
 }
 
 export function decodeCollectionReference(value: unknown): CollectionReference {
   if (!isRecord(value)) throw new TypeError("collection must be a map");
-  exactKeys(value, ["version", "modelFingerprint", "tables"], "collection");
-  if (value.version !== 1) throw new TypeError("collection.version must be 1");
+  exactKeys(value, ["version", "modelFingerprint", "log"], "collection");
+  if (value.version !== 2) throw new TypeError("collection.version must be 2");
   if (typeof value.modelFingerprint !== "string" || !HASH.test(value.modelFingerprint)) throw new TypeError("collection.modelFingerprint must be a hash");
-  if (!Array.isArray(value.tables)) throw new TypeError("collection.tables must be an array");
-  let previous: string | undefined;
-  const tables = value.tables.map((entry, i) => {
-    if (!isRecord(entry)) throw new TypeError(`collection.tables[${i}] must be a map`);
-    exactKeys(entry, ["model", "table"], `collection.tables[${i}]`);
-    if (typeof entry.model !== "string" || !NAME.test(entry.model)) throw new TypeError(`collection.tables[${i}].model must be a model name`);
-    if (typeof entry.table !== "string" || !HASH.test(entry.table)) throw new TypeError(`collection.tables[${i}].table must be a hash`);
-    if (previous !== undefined && compareUTF8(previous, entry.model) >= 0) throw new TypeError("collection.tables must be in UTF-8 order of model, each once");
-    previous = entry.model;
-    return { model: entry.model, table: entry.table as Hash };
-  });
-  return { version: 1, modelFingerprint: value.modelFingerprint as Hash, tables };
+  if (typeof value.log !== "string" || !HASH.test(value.log)) throw new TypeError("collection.log must be a hash");
+  return { version: 2, modelFingerprint: value.modelFingerprint as Hash, log: value.log as Hash };
 }
 
-/** The collection's logical hash: what it contributes to its folder's model hash, the same at every placement. */
-export function collectionLogicalHash(reference: CollectionReference): Hash {
-  return canonicalCBORHash(reference);
+/** The collection's logical hash: what it contributes to its folder's model hash, from its rows alone. */
+export function collectionLogicalHash(modelFingerprint: Hash, rowsHash: Hash): Hash {
+  return canonicalCBORHash({ modelFingerprint, rowsHash });
 }

@@ -17,6 +17,7 @@ import type { LogicalModel, LogicalTables } from "@ovst/usl";
 import { sharedCollectionSchemaCache, type CollectionSchemaCache } from "./cache.ts";
 import { CollectionSchemaError } from "./diagnostics.ts";
 import { encodeCollection, loadCollection, LogicalCollectionError, type LogicalSchema } from "./logical.ts";
+import { loadCollectionState, type CollectionState } from "./collection-log.ts";
 
 type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 
@@ -46,6 +47,8 @@ export interface DirectoryCollection {
   reference: CollectionReference;
   logicalHash: Hash;
   tables: LogicalTables;
+  /** The log state the reference's head stands for. */
+  state: CollectionState;
   /** The model whose rows are the folder's own children, if any. */
   main: string | null;
   /** Each model's rows in stable-key order, named. */
@@ -164,9 +167,11 @@ export async function loadDirectoryCollection(
 }
 
 /**
- * The directory with its collection set to `tables`, and every object that
- * holds them. The directory's entries must already hold its `schema.beetle`.
- * Throws {@link ProtocolCollectionError} for rows the schema rejects.
+ * The directory with its collection set to `tables`, and the log entry that
+ * holds the change: appended to the directory's own log when it has one of the
+ * same schema, else a new log. The directory's entries must already hold its
+ * `schema.beetle`. Throws {@link ProtocolCollectionError} for rows the schema
+ * rejects.
  */
 export async function encodeDirectoryCollection(
   directory: ProtocolDirectory,
@@ -177,7 +182,8 @@ export async function encodeDirectoryCollection(
   const schema = await directoryCollectionSchema(directory, load, schemas);
   let encoded;
   try {
-    encoded = encodeCollection(schema, tables);
+    const previous = directory.collection?.modelFingerprint === schema.fingerprint ? await loadCollectionState(schema, directory.collection.log, load) : null;
+    encoded = encodeCollection(schema, tables, previous);
   } catch (error) {
     if (error instanceof LogicalCollectionError) throw new ProtocolCollectionError("constraint", error.message);
     if (error instanceof TypeError) throw new ProtocolCollectionError("constraint", error.message);

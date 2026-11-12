@@ -2,21 +2,33 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  CHUNK_MAX,
-  CHUNK_MIN,
-  chunkLogicalRows,
   collectionLogicalHash,
   decodeCollectionReference,
-  decodeProtocolRows,
-  decodeProtocolTable,
+  decodeProtocolLog,
   encodeCanonicalCBOR,
-  encodeLogicalTable,
-  encodeProtocolRows,
-  loadLogicalTable,
+  encodeProtocolLog,
+  LtHash,
+  rowHashElement,
   type Hash,
   type LogicalRow,
 } from "@ovst/protocol";
-import { checkLogicalTables, compileLogicalSchema, encodeCollection, loadCollection, LogicalCollectionError } from "@ovst/collection-schema";
+import {
+  appendRowChanges,
+  changedCollectionRows,
+  checkLogicalTables,
+  compileLogicalSchema,
+  EMPTY_COLLECTION_STATE,
+  encodeCollection,
+  encodedLogEntry,
+  loadCollection,
+  LogicalCollectionError,
+  readSnapshotRows,
+  useSnapshotDatabase,
+  writeSnapshot,
+} from "@ovst/collection-schema";
+import { sqliteSnapshots } from "@ovst/beetle/sqlite";
+
+useSnapshotDatabase(sqliteSnapshots);
 import { compileUsl, layoutOf, logicalFromRows, logicalModels, rowsFromLogical, type LogicalTables } from "@ovst/usl";
 
 const examples = join(import.meta.dir, "../../packages/usl/examples");
@@ -95,47 +107,84 @@ describe("logical rows and projections", () => {
   });
 });
 
-describe("table and rows objects", () => {
-  const many = (n: number) => Array.from({ length: n }, (_, i) => row([["id", `r${String(i).padStart(6, "0")}`]], { n: i }));
+describe("the rows hash", () => {
+  const rows = Array.from({ length: 50 }, (_, i) => row([["id", `r${i}`]], { n: i }));
 
-  test("a table below the minimum is one chunk, and an empty one an empty chunk", () => {
-    expect(chunkLogicalRows(many(CHUNK_MIN)).length).toBe(1);
-    expect(chunkLogicalRows([])).toEqual([[]]);
+  test("is the same for the same rows in any order, and a change takes out the old row and adds the new", () => {
+    const forward = new LtHash(), backward = new LtHash();
+    for (const r of rows) forward.add(rowHashElement("Item", r));
+    for (const r of [...rows].reverse()) backward.add(rowHashElement("Item", r));
+    expect(forward.hash()).toBe(backward.hash());
+    const changed = { ...rows[7]!, fields: { n: -1 } };
+    const edited = forward.clone().remove(rowHashElement("Item", rows[7]!)).add(rowHashElement("Item", changed));
+    const fresh = new LtHash();
+    for (const r of rows) fresh.add(rowHashElement("Item", r === rows[7] ? changed : r));
+    expect(edited.hash()).toBe(fresh.hash());
+    expect(edited.hash()).not.toBe(forward.hash());
+    // The model is part of each row's element.
+    expect(new LtHash().add(rowHashElement("Item", rows[0]!)).hash()).not.toBe(new LtHash().add(rowHashElement("Other", rows[0]!)).hash());
+    expect(LtHash.fromBytes(forward.bytes()).hash()).toBe(forward.hash());
+  });
+});
+
+describe("log objects", () => {
+  const schema = compileLogicalSchema("main table Item:\n  n Int\n");
+  const item = (id: string, n: number) => row([["id", id]], { n });
+
+  test("an entry is decoded strictly: changes in order, each row once, its key its row's", () => {
+    const first = appendRowChanges(schema, EMPTY_COLLECTION_STATE, [{ model: "Item", key: [["id", "a"]], row: item("a", 1) }]);
+    const entry = decodeProtocolLog(first.bytes);
+    expect(entry).toMatchObject({ type: "log", previous: null, rows: 1 });
+    const head = { type: "log" as const, previous: null, rows: 2, rowsHash: entry.rowsHash };
+    expect(() => decodeProtocolLog(encodeCanonicalCBOR({ ...head, changes: [
+      { model: "Item", key: [["id", "b"]], row: item("b", 1) },
+      { model: "Item", key: [["id", "a"]], row: item("a", 1) },
+    ] }))).toThrow("order");
+    expect(() => decodeProtocolLog(encodeCanonicalCBOR({ ...head, changes: [{ model: "Item", key: [["id", "b"]], row: item("a", 1) }] }))).toThrow("its row's key");
+    expect(() => decodeProtocolLog(encodeCanonicalCBOR({ ...head, changes: [], extra: 1 }))).toThrow("exactly");
+    // The encoder sorts changes.
+    const sorted = encodeProtocolLog({ ...head, changes: [{ model: "Item", key: [["id", "b"]], row: null }, { model: "Item", key: [["id", "a"]], row: null }] });
+    const decoded = decodeProtocolLog(sorted);
+    expect(("changes" in decoded ? decoded.changes : []).map((c) => c.key[0]![1])).toEqual(["a", "b"]);
   });
 
-  test("chunks end at content-defined boundaries, at most the maximum apart", () => {
-    const chunks = chunkLogicalRows(many(20_000));
-    expect(chunks.length).toBeGreaterThan(2);
-    for (const chunk of chunks.slice(0, -1)) {
-      expect(chunk.length).toBeGreaterThanOrEqual(CHUNK_MIN);
-      expect(chunk.length).toBeLessThanOrEqual(CHUNK_MAX);
-    }
-    // An edit far from the start leaves earlier chunks as they were.
-    const rows = many(20_000);
-    rows[19_000] = { ...rows[19_000]!, fields: { n: -1 } };
-    expect(chunkLogicalRows(rows)[0]).toEqual(chunks[0]!);
+  test("loading checks each entry's count and rows hash, and that it follows the one before", async () => {
+    const objects = new Map<Hash, Uint8Array>();
+    const first = appendRowChanges(schema, EMPTY_COLLECTION_STATE, [{ model: "Item", key: [["id", "a"]], row: item("a", 1) }]);
+    objects.set(first.hash, first.bytes);
+    const reference = (log: Hash) => ({ version: 2, modelFingerprint: schema.fingerprint, log });
+    const lying = encodedLogEntry({ type: "log", previous: first.hash, rows: 5, rowsHash: decodeProtocolLog(first.bytes).rowsHash, changes: [{ model: "Item", key: [["id", "b"]], row: item("b", 2) }] });
+    objects.set(lying.hash, lying.bytes);
+    await expect(loadCollection(schema, reference(lying.hash), async (h) => objects.get(h)!)).rejects.toThrow("count and rows hash");
+    const removesAbsent = encodedLogEntry({ type: "log", previous: first.hash, rows: 1, rowsHash: decodeProtocolLog(first.bytes).rowsHash, changes: [{ model: "Item", key: [["id", "z"]], row: null }] });
+    objects.set(removesAbsent.hash, removesAbsent.bytes);
+    await expect(loadCollection(schema, reference(removesAbsent.hash), async (h) => objects.get(h)!)).rejects.toThrow("isn't there");
   });
 
-  test("encode, load and verify a table; order and counts are checked", async () => {
-    const rows = many(3000).reverse();
-    const { hash, objects } = encodeLogicalTable(rows);
-    const load = async (h: Hash) => objects.get(h)!;
-    expect(await loadLogicalTable(hash, load)).toEqual([...rows].reverse());
-    const table = decodeProtocolTable(objects.get(hash)!);
-    expect(table.rows).toBe(3000);
-    expect(() => decodeProtocolRows(encodeProtocolRows([rows[0]!, rows[1]!]))).toThrow("stable-key order");
-    expect(() => encodeLogicalTable([rows[0]!, rows[0]!])).toThrow("Two rows");
-    expect(() => decodeProtocolRows(encodeProtocolRows([{ ...rows[0]!, fields: { n: null } } as unknown as LogicalRow]))).toThrow("only when it has a value");
-    expect(() => decodeProtocolTable(encodeCanonicalCBOR({ type: "table", rows: 2, chunks: [{ rows: 1, chunk: table.chunks[0]!.chunk }] }))).toThrow("sum");
+  test("a snapshot holds the rows its entry says, and a log continues from it", async () => {
+    const tables = { Item: [item("a", 1), item("b", 2)] };
+    const snapshot = writeSnapshot(schema, tables);
+    expect(readSnapshotRows(schema, snapshot)).toEqual(tables);
+    const state = encodeCollection(schema, tables).state;
+    const file = `sha256:${new Bun.CryptoHasher("sha256").update(snapshot).digest("hex")}` as Hash;
+    const entry = encodedLogEntry({ type: "log", previous: `sha256:${"9".repeat(64)}` as Hash, rows: 2, rowsHash: state.lthash.hash(), snapshot: file });
+    const objects = new Map<Hash, Uint8Array>([[file, snapshot], [entry.hash, entry.bytes]]);
+    const next = appendRowChanges(schema, { ...state, head: entry.hash }, [{ model: "Item", key: [["id", "c"]], row: item("c", 3) }]);
+    objects.set(next.hash, next.bytes);
+    const loaded = await loadCollection(schema, { version: 2, modelFingerprint: schema.fingerprint, log: next.hash }, async (h) => objects.get(h)!);
+    expect(loaded.tables.Item!.map((r) => r.key[0]![1])).toEqual(["a", "b", "c"]);
+    // A snapshot of other rows is refused.
+    const wrong = encodedLogEntry({ type: "log", previous: null, rows: 2, rowsHash: new LtHash().hash(), snapshot: file });
+    objects.set(wrong.hash, wrong.bytes);
+    await expect(loadCollection(schema, { version: 2, modelFingerprint: schema.fingerprint, log: wrong.hash }, async (h) => objects.get(h)!)).rejects.toThrow("snapshot");
   });
 
-  test("the logical hash is the CBOR hash of the reference, which is decoded strictly", () => {
-    const { hash } = encodeLogicalTable([]);
+  test("the reference is decoded strictly, and the logical hash is of the fingerprint and rows hash", () => {
     const fingerprint = `sha256:${"0".repeat(64)}` as Hash;
-    const reference = decodeCollectionReference({ version: 1, modelFingerprint: fingerprint, tables: [{ model: "Game", table: hash }] });
-    expect(collectionLogicalHash(reference)).toMatch(/^sha256:/);
+    const reference = decodeCollectionReference({ version: 2, modelFingerprint: fingerprint, log: fingerprint });
     expect(() => decodeCollectionReference({ ...reference, extra: 1 })).toThrow("exactly");
-    expect(() => decodeCollectionReference({ ...reference, tables: [{ model: "List", table: hash }, { model: "Game", table: hash }] })).toThrow("UTF-8 order");
+    expect(() => decodeCollectionReference({ ...reference, version: 1 })).toThrow("version");
+    expect(collectionLogicalHash(fingerprint, new LtHash().hash())).toMatch(/^sha256:/);
   });
 });
 
@@ -175,19 +224,32 @@ describe("collections", () => {
     expect(checkLogicalTables(logical, { Nope: [] })[0]!.message).toContain("no model Nope");
   });
 
-  test("encode and load a collection; every model gets a table and the hash ignores input order", async () => {
+  test("encode and load a collection; the logical hash is of the rows alone, and appending writes one entry", async () => {
     const encoded = encodeCollection(logical, tables);
     expect(encoded.reference.modelFingerprint).toBe(logical.fingerprint);
-    expect(encoded.reference.tables.map((t) => t.model)).toEqual(["Game", "List"]);
     expect(encodeCollection(logical, { List: tables.List!, Game: [...tables.Game!].reverse() }).logicalHash).toBe(encoded.logicalHash);
-    const load = async (h: Hash) => encoded.objects.get(h)!;
+    const objects = new Map(encoded.objects);
+    const load = async (h: Hash) => objects.get(h)!;
     const loaded = await loadCollection(logical, encoded.reference, load);
     expect(loaded.logicalHash).toBe(encoded.logicalHash);
     expect(loaded.tables.Game!.map((r) => r.key[0]![1])).toEqual(["g1", "g2"]);
-    expect(encodeCollection(logical, {}).reference.tables.length).toBe(2);
+    expect(decodeProtocolLog(encodeCollection(logical, {}).objects.values().next().value!)).toMatchObject({ previous: null, rows: 0, changes: [] });
     expect(() => encodeCollection(logical, { Game: [row([["id", "g1"]], {})] })).toThrow(LogicalCollectionError);
-    await expect(loadCollection(logical, { ...encoded.reference, tables: encoded.reference.tables.slice(1) }, load)).rejects.toThrow("must name Game, List");
     await expect(loadCollection(logical, { ...encoded.reference, modelFingerprint: `sha256:${"1".repeat(64)}` }, load)).rejects.toThrow("modelFingerprint");
+    // An edit appends one entry with only the changed row; the same rows reached another way hash the same.
+    const edited = { ...tables, Game: [tables.Game![0]!, row([["id", "g1"]], { name: "Chess", status: "Polished", tags: ["board", "classic"] })] };
+    const next = encodeCollection(logical, edited, loaded.state);
+    expect(next.objects.size).toBe(1);
+    const entry = decodeProtocolLog(next.objects.values().next().value!);
+    expect(entry.previous).toBe(encoded.reference.log);
+    expect("changes" in entry && entry.changes.map((c) => c.key[0]![1])).toEqual(["g1"]);
+    expect(encodeCollection(logical, edited).logicalHash).toBe(next.logicalHash);
+    for (const [h, bytes] of next.objects) objects.set(h, bytes);
+    const changed = await changedCollectionRows(logical, encoded.reference, next.reference, load);
+    expect(Object.keys(changed)).toEqual(["Game"]);
+    expect(changed.Game!.after.map((r) => r.fields.status)).toEqual(["Polished"]);
+    // No change writes no entry.
+    expect(encodeCollection(logical, edited, next.state).objects.size).toBe(0);
   });
 
   test("the fingerprint follows the model layer, not storage or presentation", () => {

@@ -46,7 +46,7 @@ import {
   type DeviceSessionChallenge,
   type PublishedDeviceKeys,
 } from "@ovst/protocol";
-import { CollectionSchemaCache, loadDirectoryCollection, replayCollectionRows } from "@ovst/collection-schema";
+import { CollectionSchemaCache, loadDirectoryCollection, replayCollectionRows, useSnapshotDatabase } from "@ovst/collection-schema";
 import {
   validateUpdateRequestIntent,
   decodeProtocolDirectory,
@@ -97,6 +97,10 @@ import { type HostAccount, type HostAuthentication, type HostTree } from "./mode
 import { normalizeBoundaryPath, pathWithin, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { assertHostData, openHostDatabase } from "./schema.ts";
 import { markPhase, phaseTimer } from "./updates/timing.ts";
+import { sqliteSnapshots } from "@ovst/beetle/sqlite";
+
+// Collection snapshots are SQLite files (collections §1).
+useSnapshotDatabase(sqliteSnapshots);
 
 export type { HostAccount, HostAuthentication, HostTree } from "./model.ts";
 export { AlreadyClaimedError, RefConflictError, ReservedBoundaryConflictError, UpdateProtocolError } from "./errors.ts";

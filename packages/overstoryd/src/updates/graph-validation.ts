@@ -1,6 +1,5 @@
 import {
   decodeProtocolDirectory,
-  decodeProtocolRows,
   hashObject,
   protocolDirectoryReferences,
   protocolObjectReferences,
@@ -75,12 +74,10 @@ export async function validateGraphChange(
           names.add(entry.name);
         }
         children = protocolDirectoryReferences(directory);
-        // The collection's tables and rows are validated with it, as a whole.
+        // The collection's log is checked with it, as a whole (collections §1).
         if (directory.collection) await validateCollection(directory, read);
-      } else if (kind === "table") {
+      } else if (kind === "log") {
         children = protocolObjectReferences(kind, bytes);
-      } else if (kind === "rows") {
-        decodeProtocolRows(bytes);
       }
       proof = { kind, children };
     }

@@ -447,16 +447,15 @@ describe("beetle over SQLite", () => {
       // Rows as the tree holds them, with every row's times.
       const settled = (data: RowsByTable) => rowsFromLogical(schema.result, schema.layout, logicalFromRows(schema.result, schema.layout, data, { now: 1 }));
       const encode = (data: RowsByTable) => encodeCollection(logicalSchema, logicalFromRows(schema.result, schema.layout, data, { now: 1 }));
-      const before = encode(rows()), after = encode(outcome.rows[SCHEMA]!);
+      const before = encode(rows());
+      const after = encodeCollection(logicalSchema, logicalFromRows(schema.result, schema.layout, outcome.rows[SCHEMA]!, { now: 1 }), before.state);
       const objects = new Map([...before.objects, ...after.objects]);
       const read: string[] = [];
       const load = async (hash: string) => { read.push(hash); return objects.get(hash as never)!; };
       const changes = await changedCollectionRows(logicalSchema, before.reference, after.reference, load);
       expect(Object.keys(changes).length).toBeGreaterThan(0);
-      // Unchanged tables aren't read.
-      const changedTables = new Set([...before.reference.tables, ...after.reference.tables].filter((t, i, all) => all.filter((u) => u.model === t.model).some((u) => u.table !== t.table)).map((t) => t.table));
-      const unchanged = before.reference.tables.map((t) => t.table).filter((h) => !changedTables.has(h));
-      expect(read.filter((h) => unchanged.includes(h as never))).toEqual([]);
+      // Only the new log entry is read.
+      expect(read).toEqual([after.reference.log]);
       const dir = mkdtempSync(join(tmpdir(), "beetle-copy-"));
       try {
         const layout = schema.layout;

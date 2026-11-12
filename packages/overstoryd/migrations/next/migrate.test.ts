@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ObjectStore } from "@ovst/object-store";
 import {
-  canonicalPageFile, decodeProtocolDirectory, decodeProtocolPage, decodeProtocolRows, decodeProtocolTable, encodeProtocolPage,
-  encodeProtocolTable, hashObject, parsePage, CBORTag, type ObjectHash,
+  canonicalPageFile, decodeProtocolDirectory, decodeProtocolLog, decodeProtocolPage, encodeProtocolPage,
+  hashObject, parsePage, CBORTag, type ObjectHash,
 } from "@ovst/protocol";
 import { encodeCanonicalCBOR } from "@ovst/protocol/cbor";
 import { decodeLogEntry } from "@ovst/merge-protocol";
@@ -59,7 +59,8 @@ async function legacyRoot(path: string): Promise<void> {
   const rows = put(encodeCanonicalCBOR({ type: "rows", rows: [
     { key: [["id", "e1"]], fields: { name: "Launch", on: "2026-11-11" }, created: "2026-11-01T10:00:00.000Z", modified: "2026-11-02T10:00:00.000Z" },
   ] }));
-  const table = put(encodeProtocolTable({ type: "table", rows: 1, chunks: [{ rows: 1, chunk: rows as `sha256:${string}` }] }));
+  // A legacy table object, as the tree held collections before the flag day.
+  const table = put(encodeCanonicalCBOR({ type: "table", rows: 1, chunks: [{ rows: 1, chunk: rows }] }));
   const events = directory([{ name: "schema.usl", file: schema }], {
     collection: { version: 1, modelFingerprint: fingerprint, tables: [{ model: "Event", table }] },
   });
@@ -148,8 +149,10 @@ test("each tree starts again at one update holding its head with entry times, pa
   const two = decodeProtocolDirectory(await store.read(roots.t_two!));
   expect(two.entries.find((e) => e.name === "_index.md")).toMatchObject({ created: 700, modified: 700 });
   const events = decodeProtocolDirectory(await store.read(two.entries.find((e) => e.name === "events")!.directory!));
-  const table = decodeProtocolTable(await store.read(events.collection!.tables[0]!.table));
-  const [row] = decodeProtocolRows(await store.read(table.chunks[0]!.chunk)).rows;
+  // The rows become the first entry of the collection's log.
+  const head = decodeProtocolLog(await store.read(events.collection!.log));
+  expect(head.previous).toBeNull();
+  const row = "changes" in head ? head.changes[0]!.row : null;
   expect(row).toMatchObject({ created: Date.parse("2026-11-01T10:00:00.000Z"), modified: Date.parse("2026-11-02T10:00:00.000Z") });
   expect(row!.fields.on).toBeInstanceOf(CBORTag);
   expect(events.collection!.modelFingerprint).toBe(fingerprint);

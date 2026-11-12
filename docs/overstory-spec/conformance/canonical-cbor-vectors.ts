@@ -4,7 +4,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createPrivateKey, createPublicKey, sign } from "node:crypto";
 import { accountChallengeBytes, decodeAuthoredCandidateIntent, directoryStamper, personProfileTreeID, treeConfigurationID, type AccountChallenge } from "@ovst/protocol";
-import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, encodeProtocolRows, encodeProtocolTable, hashObject, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
+import { canonicalCBORHash, encodeCanonicalCBOR, canonicalUpdateIntent, encodeProtocolDirectory, encodeProtocolLog, hashObject, updateRequestDigest, updateRequestDigests } from "@ovst/protocol";
 import { activationElement, decodeUpdateRequestJSON, decodeUpdateResponseJSON, encodeCandidateUpdateJSON, encodeUpdateRequestJSON, encodeUpdateResponseJSON, initialPersonConfig, snapshotTreeConfig } from "@ovst/protocol";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
@@ -45,8 +45,7 @@ await writeFile(endpointsPath,JSON.stringify(endpoints,null,2)+"\n");
 const objectPath = "docs/overstory-spec/conformance/protocol-objects.json";
 const objectVectors = JSON.parse(await readFile(objectPath, "utf8"));
 const encodeObject = (model: any): Uint8Array => model.type === "file" ? Buffer.from(model.bytesBase64, "base64")
-  : model.type === "table" ? encodeProtocolTable(model)
-  : model.type === "rows" ? encodeProtocolRows(model.rows)
+  : model.type === "log" ? encodeProtocolLog(model)
   : encodeProtocolDirectory(model);
 for (const vector of objectVectors.objects) {
   const bytes = encodeObject(vector.model);
@@ -55,7 +54,7 @@ for (const vector of objectVectors.objects) {
   vector.hash = hashObject(bytes);
 }
 const invalidHash = "sha256:" + "0".repeat(64);
-const reference = { version: 1, modelFingerprint: invalidHash, tables: [{ model: "Game", table: invalidHash }] };
+const reference = { version: 2, modelFingerprint: invalidHash, log: invalidHash };
 const CREATED = Date.parse("2026-10-24T09:00:00.000Z"), MODIFIED = Date.parse("2026-10-24T09:30:00.000Z");
 const schemaEntry = { name: "schema.beetle", file: invalidHash, created: CREATED, modified: MODIFIED };
 // File and page entries carry their times, so each case is invalid only for its own reason.
@@ -68,9 +67,9 @@ objectVectors.invalid = [
   { name: "file-and-directory", entries: [{ name: "a", file: invalidHash, directory: invalidHash }] },
   { name: "collection-without-schema", entries: [{ name: "schema.ts", file: invalidHash }], collection: reference },
   { name: "collection-schema-directory", entries: [{ name: "schema.beetle", directory: invalidHash }], collection: reference },
-  { name: "collection-unknown-version", entries: [schemaEntry], collection: { ...reference, version: 2 } },
+  { name: "collection-unknown-version", entries: [schemaEntry], collection: { ...reference, version: 1 } },
   { name: "collection-extra-member", entries: [schemaEntry], collection: { ...reference, store: "sqlite" } },
-  { name: "collection-tables-unsorted", entries: [schemaEntry], collection: { ...reference, tables: [{ model: "List", table: invalidHash }, { model: "Game", table: invalidHash }] } },
+  { name: "collection-log-not-a-hash", entries: [schemaEntry], collection: { ...reference, log: "Game" } },
 ].map(({ name, entries, collection }: { name: string; entries: unknown[]; collection?: unknown }) => ({
   name,
   canonicalCborBase64: b64(encodeCanonicalCBOR({ type: "directory", entries: entries.map(timed), ...(collection ? { collection } : {}) })),
