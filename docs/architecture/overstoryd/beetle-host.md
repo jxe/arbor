@@ -34,10 +34,14 @@ up by their columns. Each read also carries the view's read shape (`shape.ts`, f
 the source): the relationships the view follows from those rows, at any depth, through
 drawn views and rules. SQLite answers the rows and everything the shape follows in one
 statement, as nested JSON (`json_object`/`json_group_array` subqueries), and the store
-keeps each nested part as the answer to the match the evaluator will make for it. A view
-reads each table it ranges over once, with one shape for all the places it does: every
-Supplies view takes one statement, except Profile (three: the people rows name, Practice
-and List) and OnePractice (two). The evaluator still applies every condition itself, so a narrowing
+keeps each nested part as the answer to the match the evaluator will make for it. Before a
+view runs, the evaluator asks for every read it knows from the source and input alone
+(`Store.prefetch`): its table-typed inputs' rows, the people rows name when it ranges over
+people, each table it ranges over with no condition that narrows it (once, with one shape
+for every place it does), and its top-level `for`s narrowed by their inputs. SQLite answers
+them all in one statement (`select json_array(…)`, batched past 100 reads). Every Supplies
+view takes one statement; a read the source can't predict (a `for` narrowed by a value
+another read gives) is made when the evaluator gets to it. The evaluator still applies every condition itself, so a narrowing
 only has to keep every match; the in-memory store answers the same and is what the tests
 compare against.
 People are virtual `Person` rows: their name, handle and

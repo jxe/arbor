@@ -289,24 +289,29 @@ describe("beetle over SQLite", () => {
     });
   }
 
-  test("a view reads each table it ranges over once, with every relationship it follows from the rows nested in the same statement", () => {
-    const counts = cases.map(([path, me, name, input, data]) => {
+  test("a view reads in one statement: its inputs, its people, its tables and every relationship it follows from them", () => {
+    for (const [path, me, name, input, data] of cases) {
       const { sqlite, store } = both(path, me);
       if (data) sqlite.data(name, input); else sqlite.view(name, input);
-      return [`${path}${name ? `?view=${name}` : ""}`, store.statements.length];
-    });
-    // Profile: the people any row names, then Practice and List once each. OnePractice: the practice, then List for its count.
-    expect(counts).toEqual([
-      ["/supplies/List.beetle", 1], ["/supplies/List.beetle", 1], ["/supplies/List.beetle", 1], ["/supplies/Home.beetle", 1],
-      ["/supplies/Profile.beetle", 3], ["/supplies/Feeds.beetle?view=ListsByOwner", 1], ["/supplies/Feeds.beetle?view=OnePractice", 2],
-      ["/supplies/data/schema.beetle?view=ByOwner", 1],
-    ]);
+      expect([path, name, store.statements.length]).toEqual([path, name, 1]);
+    }
+  });
+
+  test("many reads at once go in batches a statement can hold, and each answers its later read", () => {
+    const { store } = both("/supplies/List.beetle", null);
+    const keys = Array.from({ length: 150 }, (_, i) => (i % 3 === 0 ? "L1" : `missing-${i}`));
+    store.prefetch(keys.map((key) => ({ kind: "find" as const, model: "Practice", key: key === "L1" ? "P1" : key })));
+    expect(store.statements).toHaveLength(2);
+    expect(store.find("Practice", "P1")?.data.name).toBe("Gratitude");
+    expect(store.find("Practice", "missing-1")).toBeNull();
+    expect(store.statements).toHaveLength(2);
   });
 
   test("a for over a table reads only the rows its conditions keep", () => {
     const { sqlite, store } = both("/supplies/List.beetle", BOB);
     sqlite.view("", { id: "L1" });
-    const lists = store.statements.filter((s) => s.sql.includes('from "List" as "r0"'));
+    const lists = store.statements.filter((s) => s.sql.includes('from "List"'));
+    expect(lists.every((s) => s.sql.includes('from "List" where "id" is ?'))).toBe(true);
     expect(lists.length).toBeGreaterThan(0);
     expect(lists.every((s) => s.sql.includes("where"))).toBe(true);
   });
@@ -314,7 +319,7 @@ describe("beetle over SQLite", () => {
   test("a for whose conditions and ordering are all on the row's columns reads only what its limit keeps", () => {
     const { sqlite, store } = both("/supplies/Feeds.beetle", null);
     sqlite.data("ListsByOwner", { owner: ALICE });
-    expect(store.statements[0]!.sql).toEndWith(' from "List" as "r0" where "owner" is ? order by ("modified" is null) desc, "modified" desc, "id" limit 20');
+    expect(store.statements[0]!.sql).toContain('from (select * from "List" where "owner" is ? order by ("modified" is null) desc, "modified" desc, "id" limit 20) as "r0"');
     expect(store.statements[0]!.parameters).toEqual([ALICE]);
   });
 

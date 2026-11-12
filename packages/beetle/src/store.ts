@@ -77,6 +77,12 @@ export function derivedID(seed: string): string {
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-5${value.slice(13, 16)}-${variant}${value.slice(17, 20)}-${value.slice(20, 32)}`;
 }
 
+/** A read known before a view runs (see {@link Store.prefetch}). */
+export type PrefetchRead =
+  | { kind: "query"; model: string; query: RowQuery; shape?: ReadShape }
+  | { kind: "find"; model: string; key: Cell; shape?: ReadShape }
+  | { kind: "people" };
+
 /** Where a field of a model's rows is: stored columns, or a relationship to other rows. */
 export type FieldPlace =
   | { kind: "column"; column: string }
@@ -209,6 +215,12 @@ export class Store {
   query(_model: string, _query: RowQuery, _shape?: ReadShape): readonly Row[] | null {
     return null;
   }
+
+  /**
+   * Reads a view is known to make, asked for before it runs, so a store can make them
+   * together. A store answers each later read the same with or without them.
+   */
+  prefetch(_reads: readonly PrefetchRead[]): void {}
 
   /** Every table's rows as plain data, the form `RowsByTable` takes. */
   data(): RowsByTable {

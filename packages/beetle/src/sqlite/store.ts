@@ -6,11 +6,13 @@
 
 import type { Database } from "bun:sqlite";
 import { PERSON_RELATION, type Column, type Table } from "@ovst/usl";
-import { canonical, compareRows, Row, Store, type Cell, type PersonFields, type RowQuery, type StoreSchema } from "../store.ts";
+import { canonical, compareRows, Row, Store, type Cell, type PersonFields, type PrefetchRead, type RowQuery, type StoreSchema } from "../store.ts";
 import type { ReadShape } from "../shape.ts";
 
 /** How many relationships deep one statement follows. */
 const MAX_NESTING = 4;
+/** Reads per statement when a view asks for many at once. */
+const BATCH = 100;
 /** The prefix of a nested read's key in a row's JSON; no column starts with it. */
 const NESTED = "→";
 
@@ -181,10 +183,8 @@ export class SQLiteStore extends Store {
     return rows;
   }
 
-  override query(model: string, query: RowQuery, shape?: ReadShape): readonly Row[] | null {
-    const name = this.schema.tableOf(model);
-    if (!name || name === PERSON_RELATION) return null;
-    const table = this.table(name);
+  /** A RowQuery as SQL over its table, and the key its answer is remembered by. */
+  private querySQL(table: Table, query: RowQuery): { where: string; parameters: unknown[]; tail: string; key: string } {
     const where = query.where.map((c) => `${quote(c.column)} ${c.op === "=" ? "is" : "is not"} ?`).join(" and ");
     const parameters = query.where.map((c) => stored(c.value));
     // The evaluator's order: nulls last ascending (first descending), ties in key order. A
@@ -196,22 +196,87 @@ export class SQLiteStore extends Store {
       terms.push(...table.primaryKey.map((k) => quote(k)));
       tail = ` order by ${terms.join(", ")} limit ${query.limit}`;
     }
-    // A whole table read with what follows from it is read once.
-    const all = !query.where.length && !tail && shape && !shape.empty ? `${table.name}\0*` : null;
-    const known = all ? this.found.get(all) : undefined;
+    return { where, parameters, tail, key: `${table.name}\0?\0${where}\0${canonical(parameters)}\0${tail}` };
+  }
+
+  override query(model: string, query: RowQuery, shape?: ReadShape): readonly Row[] | null {
+    const name = this.schema.tableOf(model);
+    if (!name || name === PERSON_RELATION) return null;
+    const table = this.table(name);
+    const { where, parameters, tail, key } = this.querySQL(table, query);
+    // A query is read once, with what follows from its rows; a later one with another shape reads the rest as asked.
+    const known = this.found.get(key);
     if (known) return known;
     const rows = this.select(table, where, parameters, tail, shape).sort(compareRows);
-    if (all) this.found.set(all, rows);
+    this.found.set(key, rows);
     return rows;
+  }
+
+  /** Every read asked for, in one statement: each one's rows as nested JSON under its own key. */
+  override prefetch(reads: readonly PrefetchRead[]): void {
+    const parts: string[] = [];
+    const parameters: unknown[] = [];
+    const after: Array<(value: unknown) => void> = [];
+    const rows = (table: Table, where: string, params: unknown[], tail: string, shape: ReadShape | undefined) => {
+      parameters.push(...params);
+      return `json((select json_group_array(${this.rowJSON(table, "r0", shape, 1)}) from (select * from ${quote(table.name)}${where ? ` where ${where}` : ""}${tail}) as "r0"))`;
+    };
+    const load = (table: Table, value: unknown) => (Array.isArray(value) ? value : []).map((v) => this.loadJSON(table, v as Record<string, unknown>)).sort(compareRows);
+    for (const read of reads) {
+      if (read.kind === "people") {
+        const union = this.peopleSQL();
+        if (!union || this.named) continue;
+        parts.push(`json((select json_group_array(id) from (${union})))`);
+        after.push((value) => { this.named = new Set((Array.isArray(value) ? value : []).filter((id): id is string => typeof id === "string")); });
+        continue;
+      }
+      const name = this.schema.tableOf(read.model);
+      if (!name || name === PERSON_RELATION || !this.schema.byName.has(name)) continue;
+      const table = this.table(name);
+      if (read.kind === "query") {
+        const q = this.querySQL(table, read.query);
+        if (this.found.has(q.key)) continue;
+        parts.push(rows(table, q.where, q.parameters, q.tail, read.shape));
+        after.push((value) => { if (!this.found.has(q.key)) this.found.set(q.key, load(table, value)); });
+      } else {
+        const columns = this.schema.keyOf(name);
+        const values = columns.length === 1 ? [read.key] : columns.map((c) => (read.key as Record<string, Cell> | null)?.[c]);
+        if (values.some((v) => v !== null && v !== undefined && typeof v === "object")) continue;
+        const key = this.matchKey(name, columns, values);
+        if (this.found.has(key)) continue;
+        parts.push(rows(table, columns.map((c) => `${quote(c)} is ?`).join(" and "), values.map(stored), "", read.shape));
+        after.push((value) => { if (!this.found.has(key)) this.found.set(key, load(table, value)); });
+      }
+    }
+    if (!parts.length) return;
+    // SQLite caps a function's arguments (127 by default): a very large view takes more than one statement.
+    const params = parameters.slice();
+    for (let start = 0; start < parts.length; start += BATCH) {
+      const batch = parts.slice(start, start + BATCH);
+      const count = batch.reduce((n, part) => n + (part.match(/\?/g)?.length ?? 0), 0);
+      const sql = `select json_array(${batch.join(", ")}) as reads`;
+      const bound = params.splice(0, count);
+      this.statements.push({ sql, parameters: bound });
+      const answer = this.database.query(sql).get(...(bound as never[])) as { reads: string };
+      (JSON.parse(answer.reads) as unknown[]).forEach((value, i) => after[start + i]!(value));
+    }
+  }
+
+  /** The people any row names, once read. */
+  private named: Set<string> | null = null;
+
+  private peopleSQL(): string | null {
+    const parts = this.schema.layout.flatMap((t) => t.columns.filter((c) => c.profile).map((c) => `select ${quote(c.name)} as id from ${quote(t.name)}`));
+    return parts.length ? parts.join(" union ") : null;
   }
 
   /** The profile ids any row names, in one statement over every profile column. */
   protected override peopleNamed(): Set<string> {
-    const parts = this.schema.layout.flatMap((t) => t.columns.filter((c) => c.profile).map((c) => `select ${quote(c.name)} as id from ${quote(t.name)}`));
-    if (!parts.length) return new Set();
-    const sql = `${parts.join(" union ")}`;
+    if (this.named) return this.named;
+    const sql = this.peopleSQL();
+    if (!sql) return (this.named = new Set());
     this.statements.push({ sql, parameters: [] });
-    return new Set((this.database.query(sql).all() as Array<{ id: unknown }>).flatMap((r) => (typeof r.id === "string" ? [r.id] : [])));
+    return (this.named = new Set((this.database.query(sql).all() as Array<{ id: unknown }>).flatMap((r) => (typeof r.id === "string" ? [r.id] : []))));
   }
 
   /** A copy in memory, for a mutation to write to: it reads every table. */

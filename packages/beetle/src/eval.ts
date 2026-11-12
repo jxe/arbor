@@ -10,9 +10,9 @@
 
 import type { Attribute, Binding, Child, DataRecord, Element, Expr, OrderTerm, Param, TextPart, ViewDecl } from "./ast.ts";
 import { ruleCondition } from "./plan.ts";
-import { bindingShape, comprehensionShape, viewShapes, type ReadShape, type ViewShapes } from "./shape.ts";
+import { bindingShape, comprehensionShape, ReadShape, viewShapes, type ViewShapes } from "./shape.ts";
 import { compileProgram, type Checker, type Program } from "./check.ts";
-import { canonical, compareRows, EnumValue, Row, Store, StoreSchema, type PersonFields, type RowQuery } from "./store.ts";
+import { canonical, compareRows, EnumValue, Row, Store, StoreSchema, type PersonFields, type PrefetchRead, type RowQuery } from "./store.ts";
 import type { RowsByTable } from "@ovst/usl";
 
 /** A mutation call or a `set` an attribute or event holds, which a client runs. */
@@ -529,14 +529,20 @@ export class Evaluator {
     const decl = this.declaredView(name);
     if (!decl) throw new BeetleError("missing", name ? `There is no view ${name}` : "The file has no unnamed view");
     if (decl.data) throw new BeetleError("invalid", `${name} is a data view`);
-    return this.withShapes(viewShapes(this.checker, decl), () => this.drawView(decl, this.bind(decl.params, input, new Map(), this.shapes!.params)));
+    return this.withShapes(viewShapes(this.checker, decl), () => {
+      this.readAhead(decl, input, this.shapes!);
+      return this.drawView(decl, this.bind(decl.params, input, new Map(), this.shapes!.params));
+    });
   }
 
   /** A data view of the file, by name, evaluated into its JSON. */
   data(name: string, input: unknown): unknown {
     const decl = this.declaredView(name);
     if (!decl?.data) throw new BeetleError("missing", `There is no data view ${name}`);
-    return this.withShapes(viewShapes(this.checker, decl), () => this.record(decl.data!, this.bind(decl.params, input, new Map(), this.shapes!.params), null));
+    return this.withShapes(viewShapes(this.checker, decl), () => {
+      this.readAhead(decl, input, this.shapes!);
+      return this.record(decl.data!, this.bind(decl.params, input, new Map(), this.shapes!.params), null);
+    });
   }
 
   /** What the view being evaluated reads, while it is. */
@@ -628,8 +634,21 @@ export class Evaluator {
    * so a store only has to return a superset of the matches.
    */
   private narrowed(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env, shape?: ReadShape): readonly Row[] | null {
+    const planned = this.rowQuery(bindings, where, order, limit, env);
+    if (!planned) return null;
+    // With nothing to narrow by, a store still reads the rows at once with what follows from them.
+    if (!planned.query.where.length && planned.query.limit === undefined && (!shape || shape.empty)) return null;
+    return planned.store.query(planned.model, planned.query, shape);
+  }
+
+  /**
+   * A `for`'s first binding as a RowQuery over its table: its conditions on the row's own
+   * columns, and its ordering and limit when everything can be stated. With `env` null,
+   * only whether any condition could narrow it, without evaluating anything.
+   */
+  private rowQuery(bindings: Binding[], where: Expr[], order: OrderTerm[], limit: Expr | undefined, env: Env | null): { store: Store; model: string; query: RowQuery; narrows: boolean } | null {
     const first = bindings[0];
-    if (!first || first.source.kind !== "name" || env.has(first.source.name)) return null;
+    if (!first || first.source.kind !== "name" || env?.has(first.source.name)) return null;
     const model = this.checker.models.get(first.source.name);
     if (!model || model.kind !== "data") return null;
     const store = this.storeOf(first.source.name);
@@ -655,17 +674,20 @@ export class Evaluator {
     };
     const query: RowQuery = { where: [], order: [] };
     let all = true;
+    let narrows = !!limit;
     for (const c of conjuncts) {
       if (c.kind === "binary" && (c.operator === "==" || c.operator === "!=")) {
         const [col, other] = column(c.left) ? [column(c.left), c.right] : [column(c.right), c.left];
         if (col && free(other)) {
+          narrows = true;
+          if (!env) continue;
           const v = cell(this.expr(other, env), col.reference);
           if (v.ok) { query.where.push({ column: col.column, op: c.operator === "==" ? "=" : "!=", value: v.value }); continue; }
         }
       }
       all = false;
     }
-    if (all && limit && bindings.length === 1) {
+    if (env && all && limit && bindings.length === 1) {
       const terms = order.map((t) => ({ col: column(t.value), desc: t.desc }));
       const n = this.expr(limit, env);
       if (terms.every((t) => t.col && !t.col.reference) && typeof n === "number") {
@@ -673,9 +695,144 @@ export class Evaluator {
         query.limit = Math.max(0, Math.floor(n));
       }
     }
-    // With nothing to narrow by, a store still reads the rows at once with what follows from them.
-    if (!query.where.length && query.limit === undefined && (!shape || shape.empty)) return null;
-    return store.query(first.source.name, query, shape);
+    return { store, model: first.source.name, query, narrows };
+  }
+
+  // ---------------------------------------------------------------- reading ahead
+
+  /**
+   * Before a view runs, the reads it will make that are known from its source and input
+   * alone, asked of each store at once: its table-typed inputs' rows, the people any row
+   * names when it ranges over people, every table it ranges over whole (no condition
+   * narrows it), and its top-level `for`s, narrowed by their inputs. A SQLite store reads
+   * them all in one statement. Anything else is read when the evaluator asks.
+   */
+  private readAhead(decl: ViewDecl, input: unknown, shapes: ViewShapes): void {
+    const reads = new Map<Store, PrefetchRead[]>();
+    const add = (store: Store | undefined, read: PrefetchRead) => {
+      if (!store) return;
+      let list = reads.get(store);
+      if (!list) reads.set(store, (list = []));
+      list.push(read);
+    };
+    const given = (input && typeof input === "object" && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
+    // Inputs: rows by key; other values as the view will see them, for its top-level conditions.
+    const env: Env = new Map();
+    const unknown = new Set<string>();
+    for (const p of decl.params) {
+      const type = p.type?.name ?? "Text";
+      const model = this.checker.models.get(type);
+      const raw = given[p.name] ?? null;
+      if (model && model.kind === "data") {
+        unknown.add(p.name);
+        for (const key of p.type?.arity === "many" && Array.isArray(raw) ? raw : [raw]) {
+          if (key === null || (typeof key === "object" && !isRecord(key as Value))) continue;
+          add(this.storeOf(type), { kind: "find", model: type, key: key as unknown, shape: shapes.params.get(p.name) });
+        }
+        continue;
+      }
+      try {
+        env.set(p.name, this.input(p, raw));
+      } catch {
+        unknown.add(p.name);
+      }
+    }
+    for (const line of decl.lines) if (line.kind === "state" || line.kind === "keep") unknown.add(line.name);
+    const wholes = new Set<string>();
+    const visited = new Set<unknown>();
+    const binding = (b: Binding, where: Expr[], order: OrderTerm[], limit: Expr | undefined, top: boolean, own: () => ReadShape) => {
+      if (b.source.kind !== "name") return;
+      const name = b.source.name;
+      if (name === "Person" && !unknown.has(name)) { add(this.storeOf("Person"), { kind: "people" }); return; }
+      const planned = this.rowQuery([b], where, order, limit, null);
+      if (!planned) return;
+      const shape = this.tableShape(b, own);
+      if (!planned.narrows) {
+        if (!wholes.has(name)) { wholes.add(name); add(planned.store, { kind: "query", model: name, query: { where: [], order: [] }, shape }); }
+        return;
+      }
+      if (!top) return;
+      const uses = new Set<string>();
+      for (const e of [...where, ...order.map((t) => t.value), ...(limit ? [limit] : [])]) exprNames(e, uses);
+      if ([...uses].some((n) => unknown.has(n))) return;
+      try {
+        const query = this.rowQuery([b], where, order, limit, env);
+        if (query) add(query.store, { kind: "query", model: name, query: query.query, shape });
+      } catch {
+        // Its conditions can't be worked out yet; it's read when the view gets there.
+      }
+    };
+    const expr = (e: Expr): void => {
+      switch (e.kind) {
+        case "comprehension": binding(e.binding, [], [], undefined, false, () => comprehensionShape(this.checker, e)); e.where.forEach(expr); break;
+        case "template": e.parts.forEach((p) => typeof p !== "string" && expr(p)); break;
+        case "list": e.items.forEach(expr); break;
+        case "record": e.entries.forEach((x) => expr(x.value)); break;
+        case "field": expr(e.object); break;
+        case "call": e.args.forEach((a) => expr(a.value)); break;
+        case "unary": expr(e.operand); break;
+        case "binary": expr(e.left); expr(e.right); break;
+        case "choice": expr(e.test); expr(e.then); expr(e.otherwise); break;
+        case "element": element(e.element, false); break;
+        default: break;
+      }
+    };
+    const attributes = (attrs: Attribute[]) => {
+      for (const a of attrs) {
+        const v = a.value;
+        if (v.kind === "expr") expr(v.expr);
+        else if (v.kind === "text") expr(v.text);
+        else if (v.kind === "where" || v.kind === "if") v.conditions.forEach(expr);
+        else if (v.kind === "orderBy") v.terms.forEach((t) => expr(t.value));
+        else if (v.kind === "for") v.bindings.forEach((b) => expr(b.source));
+      }
+    };
+    const element = (el: Element, top: boolean): void => {
+      const get = (name: string) => el.attributes.find((a) => a.name === name)?.value;
+      const forValue = get("for");
+      let inner = top;
+      if (forValue?.kind === "for") {
+        const where = get("where"), order = get("orderBy"), limit = get("limit");
+        binding(forValue.bindings[0]!, where?.kind === "where" ? where.conditions : [], order?.kind === "orderBy" ? order.terms : [],
+          limit?.kind === "expr" ? limit.expr : undefined, top, () => bindingShape(this.checker, el, forValue.bindings[0]!));
+        for (const b of forValue.bindings.slice(1)) binding(b, [], [], undefined, false, () => new ReadShape());
+        inner = false;
+      }
+      attributes(el.attributes);
+      for (const child of el.children ?? []) {
+        if (child.kind === "element") element(child.element, inner);
+        else if (child.kind === "text") child.parts.forEach((p) => typeof p !== "string" && expr(p));
+      }
+      // A view of this file drawn here: its own whole-table reads.
+      const drawn = this.checker.views.get(el.type);
+      if (drawn && drawn.from === this.checker.source.path && !visited.has(drawn.decl)) {
+        visited.add(drawn.decl);
+        if (drawn.decl.body) element(drawn.decl.body, false);
+      }
+    };
+    const record = (r: DataRecord, top: boolean): void => {
+      for (const entry of r.entries) {
+        if (entry.kind === "value") expr(entry.value);
+        else if (entry.kind === "field" && entry.record) record(entry.record, false);
+        else if (entry.kind === "record") {
+          const get = (name: string) => entry.attributes.find((a) => a.name === name)?.value;
+          const forValue = get("for");
+          let inner = top;
+          if (forValue?.kind === "for") {
+            const where = get("where"), order = get("orderBy"), limit = get("limit");
+            binding(forValue.bindings[0]!, where?.kind === "where" ? where.conditions : [], order?.kind === "orderBy" ? order.terms : [],
+              limit?.kind === "expr" ? limit.expr : undefined, top, () => bindingShape(this.checker, entry, forValue.bindings[0]!));
+            inner = false;
+          }
+          attributes(entry.attributes);
+          record(entry.record, inner);
+        }
+      }
+    };
+    for (const line of decl.lines) if (line.kind === "state" || line.kind === "keep") expr(line.value);
+    if (decl.body) element(decl.body, true);
+    if (decl.data) record(decl.data, true);
+    for (const [store, list] of reads) store.prefetch(list);
   }
 
   private element(el: Element, env: Env, out: Array<ViewNode | string>): void {
