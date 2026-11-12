@@ -189,10 +189,11 @@ authority together is what exercises the permissions and lending models.
 Part of the lending test: an app approved at a profile's home host should work on its
 placement hosts too. After Apps 005.
 
-**[Performance 007: keep collections in SQLite on the host](later/performance-007-sqlite-collection-storage.md).**
-Joe, 2026-10-28: overstoryd should work with a collection's SQLite file instead of keeping
-the equivalent table objects, producing canonical objects on demand. The history model
-for SQLite collections (less, none, or kept another way) comes first. After Apps 005.
+**[Performance 007: the host's database holds a collection's rows, the tree its log](later/performance-007-sqlite-collection-storage.md).**
+Joe, 2026-11-12: rows live once, in the host's SQLite; the tree's `collection` reference
+names a hash-chained log of accepted row operations, which replicas pull. Mutations run as
+one SQL transaction that commits only when its update is accepted. For Joe's review; after
+Apps 015 and the Protocol 003 flag day.
 
 **[Apps 002: hosted agents](later/apps-002-overstoryd-hosted-agents.md).** After Apps 011:
 authored agents hosted beside an app, calling its own query and mutation handles. No timing
