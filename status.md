@@ -12,6 +12,18 @@ States used below: **implemented** (built and tested), **installed** (running
 in Joe's Mac and iPhone builds), **deployed** (running on the public host),
 **verified** (exercised by hand against live data).
 
+## Performance 007 spec: collections as a log of row changes — 2026-11-12
+
+**Spec only** (branch `claude/project-thread-kn7ley`, c85fd736; nothing built yet). Joe's
+decisions of 2026-11-12 written into the spec: the `collection` reference (version 2) names
+the head of a log of `log` objects, changes entries holding each changed row's new form and
+snapshot entries naming a SQLite file the host writes; each entry carries the row count and
+an LtHash16 rows hash, and the logical hash is the fingerprint plus rows hash (collections
+§1, data model §5). Walks and bundles stop at the newest snapshot; watch frames carry new
+entries; path reads of a collection bring its log (reading and watching); placements rebuild
+from snapshots and find other programs' edits against a base they keep (placements on disk
+§5). Conformance vectors still use table and rows objects until the host is built.
+
 ## Entry times with the content — 2026-11-10
 
 **Deployed** (main 791ca391, Swift 31e643fb). Tree operations §1.1.2a: an entry's time is

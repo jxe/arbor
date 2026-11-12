@@ -10,7 +10,7 @@ the Protocol 003 flag day.
 
 ## Status
 
-**DECIDED · not started.** Read [the Beetle host](../../docs/architecture/overstoryd/beetle-host.md)
+**DECIDED · spec written, building.** Read [the Beetle host](../../docs/architecture/overstoryd/beetle-host.md)
 first.
 
 Today the host keeps a SQLite copy of each collection a Beetle program binds, beside the
@@ -131,13 +131,13 @@ After the switch a collection is never held as table and rows chunks on the host
 
 ## Steps
 
-1. Spec: collections (1.4) describe the reference, entries, rows hash and snapshots;
-   reading and watching (1.2) the path read and watch frames for collections; placements
-   on disk (2.2 §4-5) replicas and the base; Beetle (1.5 §4) mutations as one transaction.
-2. Host: the rows hash, the log store and the database as the working form; accepting an
+The spec is written ([status](../../status.md#performance-007-spec-collections-as-a-log-of-row-changes--2026-11-12));
+conformance vectors follow the host.
+
+1. Host: the rows hash, the log store and the database as the working form; accepting an
    update of row operations appends and applies in one step; snapshots; the current copies
    and chunk catch-up are deleted.
-3. Mutations as SQL transactions, checked against the in-memory evaluator on every Supplies
+2. Mutations as SQL transactions, checked against the in-memory evaluator on every Supplies
    mutation.
-4. Story Sync: projections as replicas with a base; Replica mode pulls entries.
-5. Switch: each existing collection becomes a snapshot plus an empty log.
+3. Story Sync: projections as replicas with a base; Replica mode pulls entries.
+4. Switch: each existing collection becomes a snapshot plus an empty log.
